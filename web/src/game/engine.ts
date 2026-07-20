@@ -1,12 +1,14 @@
 import { type Chart, type Note, isHold, noteEnd } from '@tap-tap/shared';
 import {
-  MISS_WINDOW,
+  HIT_WINDOWS,
+  type HitWindows,
   TIERS,
   type Tier,
   type Timing,
   accuracyOf,
   baseScore,
   comboMultiplier,
+  hitWindowsFor,
   holdBonus,
   releaseWindowFor,
   tierFor,
@@ -74,6 +76,12 @@ export interface EngineOptions {
    * player whose taps consistently register late (Bluetooth latency, slow display).
    */
   calibrationSec?: number;
+  /**
+   * The difficulty's note spacing, so judging windows can be capped to it
+   * (`hitWindowsFor`). Omitting it uses the base windows — correct for any chart
+   * spaced at 0.19s or wider, which is every difficulty except Extreme.
+   */
+  minGapSec?: number;
 }
 
 export interface GameSnapshot {
@@ -102,6 +110,10 @@ export class GameEngine {
   /** Per-lane note ids, plus a cursor to the earliest unjudged note. */
   private readonly lanes: { ids: number[]; cursor: number }[];
   private readonly calibrationSec: number;
+  /** Judging windows for this chart, capped to its spacing. */
+  private readonly windows: HitWindows;
+  /** Outer edge of `windows` — the miss threshold and retirement horizon. */
+  private readonly missWindow: number;
   /** Note id currently held in each lane, or -1. At most one per lane. */
   private readonly heldByLane: number[];
   /**
@@ -124,6 +136,8 @@ export class GameEngine {
   constructor(chart: Chart, options: EngineOptions = {}) {
     this.laneCount = chart.laneCount;
     this.calibrationSec = options.calibrationSec ?? 0;
+    this.windows = options.minGapSec !== undefined ? hitWindowsFor(options.minGapSec) : { ...HIT_WINDOWS };
+    this.missWindow = this.windows.good;
     this.notes = chart.notes.map((note, id) => ({
       note,
       id,
@@ -192,7 +206,7 @@ export class GameEngine {
           lane.cursor++;
           continue;
         }
-        if (state.note.t + MISS_WINDOW >= now) break;
+        if (state.note.t + this.missWindow >= now) break;
 
         this.retire(state, 'miss', null, 0);
         missed.push(state);
@@ -219,8 +233,8 @@ export class GameEngine {
       if (state.tier !== null) continue;
 
       const delta = now - state.note.t;
-      if (delta > MISS_WINDOW) continue;
-      if (delta < -MISS_WINDOW) break; // sorted: everything later is further away
+      if (delta > this.missWindow) continue;
+      if (delta < -this.missWindow) break; // sorted: everything later is further away
 
       if (best === null || Math.abs(delta) < Math.abs(bestDelta)) {
         best = state;
@@ -230,7 +244,7 @@ export class GameEngine {
 
     if (!best) return null;
 
-    const tier = tierFor(bestDelta);
+    const tier = tierFor(bestDelta, this.windows);
     if (tier === 'miss') return null;
 
     const timing = timingOf(bestDelta);

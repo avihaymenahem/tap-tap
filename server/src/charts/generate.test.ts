@@ -1,5 +1,5 @@
 import type { AnalysisResult, Onset } from '@tap-tap/shared';
-import { DIFFICULTIES } from '@tap-tap/shared';
+import { DIFFICULTIES, DIFFICULTY_NAMES } from '@tap-tap/shared';
 import { describe, expect, it } from 'vitest';
 import { buildGrid, generateAllCharts, generateChart, snapNear, snapToGrid } from './generate.js';
 
@@ -96,8 +96,10 @@ describe('timing fidelity against a drifting grid', () => {
         (best, o) => (Math.abs(o.t - note.t) < Math.abs(best - note.t) ? o.t : best),
         Infinity,
       );
-      // Never moved further than the snap ceiling from a real onset.
-      expect(Math.abs(nearestOnset - note.t)).toBeLessThanOrEqual(0.031);
+      // Below MIN_GRID_CONFIDENCE the grid gets no say at all: every note sits
+      // exactly on the onset that produced it (up to storage rounding), because
+      // "the grid already agrees" is meaningless when the grid is wrong.
+      expect(Math.abs(nearestOnset - note.t)).toBeLessThan(0.001);
     }
 
     // And specifically: late notes track the onsets rather than the drifting
@@ -116,6 +118,113 @@ describe('timing fidelity against a drifting grid', () => {
     const meanToGrid = late.reduce((sum, n) => sum + nearest(n.t, beatGrid), 0) / late.length;
 
     expect(meanToOnset).toBeLessThan(meanToGrid);
+  });
+});
+
+describe('musicality: the grid shapes selection when it is trusted', () => {
+  it('prefers the onset on the beat when a rival off-beat onset crowds it', () => {
+    // Every beat has a companion scuffle 220ms later that is slightly STRONGER.
+    // Only one of each pair fits inside minGapSec — and the one the player gets
+    // should be the beat they are nodding to, not the scuffle. Raw strength
+    // ranking picks the scuffle every time, which is precisely the
+    // "computer-generated" feel: locally defensible, musically wrong.
+    const duration = 40;
+    const beatGrid: number[] = [];
+    for (let t = 0; t < duration; t += 0.5) beatGrid.push(t);
+
+    const onsets: Onset[] = [];
+    for (let t = 0; t < duration - 0.5; t += 0.5) {
+      onsets.push({ t, strength: 0.6, low: 0.6, mid: 0.2, high: 0.2 });
+      onsets.push({ t: t + 0.22, strength: 0.68, low: 0.6, mid: 0.2, high: 0.2 });
+    }
+
+    const analysis: AnalysisResult = { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets };
+    // Generous target so the note budget does not bind: the on-beat/off-beat
+    // choice must come from spacing + the on-grid preference, nothing else.
+    const chart = generateChart(analysis, { ...DIFFICULTIES.easy, targetNps: 4 }, 1);
+
+    expect(chart.notes.length).toBeGreaterThan(30);
+    for (const note of chart.notes) {
+      expect(Math.abs(note.t - Math.round(note.t * 2) / 2)).toBeLessThan(0.001);
+    }
+  });
+
+  it('sweeps lanes along the melodic contour instead of shuffling them', () => {
+    // Mid-band onsets whose brightness climbs across the song. A human charter
+    // maps a rising line onto a left-to-right walk; random assignment turns the
+    // same music into noise. Asserted on the population: the last third of the
+    // chart must sit meaningfully to the right of the first third.
+    const duration = 30;
+    const beatGrid: number[] = [];
+    for (let t = 0; t < duration; t += 0.5) beatGrid.push(t);
+
+    const onsets: Onset[] = [];
+    for (let t = 0; t < duration; t += 0.25) {
+      const progress = t / duration;
+      onsets.push({
+        t,
+        strength: 0.9,
+        low: 0.15,
+        mid: 0.5,
+        high: 0.05 + 0.3 * progress,
+      });
+    }
+
+    const analysis: AnalysisResult = { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets };
+    // Chords off so every note comes from the mid range and the sweep is clean.
+    const chart = generateChart(analysis, { ...DIFFICULTIES.hard, chords: false }, 1);
+    expect(chart.notes.length).toBeGreaterThan(60);
+
+    // All mid-band notes stay in the mid lanes of a 5-lane chart.
+    for (const note of chart.notes) {
+      expect(note.lane).toBeGreaterThanOrEqual(1);
+      expect(note.lane).toBeLessThanOrEqual(3);
+    }
+
+    const third = Math.floor(chart.notes.length / 3);
+    const mean = (notes: typeof chart.notes) =>
+      notes.reduce((sum, n) => sum + n.lane, 0) / notes.length;
+    const firstThird = mean(chart.notes.slice(0, third));
+    const lastThird = mean(chart.notes.slice(-third));
+    expect(lastThird - firstThird).toBeGreaterThan(0.8);
+  });
+
+  it('never places a chord off the beat when the grid is trusted', () => {
+    // Strong off-grid onsets with chord-worthy secondary energy: eligible by
+    // strength, vetoed by position. An off-beat two-hand hit reads as a
+    // generator mistake, not an accent.
+    const duration = 60;
+    const beatGrid: number[] = [];
+    for (let t = 0; t < duration; t += 0.5) beatGrid.push(t);
+
+    const onsets: Onset[] = [];
+    // +0.19 sits between hard's subdivision slots (every 0.125s) and outside
+    // the 30ms snap tolerance, so these stay genuinely off-grid.
+    for (let t = 0; t < duration - 1; t += 0.5) {
+      onsets.push({ t, strength: 0.9, low: 0.55, mid: 0.15, high: 0.3 });
+      onsets.push({ t: t + 0.19, strength: 0.9, low: 0.55, mid: 0.15, high: 0.3 });
+    }
+
+    const analysis: AnalysisResult = { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets };
+    const chart = generateChart(
+      { ...analysis },
+      { ...DIFFICULTIES.hard, targetNps: 6, minGapSec: 0.1, chordChance: 1 },
+      1,
+    );
+
+    const byTime = new Map<number, number>();
+    for (const note of chart.notes) byTime.set(note.t, (byTime.get(note.t) ?? 0) + 1);
+
+    let chords = 0;
+    for (const [t, count] of byTime) {
+      if (count < 2) continue;
+      chords++;
+      // Chorded timestamps only ever land on the subdivision grid.
+      const offGrid = Math.abs(t - Math.round(t * 8) / 8) > 0.001;
+      expect(offGrid).toBe(false);
+    }
+    // The gate must not have starved the feature entirely.
+    expect(chords).toBeGreaterThan(5);
   });
 });
 
@@ -261,10 +370,47 @@ describe('generateChart', () => {
 });
 
 describe('generateAllCharts', () => {
-  it('produces all three difficulties with increasing density', () => {
+  it('produces every difficulty with non-decreasing density along the ladder', () => {
     const charts = generateAllCharts(makeAnalysis(), 'test-song');
-    expect(Object.keys(charts).sort()).toEqual(['easy', 'hard', 'medium']);
-    expect(charts.easy.notes.length).toBeLessThan(charts.medium.notes.length);
-    expect(charts.medium.notes.length).toBeLessThan(charts.hard.notes.length);
+    expect(new Set(Object.keys(charts))).toEqual(new Set(DIFFICULTY_NAMES));
+
+    // Each rung must be at least as dense as the one below, and the ladder as a
+    // whole must climb — extreme shares hard's spacing floor, so on a synthetic
+    // pool that saturates the gap it can tie rather than strictly exceed, but
+    // the ends must still separate.
+    const counts = DIFFICULTY_NAMES.map((name) => charts[name].notes.length);
+    for (let i = 1; i < counts.length; i++) {
+      expect(counts[i]!).toBeGreaterThanOrEqual(counts[i - 1]!);
+    }
+    expect(counts[counts.length - 1]!).toBeGreaterThan(counts[0]!);
+  });
+
+  it('makes extreme faster, denser and tighter than hard', () => {
+    // Extreme escalates on every axis: a shorter approach, more chords, a higher
+    // target, and — since judging windows are now per-difficulty — a tighter gap
+    // so genuinely more pills come through. The engine caps its window to that
+    // gap (engine.test.ts), which is what keeps the tighter spacing playable.
+    expect(DIFFICULTIES.extreme.approachSec).toBeLessThan(DIFFICULTIES.hard.approachSec);
+    expect(DIFFICULTIES.extreme.chordChance).toBeGreaterThan(DIFFICULTIES.hard.chordChance);
+    expect(DIFFICULTIES.extreme.targetNps).toBeGreaterThan(DIFFICULTIES.hard.targetNps);
+    expect(DIFFICULTIES.extreme.minGapSec).toBeLessThan(DIFFICULTIES.hard.minGapSec);
+  });
+
+  it('actually packs more notes into a dense passage on extreme than hard', () => {
+    // The point of the tighter gap: a busy stretch of music yields more pills.
+    // A dense onset pool (~11/sec) so the gap, not the pool, is the ceiling.
+    const duration = 40;
+    const beatGrid: number[] = [];
+    for (let t = 0; t < duration; t += 0.5) beatGrid.push(Number(t.toFixed(4)));
+    const onsets: Onset[] = [];
+    for (let t = 0; t < duration; t += 0.09) {
+      onsets.push({ t: Number(t.toFixed(4)), strength: 0.9, low: 0.6, mid: 0.2, high: 0.2 });
+    }
+    const analysis: AnalysisResult = { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets };
+
+    const hard = generateChart(analysis, DIFFICULTIES.hard, 5);
+    const extreme = generateChart(analysis, DIFFICULTIES.extreme, 5);
+    const uniques = (c: typeof hard) => new Set(c.notes.map((n) => n.t)).size;
+    expect(uniques(extreme)).toBeGreaterThan(uniques(hard));
   });
 });

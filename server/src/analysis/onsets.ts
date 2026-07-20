@@ -204,8 +204,10 @@ export function detectOnsets(
  *
  * Scale-free by construction: any monotonic change to a band — a brighter
  * master, a different bin count, a gain change — leaves the ranks untouched.
+ * Exported because lane assignment ranks spectral centroids with exactly the
+ * same reasoning (charts/generate.ts).
  */
-function percentileRanks(values: number[]): number[] {
+export function percentileRanks(values: readonly number[]): number[] {
   const n = values.length;
   if (n === 0) return [];
   if (n === 1) return [0.5];

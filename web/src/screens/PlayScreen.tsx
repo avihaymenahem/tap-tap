@@ -221,6 +221,7 @@ export function PlayScreen({
         introOffsetRef.current = offset;
         engineRef.current = new GameEngine(played, {
           calibrationSec: effectiveCalibration(clock),
+          minGapSec: params.minGapSec,
         });
         highwayRef.current = new Highway({
           canvas,
@@ -531,6 +532,7 @@ export function PlayScreen({
       // note's judged state all come back with it.
       engineRef.current = new GameEngine(chartRef.current!, {
         calibrationSec: effectiveCalibration(clock),
+        minGapSec: params.minGapSec,
       });
       outroStarted = false;
       void clock.start(introOffset, LEAD_IN_SEC);

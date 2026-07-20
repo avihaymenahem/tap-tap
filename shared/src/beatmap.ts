@@ -7,9 +7,9 @@
 
 export const BEATMAP_VERSION = 1;
 
-export type DifficultyName = 'easy' | 'medium' | 'hard';
+export type DifficultyName = 'easy' | 'medium' | 'hard' | 'extreme';
 
-export const DIFFICULTY_NAMES: readonly DifficultyName[] = ['easy', 'medium', 'hard'];
+export const DIFFICULTY_NAMES: readonly DifficultyName[] = ['easy', 'medium', 'hard', 'extreme'];
 
 export type NoteType = 'tap' | 'hold';
 
@@ -125,6 +125,12 @@ export interface Onset {
 }
 
 export interface AnalysisResult {
+  /**
+   * Version of the analysis code that produced this. Optional because cached
+   * `analysis.json` files from before the stamp existed have none — absence
+   * means "old", and `regenerateCharts` treats it as stale.
+   */
+  analysisVersion?: number;
   duration: number;
   bpm: number;
   bpmConfidence: number;

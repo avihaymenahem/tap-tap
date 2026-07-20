@@ -111,6 +111,41 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     maxHoldSec: 3,
     maxConcurrentHolds: 2,
   },
+  /**
+   * Extreme is hard turned up on every axis, spacing included.
+   *
+   * `minGapSec` is 0.14 — tighter than hard's 0.19, which lifts the sustained-
+   * stream ceiling from ~5.2 to ~7.1 notes/sec, so genuinely more pills come
+   * through in a dense passage. This is only safe because judging windows are
+   * now **per difficulty** (`hitWindowsFor` in `judge.ts`): the `good`/miss
+   * window is capped to the chart's own gap, so `hitLane` still cannot retire a
+   * neighbouring same-lane note. The cost is that Extreme is judged on a
+   * proportionally tighter window (~0.14s good vs 0.19s) — which is exactly
+   * what an extreme tier should feel like: less room to be sloppy.
+   *
+   * The other levers stack on top of the tighter gap:
+   *
+   *   - `approachSec` 0.95 vs hard's 1.3 — notes cover the highway ~27% faster,
+   *     so there is far less time to read each one.
+   *   - `targetNps` 5.4 vs 3.6 — the average sits near the new ceiling, so the
+   *     dense passages actually fill in rather than breathe.
+   *   - `chordChance` 0.32 vs 0.15 — roughly double the two-hand hits.
+   */
+  extreme: {
+    name: 'extreme',
+    laneCount: 5,
+    subdivision: 4,
+    minGapSec: 0.14,
+    chords: true,
+    chordChance: 0.32,
+    targetNps: 5.4,
+    approachSec: 0.95,
+    // Holds off; 0.2 when enabled. Same shape as hard, a touch shorter.
+    holdShare: 0,
+    minHoldSec: 0.35,
+    maxHoldSec: 2.5,
+    maxConcurrentHolds: 2,
+  },
 };
 
 /**

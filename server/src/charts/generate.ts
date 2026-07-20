@@ -7,10 +7,11 @@ import type {
   Onset,
   Waveform,
 } from '@tap-tap/shared';
-import { DIFFICULTIES } from '@tap-tap/shared';
+import { DIFFICULTIES, DIFFICULTY_NAMES } from '@tap-tap/shared';
+import { percentileRanks } from '../analysis/onsets.js';
 import { type Sustain, detectSustains } from '../analysis/sustain.js';
 import { hashString, mulberry32 } from '../util/rng.js';
-import { dominantBand, laneRangesFor, pickLane } from './lanes.js';
+import { type Band, dominantBand, laneRangesFor, pickLane, pickLaneContour } from './lanes.js';
 
 /**
  * Turn a shared onset pool into a playable chart.
@@ -37,7 +38,12 @@ export function generateChart(
       })
     : [];
   const grid = buildGrid(analysis.beatGrid, params.subdivision);
-  const tolerance = gridTolerance(grid);
+  // A low-confidence grid gets no say at all. Confidence now measures whether
+  // the grid actually sits on the onsets (see analysis/tempo.ts), so below the
+  // threshold "the grid already agrees" is coincidence, and nudging even 30ms
+  // toward a wrong grid only adds noise to ground truth.
+  const gridTrusted = analysis.bpmConfidence >= MIN_GRID_CONFIDENCE;
+  const tolerance = gridTrusted ? gridTolerance(grid) : 0;
 
   // 1. Nudge onsets onto the subdivision grid, but ONLY where the grid already
   //    agrees with them.
@@ -49,35 +55,50 @@ export function generateChart(
   //    timed notes onto a wrong grid, and the damage compounds the further into
   //    the song you get, which reads to a player as notes that have nothing to
   //    do with the music.
-  const byTime = new Map<string, Onset>();
+  const byTime = new Map<string, PoolOnset>();
   for (const onset of analysis.onsets) {
-    const t = snapNear(grid, onset.t, tolerance);
+    const nearest = grid.length > 0 ? snapToGrid(grid, onset.t) : onset.t;
+    const onGrid = tolerance > 0 && Math.abs(nearest - onset.t) <= tolerance;
+    const t = onGrid ? nearest : onset.t;
     const key = t.toFixed(3);
     const existing = byTime.get(key);
     if (!existing || onset.strength > existing.strength) {
-      byTime.set(key, { ...onset, t });
+      byTime.set(key, { ...onset, t, onGrid });
     }
   }
 
   // 2. Choose which onsets become notes, section by section.
   const accepted = selectNotes([...byTime.values()], analysis.duration, params);
 
-  // 3. Assign lanes by frequency band.
+  // 3. Assign lanes by frequency band, following the music's contour within
+  //    each band. The centroid is ranked within the band's own accepted onsets
+  //    — the same scale-free reasoning as band classification itself (§2.1):
+  //    absolute brightness describes the mix, relative brightness describes
+  //    the phrase.
   const ranges = laneRangesFor(params.laneCount);
+  const bands = accepted.map((onset) => dominantBand(onset));
+  const contours = contoursByBand(accepted, bands);
+
   const notes: Note[] = [];
   let previousLane: number | null = null;
+  const motion = { direction: 1 as 1 | -1 };
 
-  for (const onset of accepted) {
-    const band = dominantBand(onset);
-    const lane = pickLane(ranges[band], previousLane, rand);
+  for (let i = 0; i < accepted.length; i++) {
+    const onset = accepted[i]!;
+    const band = bands[i]!;
+    const lane = pickLaneContour(ranges[band], previousLane, contours[i]!, motion);
     notes.push({ t: round(onset.t), lane, type: 'tap' });
     previousLane = lane;
 
     if (!params.chords) continue;
     // Chords go to strong onsets with real energy outside their dominant band,
-    // so they land on hits that genuinely sound "bigger".
+    // so they land on hits that genuinely sound "bigger" — and, when the grid
+    // is trusted, only on the grid. An off-beat two-hand hit is something a
+    // human charter essentially never writes; on the beat it reads as an
+    // accent, off it it reads as a mistake.
     const secondary = secondaryBand(onset, band);
-    if (secondary && onset.strength > 0.55 && rand() < params.chordChance) {
+    const onAccent = !gridTrusted || onset.onGrid;
+    if (secondary && onAccent && onset.strength > 0.55 && rand() < params.chordChance) {
       const chordLane = pickLane(ranges[secondary], lane, rand);
       if (chordLane !== lane) {
         notes.push({ t: round(onset.t), lane: chordLane, type: 'tap' });
@@ -200,11 +221,38 @@ export function generateAllCharts(
   waveform?: Waveform | null,
 ): Record<DifficultyName, Chart> {
   const seed = hashString(songId);
-  return {
-    easy: generateChart(analysis, DIFFICULTIES.easy, seed, waveform),
-    medium: generateChart(analysis, DIFFICULTIES.medium, seed + 1, waveform),
-    hard: generateChart(analysis, DIFFICULTIES.hard, seed + 2, waveform),
-  };
+  // Driven off DIFFICULTY_NAMES so a new difficulty is generated the moment it
+  // is added to the shared list — no second place to update. Each gets a seed
+  // offset by its index, so difficulties stay independent of one another and
+  // every chart is still deterministic for a given song.
+  const charts = {} as Record<DifficultyName, Chart>;
+  DIFFICULTY_NAMES.forEach((name, i) => {
+    charts[name] = generateChart(analysis, DIFFICULTIES[name], seed + i, waveform);
+  });
+  return charts;
+}
+
+/**
+ * Below this `bpmConfidence` the beat grid is ignored entirely: no snapping,
+ * no on-grid selection preference, no chord gating. Matches the documented
+ * meaning of the score ("below ~0.5 the grid is probably wrong") — and since
+ * confidence is now discounted by measured grid/onset agreement, a drifting
+ * grid lands under this line instead of quietly steering the chart.
+ */
+const MIN_GRID_CONFIDENCE = 0.5;
+
+/**
+ * Selection multiplier for onsets sitting on a trusted grid. Strength still
+ * dominates — this only breaks ties in a crowded neighbourhood — but when a
+ * beat and a nearby off-beat scuffle both cannot fit inside `minGapSec`, the
+ * note the player gets should be the one on the pulse they are nodding to.
+ * That choice is most of what "feels handcrafted" means at selection time.
+ */
+const ON_GRID_BONUS = 1.2;
+
+/** An onset routed through snapping, remembering whether it landed on the grid. */
+interface PoolOnset extends Onset {
+  onGrid: boolean;
 }
 
 /** Length of each budgeting section, in seconds. */
@@ -232,11 +280,11 @@ const MIN_DENSITY_FRACTION = 0.25;
  * sections still get more notes — which is what makes a chart track the music —
  * but no section gets none.
  */
-function selectNotes(pool: Onset[], duration: number, params: DifficultyParams): Onset[] {
+function selectNotes(pool: PoolOnset[], duration: number, params: DifficultyParams): PoolOnset[] {
   const budget = Math.max(1, Math.floor(params.targetNps * duration));
   const windowCount = Math.max(1, Math.ceil(duration / SELECTION_WINDOW_SEC));
 
-  const buckets: Onset[][] = Array.from({ length: windowCount }, () => []);
+  const buckets: PoolOnset[][] = Array.from({ length: windowCount }, () => []);
   const weights = new Float64Array(windowCount);
 
   for (const onset of pool) {
@@ -263,7 +311,7 @@ function selectNotes(pool: Onset[], duration: number, params: DifficultyParams):
   const discretionary = Math.max(0, budget - floorTotal);
 
   const acceptedTimes: number[] = [];
-  const accepted: Onset[] = [];
+  const accepted: PoolOnset[] = [];
 
   for (let w = 0; w < windowCount; w++) {
     const bucket = buckets[w]!;
@@ -273,8 +321,12 @@ function selectNotes(pool: Onset[], duration: number, params: DifficultyParams):
     const quota = Math.min(bucket.length, floors[w]! + Math.round(discretionary * share));
 
     // Strongest first within the section, so the notes that survive are the
-    // ones a listener would pick out as beats.
-    bucket.sort((a, b) => b.strength - a.strength);
+    // ones a listener would pick out as beats — with a thumb on the scale for
+    // onsets on a trusted grid, so when a beat and an off-beat neighbour fight
+    // over the same `minGapSec`, the beat wins. (`onGrid` is only ever set when
+    // the grid cleared MIN_GRID_CONFIDENCE, so no gate is needed here.)
+    const score = (o: PoolOnset): number => o.strength * (o.onGrid ? ON_GRID_BONUS : 1);
+    bucket.sort((a, b) => score(b) - score(a));
 
     let taken = 0;
     for (const onset of bucket) {
@@ -293,6 +345,32 @@ function selectNotes(pool: Onset[], duration: number, params: DifficultyParams):
 }
 
 // --- helpers ---------------------------------------------------------------
+
+/**
+ * Per-note melodic contour, 0..1, ranked within each band separately.
+ *
+ * The scalar is a spectral centroid of the onset's band shares — where its
+ * energy sits on the low→high axis. Ranking it only against other notes in the
+ * *same* band matters: a kick is always darker than a hat, so ranked globally
+ * every low-band note would pin to 0 and every high-band note to 1, and the
+ * lanes inside the mid range would never move. Within a band the rank traces
+ * the phrase — verse riff darker, chorus stab brighter — which is the movement
+ * `pickLaneContour` turns into lane sweeps.
+ */
+function contoursByBand(onsets: readonly Onset[], bands: readonly Band[]): number[] {
+  const contours = new Array<number>(onsets.length).fill(0.5);
+  for (const band of ['low', 'mid', 'high'] as const) {
+    const indices: number[] = [];
+    for (let i = 0; i < onsets.length; i++) {
+      if (bands[i] === band) indices.push(i);
+    }
+    const ranks = percentileRanks(indices.map((i) => onsets[i]!.high + 0.5 * onsets[i]!.mid));
+    indices.forEach((onsetIndex, j) => {
+      contours[onsetIndex] = ranks[j]!;
+    });
+  }
+  return contours;
+}
 
 function round(t: number): number {
   return Number(t.toFixed(4));

@@ -755,6 +755,11 @@ kbd {
   background: rgba(255, 46, 136, 0.12);
 }
 
+.difficulty--extreme.difficulty--active {
+  border-color: var(--violet);
+  background: rgba(157, 78, 221, 0.16);
+}
+
 .best-score {
   display: flex;
   gap: 1rem;
@@ -2230,6 +2235,31 @@ kbd {
 
   .grade--large {
     font-size: 4rem;
+  }
+
+  /* The header is a single space-between row of an h1 plus two labelled ghost
+     buttons; at full padding all three do not fit a phone and the row
+     overflowed. Give the title its own line and let the two actions share the
+     line below, compact. */
+  .admin__header {
+    flex-wrap: wrap;
+    gap: 0.75rem 0.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .admin__header h1 {
+    flex: 1 1 100%;
+    font-size: 1.5rem;
+  }
+
+  .admin__header-actions {
+    flex: 1 1 100%;
+  }
+
+  .admin__header-actions .btn {
+    flex: 1;
+    padding: 0.6rem 0.5rem;
+    font-size: 0.9rem;
   }
 
   .admin__form {

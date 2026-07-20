@@ -45,7 +45,12 @@ function plateauWaveform(duration = 60): Waveform {
  * re-testing everything from scratch. `enabled()` restores the tuned shares
  * recorded in `difficulty.ts`.
  */
-const TUNED_SHARE: Record<DifficultyName, number> = { easy: 0.1, medium: 0.14, hard: 0.18 };
+const TUNED_SHARE: Record<DifficultyName, number> = {
+  easy: 0.1,
+  medium: 0.14,
+  hard: 0.18,
+  extreme: 0.2,
+};
 
 function enabled(params: DifficultyParams): DifficultyParams {
   return { ...params, holdShare: TUNED_SHARE[params.name] };

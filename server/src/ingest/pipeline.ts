@@ -2,7 +2,7 @@ import type { Beatmap, JobStatus } from '@tap-tap/shared';
 import { BEATMAP_VERSION } from '@tap-tap/shared';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { analyze } from '../analysis/index.js';
+import { ANALYSIS_VERSION, analyze } from '../analysis/index.js';
 import { computeWaveform } from '../analysis/waveform.js';
 import { generateAllCharts } from '../charts/generate.js';
 import {
@@ -110,13 +110,46 @@ export async function ingestSong(url: string, onProgress: ProgressFn = () => {})
 
 /** Rebuild charts from cached analysis. Used after tuning difficulty parameters. */
 export async function regenerateCharts(songId: string): Promise<Beatmap> {
-  const [analysis, existing, cachedWaveform] = await Promise.all([
+  const [cachedAnalysis, existing, cachedWaveform] = await Promise.all([
     loadAnalysis(songId),
     loadBeatmap(songId),
     loadWaveform(songId),
   ]);
-  if (!analysis) throw new Error(`No cached analysis for ${songId}`);
+  if (!cachedAnalysis) throw new Error(`No cached analysis for ${songId}`);
   if (!existing) throw new Error(`No beatmap for ${songId}`);
+
+  // Some regenerations want the PCM after all — a missing waveform, or a stale
+  // analysis. Decode at most once, and best-effort throughout: the charts can
+  // always be rebuilt from `analysis.json`, so an unreadable media file must
+  // degrade the rebuild, never block it.
+  let pcm: Float32Array | null | undefined;
+  const decodeOnce = async (): Promise<Float32Array | null> => {
+    if (pcm === undefined) {
+      try {
+        const audio = path.join(songDir(songId), AUDIO_FILE);
+        pcm = await decodeToMonoPcm(audio, ANALYSIS_SAMPLE_RATE);
+      } catch {
+        pcm = null;
+      }
+    }
+    return pcm;
+  };
+
+  // Re-analyze when the cached analysis predates the current analysis code, so
+  // beat-grid and confidence improvements reach the existing library through
+  // the Regenerate button instead of stranding every already-ingested song on
+  // whatever the analyzer produced the day it was downloaded. One decode per
+  // song per analysis version — the result is saved, so the next regenerate is
+  // instant again. On decode failure the stale analysis is still a good onset
+  // pool; charts rebuild from it as before.
+  let analysis = cachedAnalysis;
+  if (cachedAnalysis.analysisVersion !== ANALYSIS_VERSION) {
+    const decoded = await decodeOnce();
+    if (decoded) {
+      analysis = analyze(decoded, ANALYSIS_SAMPLE_RATE);
+      await saveAnalysis(songId, analysis);
+    }
+  }
 
   // Rebuild a missing waveform rather than skipping holds.
   //
@@ -124,28 +157,20 @@ export async function regenerateCharts(songId: string): Promise<Beatmap> {
   // hold generation reads it — measured on this library, 11 of 28 songs. Left
   // alone they would regenerate to hold-free charts and look like the feature
   // had simply not worked for them.
-  //
-  // This does cost a decode, which regeneration is otherwise proud of avoiding.
-  // It is a one-off per song: the result is saved, so the next regenerate is
-  // instant again.
-  // Best-effort: if the audio cannot be decoded, regeneration still produces
-  // charts, just without holds. Failing outright would mean an unreadable or
-  // missing media file blocks a rebuild that needs nothing from it — the charts
-  // themselves come from `analysis.json`.
   let waveform = cachedWaveform;
   if (!waveform) {
-    try {
-      const audio = path.join(songDir(songId), AUDIO_FILE);
-      const pcm = await decodeToMonoPcm(audio, ANALYSIS_SAMPLE_RATE);
-      waveform = computeWaveform(pcm, ANALYSIS_SAMPLE_RATE);
-      await saveWaveform(songId, waveform);
-    } catch {
-      waveform = null;
-    }
+    const decoded = await decodeOnce();
+    waveform = decoded ? computeWaveform(decoded, ANALYSIS_SAMPLE_RATE) : null;
+    if (waveform) await saveWaveform(songId, waveform);
   }
 
   const beatmap: Beatmap = {
     ...existing,
+    // Re-analysis may have moved the grid; the beatmap must describe the charts
+    // beside it, not the analysis they replaced.
+    bpm: analysis.bpm,
+    bpmConfidence: analysis.bpmConfidence,
+    beatGrid: analysis.beatGrid,
     charts: generateAllCharts(analysis, songId, waveform),
   };
   await saveBeatmap(beatmap);

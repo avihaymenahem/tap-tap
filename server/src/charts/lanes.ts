@@ -59,3 +59,54 @@ export function pickLane(
   const pool = candidates.length > 0 ? candidates : range;
   return pool[Math.floor(rand() * pool.length) % pool.length]!;
 }
+
+/** Carries the sweep direction between notes so streams roll instead of jitter. */
+export interface LaneMotion {
+  direction: 1 | -1;
+}
+
+/**
+ * Pick a lane within the band's range by following the music's contour.
+ *
+ * `contour` is 0..1 — how bright this onset is relative to the other onsets in
+ * its band (spectral-centroid percentile, computed by the caller). Mapping it
+ * across the range means a riff that climbs in pitch walks the lanes left to
+ * right and a falling line walks back — the pattern a human charter would
+ * place, and the single biggest difference between "the chart is the music"
+ * and "the chart is dice". `pickLane` above chose randomly among non-repeat
+ * lanes, which is exactly the drum-machine feel: locally fine, never a phrase.
+ *
+ * When the contour is flat (the ideal lane equals the previous one), the note
+ * steps in the current sweep direction and bounces at the range edges, so a
+ * same-pitch stream becomes a roll — the other pattern human charts reach for
+ * — rather than either a jackhammer or a random zigzag.
+ */
+export function pickLaneContour(
+  range: readonly number[],
+  previousLane: number | null,
+  contour: number,
+  motion: LaneMotion,
+): number {
+  if (range.length === 0) return 0;
+  if (range.length === 1) return range[0]!;
+
+  const slot = Math.min(range.length - 1, Math.max(0, Math.floor(contour * range.length)));
+  const ideal = range[slot]!;
+
+  if (ideal !== previousLane) {
+    // Remember which way the contour moved, so a flat stretch that follows
+    // continues the same sweep instead of immediately reversing it.
+    if (previousLane !== null && range.includes(previousLane)) {
+      motion.direction = ideal > previousLane ? 1 : -1;
+    }
+    return ideal;
+  }
+
+  const index = range.indexOf(previousLane);
+  let next = index + motion.direction;
+  if (next < 0 || next >= range.length) {
+    motion.direction = motion.direction === 1 ? -1 : 1;
+    next = index + motion.direction;
+  }
+  return range[next]!;
+}

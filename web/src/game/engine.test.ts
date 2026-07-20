@@ -12,6 +12,7 @@ import {
   biasAdvice,
   comboMultiplier,
   gradeFor,
+  hitWindowsFor,
   tierFor,
   timingOf,
 } from './judge.js';
@@ -59,19 +60,36 @@ describe('tierFor', () => {
     expect(MISS_WINDOW).toBe(HIT_WINDOWS.good);
   });
 
-  it('keeps the miss window inside the tightest note spacing any chart can have', () => {
-    // The windows are a feel knob and get widened whenever fast sections feel
-    // unfair. This is the ceiling on that.
-    //
-    // Chart spacing is enforced globally, so the smallest `minGapSec` across all
-    // difficulties is the closest two notes can ever be — including two in the
-    // same lane. `hitLane` resolves a tap to the *nearest* candidate, so once
-    // the window is wider than that gap, a tap aimed at one note can sit closer
-    // to the next one and retire it instead, leaving the intended note to miss
-    // by itself. That reads as the game eating inputs, which is worse than the
-    // plain miss it was widened to prevent.
-    const tightest = Math.min(...DIFFICULTY_NAMES.map((name) => DIFFICULTIES[name].minGapSec));
-    expect(MISS_WINDOW).toBeLessThanOrEqual(tightest);
+  it("keeps every difficulty's effective miss window inside its own note spacing", () => {
+    // The invariant that keeps `hitLane` from retiring a neighbouring same-lane
+    // note: the outer window must never exceed the closest two notes can be,
+    // which is that difficulty's `minGapSec`. It used to be one global cap at
+    // the tightest difficulty; it is now enforced per difficulty by
+    // `hitWindowsFor`, which is what lets Extreme space notes below 0.19 and
+    // judge them on a proportionally tighter window instead of eating inputs.
+    for (const name of DIFFICULTY_NAMES) {
+      const gap = DIFFICULTIES[name].minGapSec;
+      const windows = hitWindowsFor(gap);
+      expect(windows.good).toBeLessThanOrEqual(gap + 1e-9);
+      // Ratios preserved, so 'perfect' still means the tightest third.
+      expect(windows.perfect).toBeLessThan(windows.great);
+      expect(windows.great).toBeLessThan(windows.good);
+    }
+  });
+
+  it('leaves the base windows untouched for any chart spaced at 0.19s or wider', () => {
+    // easy/medium/hard must feel exactly as before — only Extreme tightened.
+    for (const gap of [0.19, 0.3, 0.45]) {
+      expect(hitWindowsFor(gap)).toEqual(HIT_WINDOWS);
+    }
+  });
+
+  it('scales the whole window set down together for a tighter chart', () => {
+    const windows = hitWindowsFor(0.14);
+    expect(windows.good).toBeCloseTo(0.14, 6);
+    const scale = 0.14 / HIT_WINDOWS.good;
+    expect(windows.perfect).toBeCloseTo(HIT_WINDOWS.perfect * scale, 6);
+    expect(windows.great).toBeCloseTo(HIT_WINDOWS.great * scale, 6);
   });
 });
 
@@ -124,6 +142,22 @@ describe('GameEngine hits', () => {
     expect(result?.timing).toBe('exact');
     expect(result?.delta).toBeCloseTo(0, 5);
     expect(engine.snapshot.score).toBe(375);
+  });
+
+  it('judges on the per-difficulty window when given a tighter gap', () => {
+    // The whole point of Extreme's tighter spacing: a tap the base window would
+    // forgive falls outside the scaled window and is not a hit. Placed just
+    // inside the base good window (0.19) but outside extreme's (0.14).
+    const delta = 0.16;
+
+    const base = new GameEngine(chartOf([[1, 0]]));
+    expect(base.hitLane(0, 1 + delta)?.tier).toBe('good');
+
+    const tight = new GameEngine(chartOf([[1, 0]]), { minGapSec: 0.14 });
+    // Outside 0.14, so no note is close enough to judge at all.
+    expect(tight.hitLane(0, 1 + delta)).toBeNull();
+    // And a tap inside the scaled window still lands.
+    expect(tight.hitLane(0, 1.05)?.tier).not.toBe('miss');
   });
 
   it('distinguishes an early tap from a late one at the same distance', () => {

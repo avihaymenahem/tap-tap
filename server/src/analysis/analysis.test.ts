@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { analyze, detectOnsets } from './index.js';
+import { analyze, detectOnsets, gridAlignment } from './index.js';
 import { FFT, hannWindow } from './fft.js';
-import { alternatingClicks, clickTrack, sine } from './testAudio.js';
+import {
+  alternatingClicks,
+  clickTrack,
+  drumLoop,
+  irregularClicks,
+  sine,
+  tempoRamp,
+} from './testAudio.js';
 import { dominantBand } from '../charts/lanes.js';
 
 const SR = 44100;
@@ -150,5 +157,131 @@ describe('tempo estimation', () => {
       const nearest = Math.min(...clickTimes.map((c) => Math.abs(c - beat)));
       expect(nearest).toBeLessThan(0.05);
     }
+  });
+
+  it.each([111, 117, 133])('recovers %i BPM to sub-hop precision', (bpm) => {
+    // BPMs chosen to land *between* integer ODF lags. Without parabolic
+    // refinement the estimate quantizes to the nearest whole hop, which at
+    // these tempos is up to ~1.4 BPM off — and the repo's own rule of thumb is
+    // that 0.5 BPM of error is a full beat of drift over three minutes.
+    const { pcm } = clickTrack({ bpm, durationSec: 30, sampleRate: SR });
+    const result = analyze(pcm, SR);
+    expect(Math.abs(result.bpm - bpm)).toBeLessThan(0.5);
+  });
+
+  it('keeps the grid on the clicks at the END of a track, not just the start', () => {
+    // The drift test. A tempo error too small for the BPM assertion above to
+    // catch still walks the grid off the music by the final chorus; asserting
+    // only the first few beats (as the test above does) can never see it.
+    const { pcm, clickTimes } = clickTrack({ bpm: 117, durationSec: 60, sampleRate: SR });
+    const { beatGrid } = analyze(pcm, SR);
+
+    const lastQuarter = beatGrid.filter((b) => b > 45);
+    expect(lastQuarter.length).toBeGreaterThan(10);
+    for (const beat of lastQuarter) {
+      const nearest = Math.min(...clickTimes.map((c) => Math.abs(c - beat)));
+      expect(nearest).toBeLessThan(0.04);
+    }
+  });
+});
+
+describe('tempo confidence', () => {
+  it('is high when the grid genuinely sits on the music', () => {
+    const { pcm } = clickTrack({ bpm: 120, durationSec: 20, sampleRate: SR });
+    const result = analyze(pcm, SR);
+    // Confidence gates snapping and on-grid selection in chart generation at
+    // 0.5, so a metronome-perfect track must clear that line comfortably.
+    expect(result.bpmConfidence).toBeGreaterThan(0.7);
+  });
+
+  it('stays high for a realistic backbeat, not just a metronome', () => {
+    // Alternating kick/hat — hits of very different loudness and character on
+    // every beat. The old z-score confidence punished exactly this: real music
+    // autocorrelates at every harmonic of its tempo, inflating the field the
+    // winner was scored against, so steady songs reported ~0.4 "confidence".
+    const { pcm } = alternatingClicks({ bpm: 120, durationSec: 20, sampleRate: SR });
+    const result = analyze(pcm, SR);
+    expect(Math.abs(result.bpm - 120)).toBeLessThan(0.5);
+    expect(result.bpmConfidence).toBeGreaterThan(0.5);
+  });
+
+  it('is low for aperiodic audio', () => {
+    // Clicks at irregular times: plenty of onsets, no tempo. The beat tracker
+    // will happily follow them — that is its job — so energy and alignment
+    // measures all pass. Gap steadiness is what must condemn it.
+    for (const seed of [7, 13, 42]) {
+      const { pcm } = irregularClicks({ durationSec: 20, sampleRate: SR, seed });
+      const result = analyze(pcm, SR);
+      expect(result.bpmConfidence).toBeLessThan(0.2);
+    }
+  });
+
+  it('stays high for a humanized drum groove', () => {
+    // Jittered kick/snare/hats with sixteenth fills. Also the double-time
+    // regression guard: hats sit on every half-beat, so a too-loose tracker
+    // halves its gaps and reports ~233 BPM.
+    const { pcm } = drumLoop({ bpm: 120, durationSec: 30, sampleRate: SR, seed: 1 });
+    const result = analyze(pcm, SR);
+    expect(Math.abs(result.bpm - 120)).toBeLessThan(1.5);
+    expect(result.bpmConfidence).toBeGreaterThan(0.7);
+  });
+});
+
+describe('beat tracking follows a human tempo', () => {
+  it('keeps beats on the clicks through an 118→126 BPM ramp', () => {
+    // No constant grid fits this: extrapolating one tempo from either end is
+    // whole beats off by the other. The tracker must follow the player, and
+    // confidence must NOT punish the song for having been played by a human —
+    // that is the "solid songs read low confidence" complaint in its purest
+    // form.
+    const { pcm, clickTimes } = tempoRamp({
+      fromBpm: 118,
+      toBpm: 126,
+      durationSec: 45,
+      sampleRate: SR,
+    });
+    const result = analyze(pcm, SR);
+
+    expect(result.bpmConfidence).toBeGreaterThan(0.7);
+    // Reported BPM is the honest middle of the ramp.
+    expect(result.bpm).toBeGreaterThan(118);
+    expect(result.bpm).toBeLessThan(126);
+
+    const lastClick = clickTimes[clickTimes.length - 1]!;
+    const beats = result.beatGrid.filter((b) => b > 1 && b <= lastClick);
+    expect(beats.length).toBeGreaterThan(60);
+    for (const beat of beats) {
+      const nearest = Math.min(...clickTimes.map((c) => Math.abs(c - beat)));
+      expect(nearest).toBeLessThan(0.03);
+    }
+  });
+});
+
+describe('gridAlignment', () => {
+  const grid = Array.from({ length: 121 }, (_, i) => i * 0.5);
+  const onset = (t: number) => ({ t, strength: 0.8 });
+
+  it('scores onsets sitting on the grid near 1', () => {
+    const onsets = grid.slice(0, 60).map((t) => onset(t));
+    expect(gridAlignment(onsets, grid)).toBeGreaterThan(0.9);
+  });
+
+  it('accepts half-beat offbeats as aligned', () => {
+    // Hats on the offbeat are ON the music; they must not read as drift.
+    const onsets = grid.slice(0, 60).map((t) => onset(t + 0.25));
+    expect(gridAlignment(onsets, grid)).toBeGreaterThan(0.9);
+  });
+
+  it('scores a drifting grid near chance', () => {
+    // Onsets at a slightly different tempo than the grid claims — the exact
+    // failure this measure exists to expose. Over 60s they sweep through every
+    // phase, so alignment collapses to the chance rate, i.e. ~0 after rescaling.
+    const onsets = Array.from({ length: 120 }, (_, i) => onset(i * 0.508));
+    expect(gridAlignment(onsets, grid)).toBeLessThan(0.3);
+  });
+
+  it('declines to judge when there is too little evidence', () => {
+    expect(gridAlignment([onset(1)], grid)).toBeNull();
+    expect(gridAlignment([], [])).toBeNull();
   });
 });

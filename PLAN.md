@@ -127,14 +127,33 @@ imperceptible, so snapping can tidy jitter but can never itself cause drift.
 
 ### 2.3 Difficulty as a filter over one shared onset pool
 
-| | Quantize | Min gap | Chords | Target notes/sec | Approach |
-| --- | --- | --- | --- | --- | --- |
-| Easy | 1/1 beat | 450ms | no | ~1.2 | 1.9s |
-| Medium | 1/2 | 300ms | rare | ~2.0 | 1.6s |
-| Hard | 1/4 | 190ms | yes | ~3.6 | 1.3s |
+| | Quantize | Min gap | Chords | Target notes/sec | Approach | Lanes | Good/miss window |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Easy | 1/1 beat | 450ms | no | ~1.2 | 1.9s | 3 | 190ms |
+| Medium | 1/2 | 300ms | rare | ~2.0 | 1.6s | 4 | 190ms |
+| Hard | 1/4 | 190ms | yes | ~3.6 | 1.3s | 5 | 190ms |
+| Extreme | 1/4 | 140ms | often (~0.32) | ~5.4 | 0.95s | 5 | 140ms |
 
 Onsets are ranked by strength; each difficulty takes the strongest that satisfy
-its spacing constraint. Generation is seeded and deterministic.
+its spacing constraint. Generation is seeded and deterministic, and
+`generateAllCharts` is driven off `DIFFICULTY_NAMES` — a difficulty added to the
+shared list is generated with no second edit.
+
+**Extreme packs notes tighter than hard (140ms vs 190ms) — and this is only
+safe because judging windows are now per difficulty.** `hitLane` matches a tap
+to the *nearest* note, so if two same-lane notes are closer than the miss
+window a tap can retire the wrong one. That used to force a single global miss
+window at the tightest `minGapSec` (190ms), which capped how dense any
+difficulty could be. `hitWindowsFor(minGapSec)` now caps the window to each
+chart's own gap and scales the three tiers down together, keeping their ratios
+— so easy/medium/hard are untouched (their gaps are ≥ 190ms, so they keep the
+base 85/140/190ms windows) while Extreme both spaces and judges at 140ms
+(≈63/103/140ms). The tighter window is the point: an extreme tier should give
+less room to be sloppy, not just scroll faster. Extreme stacks the rest on top
+— a 0.95s approach (~27% faster than hard) and roughly double the chords — so a
+dense passage yields visibly more pills: measured ~4.7 vs ~3.4 notes/sec on the
+same pool. `engine.test.ts` asserts every difficulty's window stays within its
+own gap.
 
 **`minGapSec` is the knob that governs how hard a chart feels, not `targetNps`.**
 The target only sets the average across the whole song, while the gap sets a hard
@@ -231,6 +250,97 @@ nothing for another 20 seconds.
 Notes before that offset are dropped from the run. Leaving them in would have the
 engine retire every one as a miss the moment the clock starts past them, ruining
 the score before the player touches a key.
+
+### 2.8 Beats are tracked, not extrapolated — and confidence measures them
+
+Two generations of failure led here, both regression-tested:
+
+**Generation one: quantized constant grid.** Tempo was quantized to whole ODF
+hops (~11.6ms of period — ~2.8 BPM steps at 120), and §2.2's rule of thumb is
+that 0.5 BPM is a full beat of drift over three minutes. The conservative
+snapping meant this never *corrupted* charts, but it silently disabled the
+grid: past the first minute nothing agreed with it. Fixed by log-compressing
+the tempo ODF (locally — the onset detector's swept thresholds still see the
+raw ODF, §2.4), harmonic lag aggregation (a candidate scores its own
+autocorrelation plus half the score at double its lag, which demotes the
+classic double-time error), parabolic lag interpolation, and a joint
+period+phase polish. Worst end-of-track drift on 90s click tracks: ~350ms →
+3–8ms.
+
+**Generation two: the constant grid itself.** A single (period, phase) is only
+right for machine-quantized music. Anything played by humans drifts a few
+percent, and against that a constant grid is wrong everywhere except one lucky
+stretch — so honest confidence read low on real songs ("confidence is way too
+low"), and dishonest confidence (the old autocorrelation z-score) read low for
+a *different* reason: real music correlates at every harmonic of its tempo,
+inflating the field the winner was judged against, so only metronomes scored
+high. The fix for both is `trackBeats` — Ellis-style dynamic programming over
+the compressed ODF. Each beat lands where the music actually put it, paying a
+penalty for straying from the estimated period (`TIGHTNESS = 10`: halving the
+gap onto the hats costs more than a hat is worth — the double-time regression,
+measured at tightness 3 — while a human ramp's ~3% gap changes cost nearly
+nothing). Beats are refined to sub-frame positions against local ODF peaks.
+The wire format was already `beatGrid: number[]`, so nothing downstream
+changed shape; `buildGrid` subdivides between consecutive beats and works
+unmodified. Measured on a 118→126 BPM ramp: every beat within 5ms of the
+clicks, where any constant grid is off by whole beats.
+
+**Confidence is four direct measurements of the tracked beats**, each covering
+another's blind spot; BPM is the interquartile mean of the tracked gaps:
+
+- **Beat contrast** — energy per beat vs. the track average. Catches "no beat
+  here"; blind on sparse audio, where beats overfitted onto a near-silent
+  baseline tower over the average.
+- **Beat hit rate** — fraction of beats on above-average energy. Catches the
+  sparse-overfit case; blind on dense uniform activity, where contrast is
+  honestly low.
+- **Gap steadiness** — share of inter-beat gaps within ±12% of the typical
+  gap, rescaled so chance-level regularity maps to 0. *The* discriminator now
+  that beats are tracked: the tracker will faithfully follow arrhythmic hits
+  (its job), and those beats pass every energy measure — their scattered gaps
+  are what give them away. Caps the final blend outright, because onsets
+  align with tracked beats *by construction*, so alignment must never rescue
+  an unsteady pulse.
+- **`gridAlignment`** — fraction of the stronger half of onsets within a tight
+  tolerance of a beat or half-beat (nearest-beat search — the grid is no
+  longer uniform), rescaled against chance; null (not a fake neutral) when
+  there are too few onsets to judge.
+
+`bpmConfidence = min(steadiness, 0.45 × min(contrast, hitRate, steadiness) +
+0.55 × alignment)`. Measured: metronome, backbeat, jittered groove and
+full-mix fixtures 0.85–1.0; the 118→126 ramp ~1.0 (a human performance is not
+punished for being human); irregular aperiodic clicks 0.0–0.04.
+
+`analysis.json` carries an `analysisVersion` stamp, and `regenerateCharts`
+re-analyzes from `audio.m4a` when the stamp is stale (best-effort, one decode
+per song per version) — so the existing library picks these fixes up through
+the Regenerate button instead of being stranded on day-of-download grids.
+
+### 2.9 Handcrafted feel: contour lanes, on-beat selection, on-beat chords
+
+Play feedback: charts felt "drum machine" — locally defensible, never a phrase.
+Three causes, all fixed in generation, all keyed off the (now meaningful)
+`bpmConfidence` at `MIN_GRID_CONFIDENCE = 0.5`:
+
+- **Lanes follow the melodic contour instead of dice.** `pickLane` chose
+  randomly among non-repeat lanes in the band's range. `pickLaneContour` maps
+  each note's spectral-centroid *rank within its own band* (§2.1 reasoning:
+  relative brightness describes the phrase, absolute describes the mix) across
+  the range — a riff that climbs in pitch walks left-to-right, a falling line
+  walks back. Flat stretches step in the current sweep direction and bounce at
+  the edges, so a same-pitch stream becomes a roll rather than a jackhammer or
+  a zigzag. Easy is untouched by construction: its bands are single lanes.
+- **On-beat onsets win crowded neighbourhoods.** Selection ranked purely by
+  strength, so when a beat and a slightly-louder off-beat scuffle both could
+  not fit inside `minGapSec`, the player got the scuffle. On a trusted grid,
+  grid-aligned onsets get a 1.2× selection multiplier — strength still
+  dominates, but ties inside a spacing conflict now resolve to the pulse.
+- **Chords only land on the grid.** An off-beat two-hand hit is something a
+  human charter essentially never writes; on the beat it reads as an accent,
+  off it it reads as a mistake.
+
+Below the confidence line all of it disarms — no snapping, no bonus, no chord
+gate — and the chart is pure measured onsets, exactly as before.
 
 ---
 
@@ -1261,6 +1371,57 @@ the moment it is deployed publicly or shared. Do not deploy this.
   and the alternative is hunting through browser settings. Availability is shown
   by *dimming, not disabling*: `navigator.onLine` describes the link rather than
   reachability, and it is not a good enough authority to refuse a tap.
+
+- **2026-07-20** — Beat and confidence overhaul (§2.8) plus "handcrafted feel"
+  chart generation (§2.9), after feedback that charts read as drum-machine
+  output. Tempo gained sub-hop precision — parabolic lag interpolation, then a
+  joint period+phase polish against the ODF — taking worst end-of-track drift
+  on 90s click tracks from ~350ms to 3–8ms. `bpmConfidence` is now discounted
+  by measured onset/grid agreement, so a drifting grid reports itself; below
+  0.5 generation ignores the grid entirely. On a trusted grid: on-beat onsets
+  win spacing conflicts (1.2× selection bonus), chords may only land on the
+  subdivision grid, and lanes follow each band's spectral-centroid contour —
+  rising lines sweep right, flat streams roll — via `pickLaneContour`.
+  `analysis.json` now carries `analysisVersion`; Regenerate re-analyzes stale
+  files from `audio.m4a` (best-effort), so the library upgrades without
+  re-downloading. Regenerating still invalidates stored scores.
+
+- **2026-07-20** — Rebuilt tempo confidence after feedback that it read far too
+  low on solid songs. Root cause: the z-score prominence judged the winning lag
+  against a field inflated by the tempo's own harmonics, so only metronomes
+  scored high. Confidence is now measured off the fitted grid itself — beat
+  contrast, beat hit rate, onset alignment (§2.8) — and the tempo ODF is
+  log-compressed with harmonic lag aggregation, so the estimate stops being
+  dominated by the loudest section and stops falling into double-time. Same
+  `ANALYSIS_VERSION` bump as the precision work; one Regenerate covers both.
+- **2026-07-20** — Added a fourth difficulty, Extreme (§2.3): five lanes like
+  hard, a 1.0s approach, higher target NPS and ~0.32 chord chance. Initially it
+  shared hard's 190ms gap (the miss window was one global cap), so density could
+  not exceed hard's. `generateAllCharts`, the menu picker, the router and the
+  editor were already or are now driven off `DIFFICULTY_NAMES`, so the union
+  addition plus one `DIFFICULTIES` entry was most of the change; TypeScript's
+  exhaustiveness surfaced three hand-written `Record<DifficultyName>` literals in
+  tests. Existing songs gain the chart on regenerate/re-ingest.
+- **2026-07-20** — Made Extreme genuinely denser after feedback it "didn't feel
+  extreme". Judging windows became **per difficulty** (`hitWindowsFor` in
+  `judge.ts`, threaded through `GameEngine` via `minGapSec`): the good/miss
+  window is capped to each chart's own spacing and the tiers scale together, so
+  the single global 190ms cap on density is gone. Extreme now spaces at 140ms
+  (7.1/sec ceiling, up from 5.2) with a ~5.4 target and a 0.95s approach —
+  measured ~4.7 vs hard's ~3.4 notes/sec on the same pool, ~38% more pills.
+  Easy/medium/hard are untouched: their gaps are ≥190ms so they keep the base
+  windows. Extreme is judged tighter (≈63/103/140ms), which is the intended
+  feel. Regenerate/re-ingest to rebuild the denser extreme charts.
+- **2026-07-20** — Replaced the constant beat grid with dynamic-programming
+  beat tracking (§2.8), after the second round of "confidence is way too low":
+  synthetic full mixes scored 0.85+, which pointed at the one thing they do
+  not model — human timing. A constant grid is wrong everywhere on a drifting
+  performance, so honest confidence had to read low; tracked beats follow the
+  player (118→126 BPM ramp: every beat within 5ms) and confidence gains a gap-
+  steadiness cap so arrhythmic audio cannot pass just because the tracker
+  faithfully followed it (irregular clicks: 0.97 → 0.0). BPM is now the
+  interquartile mean of tracked gaps. `beatGrid` was already `number[]` on the
+  wire, so charts, editor and admin consume the non-uniform grid unchanged.
 
 ## 10. Open
 

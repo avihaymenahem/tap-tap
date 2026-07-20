@@ -130,6 +130,151 @@ export function alternatingClicks({
   return { pcm, sampleRate, lowTimes, highTimes };
 }
 
+/**
+ * Clicks at deterministic pseudo-random times — audio with plenty of onsets
+ * and no tempo at all. The negative fixture for confidence: whatever grid the
+ * estimator settles on here is wrong by construction, and confidence must say
+ * so. Seeded LCG rather than Math.random so a failure reproduces.
+ */
+export function irregularClicks({
+  durationSec,
+  sampleRate = 44100,
+  seed = 1,
+  freqHz = 1000,
+}: {
+  durationSec: number;
+  sampleRate?: number;
+  seed?: number;
+  freqHz?: number;
+}): { pcm: Float32Array; sampleRate: number; clickTimes: number[] } {
+  const pcm = new Float32Array(Math.floor(durationSec * sampleRate));
+  const clickLen = Math.floor(sampleRate * 0.05);
+
+  let state = seed >>> 0;
+  const next = (): number => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+
+  // Random inter-click gaps between 150 and 750ms — dense enough to produce a
+  // rich onset pool, irregular enough that no periodic grid fits it.
+  const clickTimes: number[] = [];
+  for (let t = next() * 0.5; t < durationSec; t += 0.15 + next() * 0.6) {
+    clickTimes.push(t);
+    const start = Math.floor(t * sampleRate);
+    for (let i = 0; i < clickLen && start + i < pcm.length; i++) {
+      const envelope = Math.exp((-40 * i) / sampleRate) * (1 - i / clickLen);
+      pcm[start + i] =
+        pcm[start + i]! + Math.sin((2 * Math.PI * freqHz * i) / sampleRate) * envelope * 0.8;
+    }
+  }
+
+  return { pcm, sampleRate, clickTimes };
+}
+
+/**
+ * A humanized drum groove — kick on 1 and 3, snare on 2 and 4, hats on every
+ * eighth with occasional sixteenth fills, every hit jittered by a few
+ * milliseconds and varied in level.
+ *
+ * The realistic *positive* fixture for tempo confidence. Metronome clicks are
+ * too easy: no jitter, no off-half-beat content, silence between hits. Real
+ * songs failed a confidence calibrated only against clicks — dense activity
+ * dilutes beat contrast and sixteenths sit off the half-beat alignment grid —
+ * which surfaced as "solid songs read 0.4". Whatever the confidence formula
+ * is, this groove must score as trustworthy.
+ */
+export function drumLoop({
+  bpm,
+  durationSec,
+  sampleRate = 44100,
+  seed = 1,
+  jitterMs = 10,
+}: ClickTrackOptions & { seed?: number; jitterMs?: number }): {
+  pcm: Float32Array;
+  sampleRate: number;
+  beatTimes: number[];
+} {
+  const pcm = new Float32Array(Math.floor(durationSec * sampleRate));
+  const periodSec = 60 / bpm;
+
+  let state = seed >>> 0;
+  const next = (): number => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const jitter = (): number => ((next() * 2 - 1) * jitterMs) / 1000;
+
+  const hit = (t: number, freqHz: number, decay: number, lenSec: number, amp: number): void => {
+    const start = Math.floor(t * sampleRate);
+    const len = Math.floor(sampleRate * lenSec);
+    if (start < 0) return;
+    for (let i = 0; i < len && start + i < pcm.length; i++) {
+      const envelope = Math.exp((-decay * i) / sampleRate) * (1 - i / len);
+      pcm[start + i] =
+        pcm[start + i]! + Math.sin((2 * Math.PI * freqHz * i) / sampleRate) * envelope * amp;
+    }
+  };
+
+  const beatTimes: number[] = [];
+  for (let beat = 0; beat * periodSec < durationSec; beat++) {
+    const t = beat * periodSec;
+    beatTimes.push(t);
+
+    if (beat % 2 === 0) hit(t + jitter(), 55, 22, 0.24, 0.85 + next() * 0.15); // kick
+    else hit(t + jitter(), 190, 55, 0.16, 0.65 + next() * 0.15); // snare body
+
+    // Hats on both eighths, quieter and shorter.
+    hit(t + jitter(), 8200, 110, 0.05, 0.24 + next() * 0.08);
+    hit(t + periodSec / 2 + jitter(), 8200, 110, 0.05, 0.2 + next() * 0.08);
+
+    // Occasional sixteenth fills — content genuinely off the half-beat grid.
+    if (next() < 0.35) hit(t + periodSec / 4 + jitter(), 8200, 130, 0.04, 0.16 + next() * 0.06);
+    if (next() < 0.2) hit(t + (3 * periodSec) / 4 + jitter(), 8200, 130, 0.04, 0.14 + next() * 0.06);
+  }
+
+  return { pcm, sampleRate, beatTimes };
+}
+
+/**
+ * Clicks whose tempo ramps smoothly between two BPMs — a human drummer, not a
+ * click track. No constant grid can fit this: extrapolating one tempo from
+ * either end drifts by whole beats. The fixture that justifies tracking beats
+ * through the song instead of extrapolating a single (period, phase).
+ */
+export function tempoRamp({
+  fromBpm,
+  toBpm,
+  durationSec,
+  sampleRate = 44100,
+  freqHz = 1000,
+}: {
+  fromBpm: number;
+  toBpm: number;
+  durationSec: number;
+  sampleRate?: number;
+  freqHz?: number;
+}): { pcm: Float32Array; sampleRate: number; clickTimes: number[] } {
+  const pcm = new Float32Array(Math.floor(durationSec * sampleRate));
+  const clickLen = Math.floor(sampleRate * 0.05);
+  const clickTimes: number[] = [];
+
+  let t = 0;
+  while (t < durationSec) {
+    clickTimes.push(t);
+    const start = Math.floor(t * sampleRate);
+    for (let i = 0; i < clickLen && start + i < pcm.length; i++) {
+      const envelope = Math.exp((-40 * i) / sampleRate) * (1 - i / clickLen);
+      pcm[start + i] =
+        pcm[start + i]! + Math.sin((2 * Math.PI * freqHz * i) / sampleRate) * envelope * 0.8;
+    }
+    const bpm = fromBpm + (toBpm - fromBpm) * (t / durationSec);
+    t += 60 / bpm;
+  }
+
+  return { pcm, sampleRate, clickTimes };
+}
+
 /** A steady sine, used to check FFT bin placement. */
 export function sine(freqHz: number, durationSec: number, sampleRate = 44100): Float32Array {
   const pcm = new Float32Array(Math.floor(durationSec * sampleRate));

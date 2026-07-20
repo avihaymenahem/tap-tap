@@ -24,6 +24,30 @@ interface MenuScreenProps {
   onCalibrate: () => void;
 }
 
+/**
+ * The player's difficulty preference resolved against what a song actually has.
+ *
+ * Returns the preference itself when the song offers it, otherwise the closest
+ * available rung by position in the difficulty ladder — so a preference for
+ * Extreme lands on Hard for a song that has not been regenerated, rather than
+ * on nothing. `undefined` only when the song has no playable chart at all.
+ */
+function nearestAvailable(
+  preferred: DifficultyName,
+  available: readonly DifficultyName[],
+): DifficultyName | undefined {
+  if (available.length === 0) return undefined;
+  if (available.includes(preferred)) return preferred;
+
+  const preferredIndex = DIFFICULTY_NAMES.indexOf(preferred);
+  return available.reduce((best, name) =>
+    Math.abs(DIFFICULTY_NAMES.indexOf(name) - preferredIndex) <
+    Math.abs(DIFFICULTY_NAMES.indexOf(best) - preferredIndex)
+      ? name
+      : best,
+  );
+}
+
 export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): JSX.Element {
   const [songs, setSongs] = useState<SongSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,8 +133,22 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
   // Falling back to the first result keeps the detail panel from showing a song
   // that the current search has filtered out of the list.
   const selectedSong = filtered.find((s) => s.songId === selected) ?? filtered[0] ?? null;
-  const best = selectedSong ? getBestScore(selectedSong.songId, difficulty) : null;
-  const noteCount = selectedSong?.noteCounts[difficulty] ?? 0;
+
+  // Only difficulties this song actually has a chart for. Older songs ingested
+  // before Extreme existed carry no extreme chart until they are regenerated —
+  // showing a difficulty that cannot be played (the button would just disable
+  // itself) is worse than not offering it.
+  const available = selectedSong
+    ? DIFFICULTY_NAMES.filter((name) => (selectedSong.noteCounts[name] ?? 0) > 0)
+    : [];
+
+  // The picker only renders available difficulties, so a stored preference for
+  // one this song lacks (e.g. Extreme, on an un-regenerated song) would be
+  // invisible yet still drive Play. Resolve it to the nearest available rung so
+  // the highlighted button, the best score and Play always agree.
+  const effectiveDifficulty = nearestAvailable(difficulty, available);
+  const best =
+    selectedSong && effectiveDifficulty ? getBestScore(selectedSong.songId, effectiveDifficulty) : null;
 
   return (
     <div className="menu">
@@ -393,19 +431,12 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                 <h2>{selectedSong.title}</h2>
                 <p className="muted">{selectedSong.artist || 'Unknown artist'}</p>
 
-                {selectedSong.bpmConfidence < 0.5 && (
-                  <p className="warning">
-                    Low tempo confidence ({selectedSong.bpmConfidence.toFixed(2)}) — the beat grid
-                    may be off for this track.
-                  </p>
-                )}
-
                 <div className="difficulty-picker">
-                  {DIFFICULTY_NAMES.map((name) => (
+                  {available.map((name) => (
                     <button
                       key={name}
                       type="button"
-                      className={`difficulty ${difficulty === name ? 'difficulty--active' : ''} difficulty--${name}`}
+                      className={`difficulty ${effectiveDifficulty === name ? 'difficulty--active' : ''} difficulty--${name}`}
                       onClick={() => setDifficulty(name)}
                     >
                       <span className="difficulty__name">{name}</span>
@@ -432,10 +463,10 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                 <button
                   type="button"
                   className="btn btn--primary btn--large"
-                  disabled={noteCount === 0}
-                  onClick={() => onPlay(selectedSong.songId, difficulty)}
+                  disabled={!effectiveDifficulty}
+                  onClick={() => effectiveDifficulty && onPlay(selectedSong.songId, effectiveDifficulty)}
                 >
-                  {noteCount === 0 ? 'No chart for this difficulty' : 'Play'}
+                  {effectiveDifficulty ? 'Play' : 'No chart for this song'}
                 </button>
               </>
             )}

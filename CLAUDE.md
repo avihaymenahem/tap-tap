@@ -8,8 +8,9 @@ broken, and the traps that have already cost time.
 ## What this is
 
 A browser rhythm game. An admin pastes a YouTube link; the server downloads the
-audio, analyses it, and generates note charts at three difficulties. Players
-pick from the curated list and play on 3/4/5 lanes.
+audio, analyses it, and generates note charts at four difficulties
+(easy/medium/hard/extreme). Players pick from the curated list and play on
+3/4/5 lanes.
 
 **Local-only. Do not deploy it.** `yt-dlp` against YouTube breaks their ToS;
 that is a non-issue on `localhost` and a real problem the moment it is public.
@@ -241,8 +242,18 @@ scripts/
   original download. AAC priming delay means analysing the source times every
   note against audio nobody hears.
 - **Snapping to the beat grid is conservative** (only when the grid already
-  agrees, capped at 30ms). The onsets are ground truth; the grid is an estimate
-  that drifts. See PLAN.md §2.2.
+  agrees, capped at 30ms) **and confidence-gated**: below `bpmConfidence` 0.5
+  the grid gets no say at all — no snapping, no on-beat selection bonus, no
+  chord gating. The onsets are ground truth; the grid is an estimate that
+  drifts less than it used to — beats are now *tracked* through the song
+  (DP, §2.8), not extrapolated from one constant tempo, so a human
+  performance gets a grid that follows it. `bpmConfidence` is built from
+  measurements of the tracked beats (contrast, hit rate, gap steadiness,
+  onset alignment) precisely so a wrong grid lands under that line — and so
+  a solid song scores high; the old autocorrelation z-score under-reported
+  real music, only metronomes cleared it. Steadiness caps the blend: onsets
+  align with tracked beats by construction, so alignment must never rescue
+  an arrhythmic "pulse". See PLAN.md §2.2/§2.8/§2.9.
 - **`customName`, `customChart` and `themeId` protect hand edits.** Ingest
   refetches YouTube metadata and Regenerate rebuilds charts; both must respect
   these rather than silently discarding work. **Anything new that admin can set
@@ -603,6 +614,13 @@ scripts/
 
 **Charts**
 - Regenerating charts invalidates stored scores. Mention it when you do.
+- **Regenerate re-analyzes when `analysis.json` is stale.** The file carries an
+  `analysisVersion` stamp; when it does not match `ANALYSIS_VERSION`, regenerate
+  decodes `audio.m4a` and re-analyzes (best-effort — no audio still rebuilds
+  charts from the cached pool). Bump the version when the *analysis* improves,
+  not when chart generation does — chart changes reach the library through a
+  plain regenerate for free, while a version bump costs one decode per song.
+  This can change a song's bpm, grid and confidence, which is the point.
 - **Existing songs have no holds until they are regenerated.** That is by
   design — `duration` is optional so old beatmaps stay valid — but it means a
   song will look like holds "did not work" until it is rebuilt.
@@ -662,8 +680,23 @@ scripts/
   next piece: one slider fixing a whole chart's timing beats editing notes.
 - **Chart feel is still untuned** (milestone M3). Only a human can judge it. The
   hit windows have been widened twice (`judge.ts`) and are a feel knob, not a
-  fixed truth — but they are **capped**: `good` may not exceed the smallest
-  `minGapSec`, because `hitLane` matches the nearest note and a window wider
-  than the tightest spacing can retire the note *after* the one the player aimed
-  at. `engine.test.ts` asserts it. If fast passages still feel unfair, raise
-  `minGapSec` and regenerate rather than widening further.
+  fixed truth — but they are **capped per difficulty**: `good` may not exceed
+  that chart's own `minGapSec`, because `hitLane` matches the nearest note and a
+  window wider than the spacing can retire the note *after* the one the player
+  aimed at. `hitWindowsFor(minGapSec)` enforces this — it scales the three tiers
+  down together for any chart tighter than the 190ms base, and the engine takes
+  it via `EngineOptions.minGapSec` (passed from `PlayScreen`). `engine.test.ts`
+  asserts every difficulty's window stays within its gap. If a *single* fast
+  passage feels unfair, raise that difficulty's `minGapSec` and regenerate.
+- **Four difficulties: easy/medium/hard/extreme** (§2.3). Adding one is a
+  `DifficultyName` union member, a `DIFFICULTY_NAMES` entry and a `DIFFICULTIES`
+  row — everything downstream (menu picker, router, editor dropdown,
+  `generateAllCharts`, CLI) iterates the list. TypeScript's exhaustiveness on
+  `Record<DifficultyName, …>` catches any hand-written literal you miss.
+  **Extreme spaces at 140ms — tighter than hard's 190ms — on purpose.** That is
+  only safe because the miss window is per difficulty (`hitWindowsFor`), so
+  Extreme judges on a 140ms window while easy/medium/hard keep the base 190ms.
+  It escalates further via `approachSec` (0.95s — faster scroll), `targetNps`
+  and `chordChance`. Do not reintroduce a single global miss window; it was what
+  capped Extreme's density. Existing songs get the new chart on regenerate/
+  re-ingest, like any chart change.

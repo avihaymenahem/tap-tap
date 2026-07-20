@@ -10,7 +10,7 @@ function song(partial: Partial<SongSummary> & { title: string }): SongSummary {
     bpm: 120,
     bpmConfidence: 0.8,
     thumbnailUrl: null,
-    noteCounts: { easy: 100, medium: 200, hard: 300 },
+    noteCounts: { easy: 100, medium: 200, hard: 300, extreme: 400 },
     audioUrl: '/media/x/audio.m4a',
     ...partial,
   };

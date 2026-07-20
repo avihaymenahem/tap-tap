@@ -48,7 +48,12 @@ function beatmap(overrides: Partial<Beatmap> = {}): Beatmap {
     bpm: 120,
     bpmConfidence: 0.9,
     beatGrid: [],
-    charts: { easy: { laneCount: 3, notes: [] }, medium: { laneCount: 4, notes: [] }, hard: { laneCount: 5, notes: [] } },
+    charts: {
+      easy: { laneCount: 3, notes: [] },
+      medium: { laneCount: 4, notes: [] },
+      hard: { laneCount: 5, notes: [] },
+      extreme: { laneCount: 5, notes: [] },
+    },
     ...overrides,
   };
 }
