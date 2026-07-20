@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // The worker runs off the main thread and has no DOM. Loading `lib.dom`
+    // alongside `lib.webworker` merges two conflicting global scopes — `self`,
+    // `fetch` and `caches` all get the wrong types — so the worker gets its own
+    // program rather than sharing the app's.
+    "lib": ["ES2022", "WebWorker"],
+    "types": [],
+    "outDir": "./dist-sw",
+    "rootDir": "./src"
+  },
+  "include": ["src/sw.ts"]
+}

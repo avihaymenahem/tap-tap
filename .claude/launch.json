@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tap-tap",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "tap-tap-public",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:public"],
+      "port": 5173
+    },
+    {
+      "name": "tap-tap-prod-public",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:public", "-w", "server"],
+      "port": 8787
+    },
+    {
+      "name": "tap-tap-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start", "-w", "server"],
+      "port": 8787
+    }
+  ]
+}

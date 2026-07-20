@@ -1,0 +1,111 @@
+import type { DifficultyName } from '@tap-tap/shared';
+
+/** Local persistence: calibration offset and per-chart best scores. */
+
+const CALIBRATION_KEY = 'tap-tap.calibration';
+const SCORES_KEY = 'tap-tap.scores';
+const FAVORITES_KEY = 'tap-tap.favorites';
+
+export interface BestScore {
+  score: number;
+  accuracy: number;
+  maxCombo: number;
+  grade: string;
+}
+
+function read<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : (JSON.parse(raw) as T);
+  } catch {
+    return fallback;
+  }
+}
+
+function write(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Private mode or a full quota — scores are a nicety, not a requirement.
+  }
+}
+
+/** Seconds. Positive means the player's taps register late and need pulling back. */
+/**
+ * The stored offset, or null when this device has never been calibrated.
+ *
+ * The distinction matters: "calibrated to exactly zero" is a deliberate choice
+ * that must be respected, while "never calibrated" is an invitation to fall
+ * back to the audio hardware's reported latency. Collapsing both to 0 meant
+ * every uncalibrated phone played with no latency compensation at all.
+ */
+export function getStoredCalibration(): number | null {
+  const value = read<number | null>(CALIBRATION_KEY, null);
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+export function getCalibration(): number {
+  return getStoredCalibration() ?? 0;
+}
+
+export function setCalibration(seconds: number): void {
+  write(CALIBRATION_KEY, seconds);
+}
+
+function scoreKey(songId: string, difficulty: DifficultyName): string {
+  return `${songId}:${difficulty}`;
+}
+
+export function getBestScore(songId: string, difficulty: DifficultyName): BestScore | null {
+  const all = read<Record<string, BestScore>>(SCORES_KEY, {});
+  return all[scoreKey(songId, difficulty)] ?? null;
+}
+
+/** Records the run if it beats the stored best. Returns true when it did. */
+export function recordScore(
+  songId: string,
+  difficulty: DifficultyName,
+  result: BestScore,
+): boolean {
+  const all = read<Record<string, BestScore>>(SCORES_KEY, {});
+  const key = scoreKey(songId, difficulty);
+  const previous = all[key];
+  if (previous && previous.score >= result.score) return false;
+
+  all[key] = result;
+  write(SCORES_KEY, all);
+  return true;
+}
+
+// --- favorites -------------------------------------------------------------
+
+/**
+ * Starred songs, per device.
+ *
+ * Deliberately local rather than a field on the beatmap. That means favorites
+ * do **not** follow you between desktop and phone — the trade taken knowingly,
+ * because it keeps starring instant and working offline. A server-side flag
+ * would be a PATCH, and the service worker never fakes writes, so it would be
+ * the one library action that failed with no connection.
+ *
+ * Stored as an array because `Set` does not survive `JSON.stringify`, and read
+ * back as one because every caller wants membership tests.
+ */
+export function getFavorites(): Set<string> {
+  const ids = read<unknown>(FAVORITES_KEY, []);
+  return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+}
+
+export function isFavorite(songId: string): boolean {
+  return getFavorites().has(songId);
+}
+
+/** Flips the star. Returns the new state so callers need not re-read. */
+export function toggleFavorite(songId: string): boolean {
+  const favorites = getFavorites();
+  const next = !favorites.has(songId);
+  if (next) favorites.add(songId);
+  else favorites.delete(songId);
+  write(FAVORITES_KEY, [...favorites]);
+  return next;
+}

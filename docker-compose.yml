@@ -1,0 +1,78 @@
+# Tap-Tap — local only.
+#
+#   docker compose up -d --build     start (and keep running across reboots)
+#   docker compose logs -f           watch it
+#   docker compose down              stop; the volume and its songs survive
+#
+# **Do not put this behind a public tunnel or a port-forward.** Ingest drives
+# yt-dlp against YouTube and /media serves whole tracks; both are fine on a
+# machine you own and are not fine on the internet. If you ever do share it,
+# set TAP_TAP_PUBLIC=1 below first — it rejects every write before it reaches a
+# route, and the admin UI hides itself.
+
+services:
+  tap-tap:
+    build: .
+    # Named so `docker compose logs` and `docker exec` are predictable.
+    container_name: tap-tap
+
+    ports:
+      # Published on all host interfaces, which is what lets a phone reach it
+      # over Tailscale — the same reach the app already has when run with
+      # `npm run serve:public`. Change to "127.0.0.1:8787:8787" to restrict it
+      # to this machine alone.
+      #
+      # **This is the same port `npm run dev` uses for its API, and the two
+      # cannot both have it.** On Windows Docker does not always refuse the
+      # bind; it publishes anyway and the host quietly routes to whichever got
+      # there first. The symptom is this container appearing to serve a 404 at
+      # `/` — which is actually the dev server answering, since `npm run dev`
+      # passes --no-web. Stop one before starting the other, or move this to
+      # e.g. "8789:8787" to run both.
+      - '8787:8787'
+
+    volumes:
+      # The whole persistent state of the app: audio, thumbnails, beatmaps,
+      # cached analysis, waveforms and custom themes. A *named* volume rather
+      # than a bind mount to ./server/media — bind mounts onto a Windows host
+      # are markedly slower for the many-small-file access the library does, and
+      # this data is not something you edit by hand.
+      #
+      # Seed it from an existing library, or pull one back out:
+      #
+      #   docker cp ./server/media/. tap-tap:/data/
+      #   MSYS_NO_PATHCONV=1 docker exec -u root tap-tap chown -R node:node /data
+      #   docker cp tap-tap:/data ./media-backup
+      #
+      # The chown matters: `docker cp` lands files as root, and the app runs as
+      # `node`, so without it reads work and every write — ingest, regenerate,
+      # theme edits — fails. `MSYS_NO_PATHCONV=1` is a Git Bash quirk; it stops
+      # /data being rewritten into a Windows path before Docker sees it.
+      - tap-tap-data:/data
+
+    environment:
+      # Read at module load by storage.ts. Must match the mount above.
+      MEDIA_DIR: /data
+      # The server binds this, deliberately *not* PORT — a generic PORT in the
+      # environment gets applied to Vite too when both run together.
+      TAP_TAP_SERVER_PORT: '8787'
+      # Admin enabled, matching how the app runs locally today. Set to 1 to make
+      # the whole write surface read-only.
+      TAP_TAP_PUBLIC: '0'
+
+    # The point of running it this way: it comes back after a crash and after a
+    # reboot, without anyone starting it by hand. `unless-stopped` rather than
+    # `always` so an explicit `docker compose stop` is respected.
+    restart: unless-stopped
+
+    healthcheck:
+      # Hits a real route rather than the port, so a wedged Node process that is
+      # still listening is reported as unhealthy instead of fine.
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8787/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  tap-tap-data:

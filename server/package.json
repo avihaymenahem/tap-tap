@@ -1,0 +1,26 @@
+{
+  "name": "@tap-tap/server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts --no-web",
+    "dev:public": "tsx watch src/index.ts --public --no-web",
+    "start": "tsx src/index.ts",
+    "start:public": "tsx src/index.ts --public",
+    "ingest": "tsx src/cli/ingest.ts"
+  },
+  "dependencies": {
+    "@tap-tap/shared": "*",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "ffmpeg-static": "^5.2.0",
+    "youtube-dl-exec": "^3.0.22"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.1",
+    "tsx": "^4.19.2"
+  }
+}

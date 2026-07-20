@@ -1,0 +1,11 @@
+node_modules/
+dist/
+# tsc output for the service worker's separate program. Not matched by `dist/`.
+dist-sw/
+.venv/
+__pycache__/
+*.pyc
+server/media/
+*.db
+.DS_Store
+.env

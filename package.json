@@ -1,0 +1,29 @@
+{
+  "name": "tap-tap",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "dev:public": "concurrently -n server,web -c cyan,magenta \"npm:dev:server:public\" \"npm:dev:web\"",
+    "dev:server:public": "npm run dev:public -w server",
+    "build": "npm run build -w web && npm run build:sw -w web",
+    "build:sw": "npm run build:sw -w web",
+    "icons": "tsx scripts/make-icons.ts",
+    "serve:public": "npm run build && npm run start:public -w server",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

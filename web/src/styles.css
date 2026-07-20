@@ -1,0 +1,2252 @@
+:root {
+  --bg: #07030f;
+  --bg-raised: #150a26;
+  --bg-card: #1d0f33;
+  --text: #f4ecff;
+  --muted: #a99bc4;
+  --pink: #ff2e88;
+  --cyan: #00e5ff;
+  --yellow: #ffd60a;
+  --violet: #9d4edd;
+  --mint: #00ff9d;
+  --danger: #ff4d6d;
+
+  --radius: 18px;
+  --radius-sm: 12px;
+  --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  /*
+   * Where the sunset's horizon sits, measured up from the bottom. The grid, the
+   * sun, the horizon line and the sky gradient all key off this one number —
+   * moving it moves the whole scene together instead of leaving the sun
+   * floating over the floor.
+   *
+   * High on purpose. At a poster-like 50% the sun lands squarely behind the
+   * song list and reads as a smudge; up here the sky occupies the header strip,
+   * where nothing competes with it, and the grid gets the rest. The scene is
+   * legible exactly where the UI is empty.
+   */
+  --horizon: 78%;
+
+  /* Panels float over the sunset rather than hiding it, so their fill is a
+     translucent tint. Named because a dozen surfaces need to agree. */
+  --panel: rgba(29, 15, 51, 0.72);
+  --panel-solid: rgba(23, 12, 41, 0.94);
+  --edge: rgba(255, 46, 136, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* --- retro backdrop -------------------------------------------------------
+   The 80s sunset behind every screen except play and edit. One fixed layer,
+   pure CSS, no assets. Everything here is decoration: it never takes pointer
+   events, and the scrim on top keeps it from competing with the content. */
+
+.retro-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    #08021a 0%,
+    #1c0536 45%,
+    #4d0c4e calc(100% - var(--horizon)),
+    #170634 calc(100% - var(--horizon) + 1%),
+    #07030f 100%
+  );
+}
+
+.retro-bg__stars {
+  position: absolute;
+  inset: 0 0 var(--horizon);
+  /* One tile of scattered dots, repeated. Cheaper than a hundred elements and
+     it never lands on a regular lattice at this tile size. */
+  background-image:
+    radial-gradient(1.4px 1.4px at 24px 38px, rgba(255, 255, 255, 0.9), transparent),
+    radial-gradient(1.2px 1.2px at 142px 96px, rgba(255, 255, 255, 0.75), transparent),
+    radial-gradient(1.6px 1.6px at 76px 168px, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1px 1px at 196px 22px, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1.3px 1.3px at 108px 128px, rgba(255, 214, 250, 0.8), transparent),
+    radial-gradient(1px 1px at 178px 190px, rgba(255, 255, 255, 0.55), transparent);
+  background-size: 230px 230px;
+  opacity: 0.55;
+  animation: retro-twinkle 5.5s ease-in-out infinite;
+}
+
+.retro-bg__sun {
+  position: absolute;
+  left: 50%;
+  bottom: var(--horizon);
+  width: min(30vw, 18rem);
+  aspect-ratio: 1;
+  /* Half-sunk: the disc's centre sits a little above the horizon, so what shows
+     is the classic setting sun rather than a circle resting on a line. */
+  transform: translate(-50%, 32%);
+  border-radius: 50%;
+  /*
+   * Pink the whole way up rather than the poster's yellow core. Behind a
+   * translucent song card the warm yellows turn beige and read as a rendering
+   * smudge; pink stays recognisably a sun through the panel.
+   */
+  background: linear-gradient(
+    to bottom,
+    #ffd9e8 0%,
+    #ff8cc4 24%,
+    #ff5fa8 52%,
+    #ff2e88 76%,
+    #a3155a 100%
+  );
+  /* Two mask layers that union: the first keeps the top solid, the second cuts
+     the slit bands. Compositing them additively means the bands in the upper
+     region fall on already-solid pixels and change nothing. */
+  -webkit-mask-image:
+    linear-gradient(to bottom, #000 0 46%, transparent 46%),
+    repeating-linear-gradient(to bottom, #000 0 9px, transparent 9px 15px);
+  mask-image:
+    linear-gradient(to bottom, #000 0 46%, transparent 46%),
+    repeating-linear-gradient(to bottom, #000 0 9px, transparent 9px 15px);
+  filter: drop-shadow(0 0 90px rgba(255, 46, 136, 0.7));
+  opacity: 1;
+}
+
+/*
+ * The lit horizon line. This, more than the sun, is what makes the scene read
+ * as a sunset once panels are covering most of the screen — a hard bright line
+ * survives being seen through a translucent card, where a soft disc does not.
+ */
+.retro-bg__horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--horizon);
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(255, 143, 200, 0.9) 22%,
+    #fff 50%,
+    rgba(255, 143, 200, 0.9) 78%,
+    transparent
+  );
+  box-shadow: 0 0 30px 8px rgba(255, 46, 136, 0.55), 0 0 90px 30px rgba(255, 46, 136, 0.25);
+}
+
+.retro-bg__grid {
+  position: absolute;
+  /* Overhangs both edges: the perspective transform fans the far end outward,
+     and a grid that stopped at the viewport would show two hard vertical cuts. */
+  left: -60%;
+  right: -60%;
+  bottom: 0;
+  height: calc(100% - var(--horizon));
+  background-image:
+    repeating-linear-gradient(to right, rgba(255, 46, 136, 0.85) 0 2px, transparent 2px 60px),
+    repeating-linear-gradient(to bottom, rgba(0, 229, 255, 0.6) 0 2px, transparent 2px 84px);
+  /* A shallower tilt and a longer focal length. The obvious extreme values
+     (perspective 240px / rotateX 66deg) crush the whole floor into a band at
+     the very bottom and leave a dead gap under the horizon. */
+  transform: perspective(520px) rotateX(68deg);
+  transform-origin: center top;
+  /* Fades the lines into the horizon so the floor recedes instead of ending. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 20%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 20%);
+  animation: retro-grid-scroll 5s linear infinite;
+}
+
+/*
+ * Sits over the whole scene and darkens it. Without this the grid lines read
+ * straight through the song list and the sun competes with the Play button —
+ * the backdrop is meant to set a mood, not to be looked at.
+ */
+.retro-bg__scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(130% 90% at 50% 45%, transparent 0%, rgba(7, 3, 15, 0.45) 100%),
+    linear-gradient(to bottom, rgba(7, 3, 15, 0.12), rgba(7, 3, 15, 0.42));
+}
+
+.retro-bg--dim .retro-bg__sun {
+  opacity: 0.4;
+  filter: none;
+}
+
+.retro-bg--dim .retro-bg__horizon,
+.retro-bg--dim .retro-bg__grid {
+  opacity: 0.45;
+}
+
+/*
+ * On a phone the content fills the viewport edge to edge, and the sun has
+ * nowhere to be legible — it comes out as a small pink nub poking above the
+ * first song card, which reads as a glitch. The sky, the lit horizon and the
+ * grid still carry the theme, so drop the disc rather than shrink it further.
+ */
+@media (max-width: 560px) {
+  .retro-bg__sun {
+    display: none;
+  }
+
+  .retro-bg {
+    --horizon: 70%;
+  }
+}
+
+@keyframes retro-twinkle {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes retro-grid-scroll {
+  to {
+    /* One tile of the horizontal lines. Any other distance visibly jumps when
+       the animation loops. */
+    background-position: 0 0, 0 84px;
+  }
+}
+
+/* Motion here is pure decoration, so it is the first thing to go. */
+@media (prefers-reduced-motion: reduce) {
+  .retro-bg__stars,
+  .retro-bg__grid {
+    animation: none;
+  }
+}
+
+/* Screens paint over the backdrop, never under it. */
+.menu,
+.results,
+.calibration,
+.admin {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- neon type -------------------------------------------------------------
+   Screen titles read as signage: uppercase, tracked out, lit from behind.
+   Body copy is deliberately left alone — a glow on a paragraph is unreadable,
+   and the effect only lands if it stays rare. */
+
+.admin__header h1,
+.calibration__card h1,
+.results__card h1,
+.menu__detail h2 {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 18px rgba(0, 229, 255, 0.45);
+}
+
+/* The song title is the exception: it is data, not a label, so it keeps its
+   own case and only borrows the glow. */
+.menu__detail h2 {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 2.1rem;
+  padding: 0.35rem 0.5rem;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-bottom-width: 4px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.error-text {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.warning {
+  color: var(--yellow);
+}
+
+/* --- buttons -------------------------------------------------------------- */
+
+.btn {
+  /* inline-flex so buttons can carry a leading icon beside their label. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1.4rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: linear-gradient(120deg, var(--pink), var(--violet));
+  /* Two shadows: a tight one that reads as the tube's own light, and a wide
+     soft one for the haze around it. A single blur gives neither. */
+  box-shadow: 0 0 18px rgba(255, 46, 136, 0.5), 0 10px 34px rgba(255, 46, 136, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: linear-gradient(120deg, var(--pink), var(--cyan));
+  box-shadow: 0 0 26px rgba(0, 229, 255, 0.55), 0 14px 40px rgba(255, 46, 136, 0.4);
+}
+
+.btn--ghost {
+  background: transparent;
+  border: 2px solid rgba(0, 229, 255, 0.35);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  border-color: var(--cyan);
+  background: rgba(0, 229, 255, 0.1);
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.25);
+}
+
+.btn--danger {
+  background: rgba(255, 77, 109, 0.18);
+  color: var(--danger);
+}
+
+/* --- header menu ---------------------------------------------------------- */
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 2.9rem;
+  height: 2.9rem;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-2px);
+}
+
+.icon-btn[aria-expanded='true'] {
+  border-color: var(--pink);
+  background: rgba(255, 46, 136, 0.16);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 13rem;
+  padding: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm);
+  background: rgba(29, 15, 51, 0.97);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+}
+
+.dropdown__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.8rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dropdown__item:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.dropdown__state {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dropdown__state--on {
+  color: var(--cyan);
+}
+
+.btn--large {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.2rem;
+}
+
+.btn--small {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+/* --- spinner -------------------------------------------------------------- */
+
+.spinner {
+  width: 38px;
+  height: 38px;
+  border: 4px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--pink);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.load-bar {
+  width: 210px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.load-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cyan), var(--pink));
+  /* Eases the jumps between chunk callbacks, which arrive unevenly. */
+  transition: width 0.25s ease-out;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- menu ----------------------------------------------------------------- */
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 2rem clamp(1rem, 4vw, 3.5rem);
+  overflow: hidden;
+  /* No background of its own any more — the shared sunset shows through. */
+}
+
+.menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+}
+
+.logo {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 900;
+  /* Wide and italic instead of tight: the era's logotypes lean forward and
+     breathe. The gradient fills clip to the text, so the glow has to come from
+     a drop-shadow filter — text-shadow paints under transparent glyphs and
+     would show nothing at all here. */
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  font-style: italic;
+  filter: drop-shadow(0 0 14px rgba(255, 46, 136, 0.55))
+    drop-shadow(0 0 30px rgba(0, 229, 255, 0.28));
+}
+
+.logo__tap {
+  background: linear-gradient(120deg, var(--pink), var(--yellow));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.logo__tap--alt {
+  background: linear-gradient(120deg, var(--cyan), var(--mint));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.logo__dot {
+  color: var(--violet);
+  margin: 0 0.15em;
+}
+
+.menu__actions {
+  position: relative;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.menu__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: 2rem;
+  min-height: 0;
+  flex: 1;
+}
+
+.menu__empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+/* Column wrapper keeps the search pinned while only the list scrolls. */
+.song-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.75rem;
+}
+
+.search {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.search__input {
+  width: 100%;
+  padding: 0.7rem 2.4rem 0.7rem 1.1rem;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  /* Dark and opaque, not a white wash. A see-through field lets the sunset
+     through the text, which looks like a bug rather than a theme. */
+  background: rgba(10, 4, 24, 0.66);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.search__input::placeholder {
+  color: var(--muted);
+}
+
+.search__input:focus {
+  outline: none;
+  border-color: var(--cyan);
+}
+
+/* Hide the browser's own clear affordance; we render our own. */
+.search__input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.search__clear {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  width: 1.7rem;
+  height: 1.7rem;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search__clear:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.search__empty {
+  padding: 1.5rem 0.25rem;
+}
+
+.song-list {
+  margin: 0;
+  padding: 0 0.5rem 0 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.song-card {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 0.7rem;
+  padding: 0.7rem;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.song-card:hover {
+  transform: translateX(4px);
+  border-color: rgba(0, 229, 255, 0.4);
+  background: rgba(35, 18, 62, 0.82);
+  box-shadow: 0 0 22px rgba(0, 229, 255, 0.18);
+}
+
+.song-card--active {
+  border-color: var(--pink);
+  background: rgba(45, 20, 70, 0.85);
+  box-shadow: 0 0 26px rgba(255, 46, 136, 0.3);
+}
+
+.song-card__art {
+  width: 76px;
+  height: 76px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.song-card__art--blank {
+  background: linear-gradient(135deg, var(--violet), var(--cyan));
+}
+
+.song-card__text {
+  min-width: 0;
+}
+
+.song-card__title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-card__meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.menu__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel-solid);
+  box-shadow: 0 0 40px rgba(157, 78, 221, 0.18);
+  backdrop-filter: blur(14px);
+  overflow-y: auto;
+}
+
+.menu__detail h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.difficulty-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.difficulty {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.difficulty__name {
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.difficulty__lanes,
+.difficulty__notes {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.difficulty--easy.difficulty--active {
+  border-color: var(--mint);
+  background: rgba(0, 255, 157, 0.1);
+}
+
+.difficulty--medium.difficulty--active {
+  border-color: var(--yellow);
+  background: rgba(255, 214, 10, 0.1);
+}
+
+.difficulty--hard.difficulty--active {
+  border-color: var(--pink);
+  background: rgba(255, 46, 136, 0.12);
+}
+
+.best-score {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.best-score__value {
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.grade {
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.grade--large {
+  font-size: 5.5rem;
+}
+
+.grade--S { color: var(--cyan); }
+.grade--A { color: var(--mint); }
+.grade--B { color: var(--yellow); }
+.grade--C { color: #ff9f45; }
+.grade--D { color: var(--pink); }
+.grade--F { color: var(--danger); }
+
+/* --- play ----------------------------------------------------------------- */
+
+.play {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #05010f;
+}
+
+.play__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.play__progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.play__progress-bar {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--pink), var(--cyan));
+}
+
+.play__hud {
+  position: absolute;
+  top: 1.5rem;
+  left: 0;
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0 clamp(1rem, 4vw, 3rem);
+  pointer-events: none;
+}
+
+.play__hud-right {
+  text-align: right;
+}
+
+.hud-label {
+  color: var(--cyan);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  /* Faint on purpose. The label is signage; the number is the reading. */
+  text-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+  opacity: 0.75;
+}
+
+.hud-score,
+.hud-accuracy {
+  font-size: 2rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  /* Lifts the numbers off a busy grid without the weight of a solid plate
+     behind them, which would sit on the scene like a sticker. */
+  text-shadow: 0 0 18px rgba(255, 46, 136, 0.55), 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.play__combo {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 3.4rem;
+  font-weight: 900;
+  color: var(--yellow);
+  text-shadow: 0 0 26px rgba(255, 214, 10, 0.6);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.play__judgement {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.9rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 22px currentColor;
+  pointer-events: none;
+}
+
+.play__timing {
+  position: absolute;
+  top: 47.5%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  pointer-events: none;
+}
+
+.play__countdown {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 7rem;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 0 60px rgba(157, 78, 221, 0.9);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.play__pause-btn {
+  position: absolute;
+  top: 1.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3rem;
+  height: 3rem;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  background: rgba(10, 4, 24, 0.55);
+  color: var(--text);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: transform 0.12s ease, background 0.15s ease;
+}
+
+.play__pause-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateX(-50%) scale(1.08);
+}
+
+.pause-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+/*
+ * Deliberately quieter than the pause actions beside it. This adjusts a setting
+ * rather than the run, so it should read as secondary — and a tap target that
+ * looks like Resume sitting next to Quit invites the wrong one being hit.
+ */
+.pause-setting {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.pause-setting:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.play__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  text-align: center;
+  background: rgba(5, 1, 15, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.play__overlay h2 {
+  margin: 0;
+  font-size: clamp(1.4rem, 4vw, 2.2rem);
+}
+
+.keycaps {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* --- results -------------------------------------------------------------- */
+
+/**
+ * Scrolls itself, and centres with auto margins rather than `align-items`.
+ *
+ * Both halves matter and neither is optional. `body` is `overflow: hidden` —
+ * correct, the play screen must never scroll — so nothing above this can rescue
+ * content that does not fit; this element has to do it. And a flex container
+ * that centres with `align-items: center` crops an over-tall child at *both*
+ * ends, putting its top above the scroll origin where no amount of scrolling
+ * reaches it. On a 375x812 phone that left the card at top: -12px, permanently.
+ * `margin: auto` on the child centres identically while still allowing the
+ * start edge to be scrolled to.
+ */
+.results {
+  display: flex;
+  justify-content: center;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2rem;
+}
+
+.results__card {
+  margin: auto;
+  width: min(30rem, 100%);
+  padding: 2.5rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel-solid);
+  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.06), 0 22px 60px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(14px);
+  text-align: center;
+}
+
+.results__card h1 {
+  margin: 0.2rem 0 1rem;
+  font-size: 1.4rem;
+}
+
+.results__best {
+  margin: 0.2rem 0;
+  color: var(--yellow);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.results__score {
+  margin-top: 0.5rem;
+  font-size: 2.8rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.results__breakdown {
+  margin: 1.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.results__breakdown li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.results__label {
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  font-size: 0.9rem;
+}
+
+.results__count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.results__subhead {
+  margin: 0.5rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.timing-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.timing-bar__head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.timing-bar__track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.timing-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.results__advice {
+  margin: 0.5rem 0 1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: rgba(124, 196, 255, 0.12);
+  color: #7cc4ff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.results__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+/**
+ * Phone layout for the scorecard.
+ *
+ * The card was 835px tall in an 812px viewport, so it overflowed before a single
+ * pixel of chrome was accounted for. Shrinking type alone would not have done
+ * it — the win is structural: the four-row tier breakdown becomes a 2x2 grid,
+ * which halves the tallest block on the card, and the TIMING heading goes since
+ * three labelled bars do not need announcing.
+ *
+ * The grade stays the largest thing on screen. It is the one number a player
+ * looks for, and the whole point of the screen is that it reads at a glance.
+ */
+@media (max-width: 560px) {
+  .results {
+    padding: 1rem 0.75rem;
+  }
+
+  .results__card {
+    padding: 1.35rem 1.1rem;
+  }
+
+  .results__card h1 {
+    margin: 0.15rem 0 0.6rem;
+    font-size: 1.15rem;
+  }
+
+  .grade--large {
+    font-size: 3.6rem;
+  }
+
+  .results__score {
+    margin-top: 0.25rem;
+    font-size: 2.1rem;
+  }
+
+  /* Two columns: four stacked rows were the single tallest block here. */
+  .results__breakdown {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 1rem;
+    margin: 0.9rem 0;
+  }
+
+  .results__breakdown li {
+    padding: 0.3rem 0;
+  }
+
+  .results__label {
+    font-size: 0.8rem;
+  }
+
+  /* Three labelled bars are self-evidently the timing section. */
+  .results__subhead {
+    display: none;
+  }
+
+  .timing-bars {
+    gap: 0.4rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .timing-bar__head {
+    font-size: 0.8rem;
+    margin-bottom: 0.15rem;
+  }
+
+  .results__advice {
+    margin: 0.4rem 0 0.8rem;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.85rem;
+  }
+
+  .results__actions {
+    gap: 0.5rem;
+  }
+}
+
+/* The sheet's dismiss button exists only on mobile, where the detail panel is a
+   fixed overlay. On desktop it is a column beside the list — nothing covers
+   anything, so there is nothing to hide and the control would be a dead end.
+   Hidden here and re-shown inside the mobile media query. */
+.menu__detail-close {
+  display: none;
+}
+
+/* --- favorites + menu sorting --------------------------------------------- */
+
+.song-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0 0.5rem;
+}
+
+.song-tools__sort {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.song-tools .admin__select {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.82rem;
+}
+
+.song-tools__only {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.song-tools__only--on {
+  border-color: rgba(255, 214, 10, 0.5);
+  color: var(--yellow);
+}
+
+.song-row {
+  position: relative;
+}
+
+/* Overlaid on the card rather than inside it — the card is a <button>, and
+   nesting one button in another is invalid and breaks activation. */
+.song-row__star {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  translate: 0 -50%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  /* Comfortably past the 44px touch-target minimum, since it sits right next
+     to the much larger tap target for playing the song. */
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+}
+
+.song-row__star:hover {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.song-row__star--on {
+  color: var(--yellow);
+}
+
+.song-row__star--on svg {
+  fill: currentColor;
+}
+
+/* Keep the title clear of the star. */
+.song-row .song-card__text {
+  padding-right: 2.4rem;
+}
+
+/* --- offline ---------------------------------------------------------------
+   Shown only while the browser reports no connection, so these are allowed to
+   be prominent — when they are visible they are the most important thing on
+   the screen. */
+
+.menu__offline {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 214, 10, 0.12);
+  color: var(--yellow);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.song-card__offline {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+  color: var(--mint);
+}
+
+/* Faded rather than disabled: `navigator.onLine` describes the link, not
+   reachability, so it is not a good enough reason to refuse the tap. */
+.song-card--unavailable {
+  opacity: 0.42;
+}
+
+/* --- calibration ---------------------------------------------------------- */
+
+/* Same centring rule as `.results`, and for the same reason — see the comment
+   there. This card fits today at 655px, but it grows when the bad-calibration
+   warning appears, and `align-items: center` would then put its top out of
+   reach rather than merely clipping it. Cheap to make correct now. */
+.calibration {
+  display: flex;
+  justify-content: center;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2rem;
+}
+
+.calibration__card {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+  width: min(28rem, 100%);
+  padding: 2.5rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel-solid);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(14px);
+  text-align: center;
+}
+
+.calibration__card h1 {
+  margin: 0;
+}
+
+/*
+ * Big on purpose. This is tapped a dozen times in rhythm, so it has to be
+ * hittable without looking at it — the moment the player is aiming rather than
+ * listening, they are measuring their aim instead of their latency.
+ */
+.calibration__pad {
+  width: 100%;
+  min-height: 190px;
+  margin: 0.4rem 0 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 20px;
+  background: linear-gradient(160deg, rgba(255, 61, 168, 0.16), rgba(0, 224, 255, 0.14));
+  color: #fff;
+  font: inherit;
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  cursor: pointer;
+  /* Kills the double-tap-to-zoom delay; a 300ms wait would be measured as
+     latency that is not there. */
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  /* Repeated fast tapping otherwise paints a grey flash over the pad. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.calibration__pad:active {
+  border-color: var(--cyan);
+  background: linear-gradient(160deg, rgba(255, 61, 168, 0.3), rgba(0, 224, 255, 0.26));
+}
+
+.calibration__meter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 1.2rem 0;
+}
+
+.calibration__count {
+  font-size: 2rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration__offset {
+  color: var(--cyan);
+  font-size: 1.4rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration__saved {
+  color: var(--mint);
+  font-weight: 700;
+}
+
+.calibration__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+/* Three buttons in a narrow card otherwise break their labels across lines,
+   which reads as a layout bug. Let the row wrap instead of the words. */
+.calibration__actions .btn {
+  white-space: nowrap;
+  padding-inline: 1.1rem;
+}
+
+/* --- admin ---------------------------------------------------------------- */
+
+.admin {
+  height: 100%;
+  padding: 2rem clamp(1rem, 4vw, 3.5rem);
+  overflow-y: auto;
+}
+
+.admin__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.admin__header h1 {
+  margin: 0;
+}
+
+.admin__form {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Three of these sit on every song row, so the 2.9rem default is far too big. */
+.icon-btn--small {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-width: 1px;
+}
+
+.song-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+/* Row menus open under a small button near the right edge, so they hang from
+   it rather than filling the width the way the header dropdown does. */
+.dropdown--row {
+  min-width: 15rem;
+}
+
+/* The header dropdown pushes a state label to the far edge; these are
+   icon-then-label, so they read left to right instead. */
+.dropdown--row .dropdown__item {
+  justify-content: flex-start;
+  gap: 0.6rem;
+}
+
+.dropdown__item--danger {
+  color: var(--danger);
+}
+
+.dropdown__item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dropdown__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.6rem 0.7rem;
+}
+
+.dropdown__confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.warning {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.search--with-icon .search__input {
+  padding-left: 2.4rem;
+}
+
+.search__icon {
+  position: absolute;
+  top: 50%;
+  left: 0.9rem;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* Keeps a section's action button on the heading's baseline. */
+.admin__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.admin__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+/* Search takes the slack; the sort control stays its natural width. */
+.admin__tools .search {
+  flex: 1 1 240px;
+}
+
+.admin__sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin__select {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(10, 4, 24, 0.66);
+  color: #fff;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+/* The list renders on a dark panel, but native option menus are drawn by the
+   OS — without this the text comes out white-on-white on some platforms. */
+.admin__select option {
+  background: #1b1030;
+  color: #fff;
+}
+
+.admin__header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* --- theme editor ------------------------------------------------------- */
+
+/* Needs the z-index because App suppresses RetroBackdrop here, but the rule in
+   CLAUDE.md still applies to anything that might sit behind it. */
+.themes {
+  position: relative;
+  z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+
+.themes__body {
+  display: grid;
+  grid-template-columns: minmax(190px, 240px) 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 780px) {
+  .themes__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.themes__list ul {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.themes__item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--panel);
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.themes__item--active {
+  border-color: rgba(255, 46, 136, 0.65);
+  box-shadow: 0 0 0 1px rgba(255, 46, 136, 0.3);
+}
+
+.themes__item-name {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.themes__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* The preview is the point of this screen, so it gets the space. Colours are
+   tone-mapped and bloom-thresholded — swatches genuinely cannot show that. */
+.theme-preview {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  background: #05010d;
+}
+
+.theme-preview__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.theme-preview__failed {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 0.5rem 0.75rem;
+  background: rgba(10, 4, 24, 0.85);
+}
+
+.themes__locked {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.themes__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.themes__group {
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  padding: 0.85rem 1rem 1rem;
+  background: var(--panel);
+  margin: 0;
+}
+
+.themes__group legend {
+  padding: 0 0.4rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.themes__group p {
+  margin: 0 0 0.75rem;
+}
+
+.themes__swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+}
+
+.themes__sky-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.75rem;
+}
+
+.themes__colour {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.themes__colour--labelled {
+  align-items: flex-start;
+}
+
+/* Native colour inputs are chrome-heavy by default; strip them back so the
+   colour itself is the control. No dependency needed for a colour picker. */
+.themes__colour input[type='color'] {
+  width: 48px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.themes__colour input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 3px;
+}
+
+.themes__colour input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 5px;
+}
+
+.themes__colour input[type='color']:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.themes__field--wide {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.themes__problems {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.themes__problems li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.themes__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.btn--danger {
+  color: #ff8095;
+}
+
+/* Per-song palette picker. The swatch strip is the control that matters — the
+   dropdown only names what the colours already show. */
+.theme-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.theme-picker__swatches {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 7px;
+  background: rgba(10, 4, 24, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.theme-picker__swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+}
+
+/* Smaller than the sort control: this repeats on every row, and at full size a
+   library page reads as a wall of dropdowns rather than a list of songs. */
+.theme-picker .admin__select {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.admin__input {
+  flex: 1;
+  padding: 0.85rem 1.2rem;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  background: rgba(10, 4, 24, 0.66);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.admin__input:focus {
+  outline: none;
+  border-color: var(--pink);
+}
+
+.admin__section {
+  margin-bottom: 2rem;
+}
+
+.admin__section h2 {
+  font-size: 1.1rem;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.job-list,
+.admin-song-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.job {
+  display: grid;
+  grid-template-columns: 8rem 1fr auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.7rem 1rem;
+  margin-bottom: 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  font-size: 0.9rem;
+}
+
+.job__status {
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  color: var(--cyan);
+}
+
+.job--done .job__status { color: var(--mint); }
+.job--error .job__status { color: var(--danger); }
+
+.job__url {
+  color: var(--muted);
+  font-size: 0.75rem;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-song {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+}
+
+/**
+ * Lift the row whose overflow menu is open above the rows below it.
+ *
+ * The menu's own `z-index: 20` cannot do this. `backdrop-filter` on `.admin-song`
+ * creates a stacking context per row, so that 20 is scoped *inside* the row and
+ * has no say against its siblings — later rows simply paint after it and cover
+ * the menu. Raising the z-index further changes nothing; the value was never the
+ * problem, the containment was.
+ *
+ * `:has()` rather than a React `isOpen` class so the menu stays self-contained:
+ * SongActions owns whether it is open, and nothing has to thread that back up to
+ * the <li>. Only the open row is lifted, so rows keep their normal order.
+ */
+.admin-song:has(.dropdown) {
+  position: relative;
+  z-index: 30;
+}
+
+.admin-song__title {
+  font-weight: 700;
+}
+
+.admin-song__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.admin-song__edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+}
+
+.admin-song__edit .admin__input {
+  flex: 1 1 12rem;
+}
+
+.admin__input--small {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+/* --- editor --------------------------------------------------------------- */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #07030f;
+}
+
+.editor__bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.editor__title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.editor__title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor__transport {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.editor__time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  color: var(--pink);
+  min-width: 5.5rem;
+  text-align: right;
+}
+
+.editor__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.editor__tool {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.editor__tool select,
+.editor__tool input[type='range'] {
+  font-family: inherit;
+}
+
+.editor__tool select {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-transform: none;
+}
+
+.editor__tool--check {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.editor__hint {
+  margin-left: auto;
+}
+
+.editor__error {
+  padding: 0 1rem;
+}
+
+.editor__canvas {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+/* --- mobile ---------------------------------------------------------------
+   The detail panel becomes a bottom sheet rather than stacking above the list:
+   stacking pushes the songs off-screen, and the controls you actually press
+   belong within thumb reach. */
+
+@media (max-width: 860px) {
+  .menu {
+    padding: 1rem 1rem 0;
+  }
+
+  .menu__header {
+    margin-bottom: 1rem;
+  }
+
+  .logo {
+    font-size: 2rem;
+  }
+
+  .icon-btn {
+    width: 2.6rem;
+    height: 2.6rem;
+  }
+
+  .icon-btn:hover {
+    transform: none;
+  }
+
+  .menu__body {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .song-column {
+    min-height: 0;
+    gap: 0.6rem;
+  }
+
+  .song-list {
+    padding-right: 0;
+    /* Clear the sheet, plus the home indicator on iOS. */
+    padding-bottom: calc(19rem + env(safe-area-inset-bottom, 0px));
+    transition: padding-bottom 0.24s ease;
+  }
+
+  /* Dismissing the sheet has to give the space back, or hiding it would only
+     trade a covered list for a short one with a gap under it. */
+  .song-column:has(.menu__detail--hidden) .song-list,
+  .menu__body:has(.menu__detail--hidden) .song-list {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .song-card {
+    padding: 0.6rem;
+    margin-bottom: 0.55rem;
+  }
+
+  .song-card__art {
+    width: 58px;
+    height: 58px;
+  }
+
+  .song-card:hover {
+    transform: none;
+  }
+
+  .menu__detail {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* Must outrank the favorite stars, which carry `z-index: 2` to sit above
+       their own card. Without this the sheet is `z-index: auto` and the stars
+       of the rows underneath punch straight through it — visibly, as loose
+       stars floating over the title and the PLAY button. */
+    z-index: 5;
+    gap: 0.7rem;
+    max-height: 60vh;
+    padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 22px 22px 0 0;
+    background: rgba(23, 12, 41, 0.94);
+    box-shadow: 0 -18px 44px rgba(0, 0, 0, 0.6);
+    transition: transform 0.24s ease;
+  }
+
+  /* Slid off-screen rather than `display: none`, so it animates both ways and
+     nothing reflows underneath it. `pointer-events` because a translated element
+     is still hittable where it used to be. */
+  .menu__detail--hidden {
+    transform: translateY(110%);
+    pointer-events: none;
+  }
+
+  .menu__detail-close {
+    /* Overlaid rather than in flow: the sheet is a tight vertical budget and a
+       row of its own would cost more than the button is worth. */
+    position: absolute;
+    top: 0.35rem;
+    right: 0.5rem;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .menu__detail h2 {
+    font-size: 1.05rem;
+    /* Clear of the close button. */
+    padding-right: 2.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Difficulties become three side-by-side chips to save vertical space. */
+  .difficulty-picker {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .difficulty {
+    flex: 1;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 0.1rem;
+    padding: 0.6rem 0.3rem;
+    text-align: center;
+  }
+
+  .difficulty__lanes {
+    font-size: 0.7rem;
+  }
+
+  .difficulty__notes {
+    font-size: 0.7rem;
+  }
+
+  .best-score {
+    padding: 0.6rem 0.9rem;
+  }
+
+  .best-score .grade {
+    font-size: 1.5rem;
+  }
+
+  .btn--large {
+    padding: 0.9rem;
+  }
+
+  /* --- in-game --- */
+
+  .play__hud {
+    top: 0.9rem;
+    padding: 0 1rem;
+  }
+
+  .hud-score,
+  .hud-accuracy {
+    font-size: 1.3rem;
+  }
+
+  .play__combo {
+    top: 22%;
+    font-size: 2.4rem;
+  }
+
+  .play__judgement {
+    font-size: 1.3rem;
+  }
+
+  .play__countdown {
+    font-size: 5rem;
+  }
+
+  .play__pause-btn {
+    top: 0.8rem;
+    width: 2.6rem;
+    height: 2.6rem;
+  }
+
+  .results__card,
+  .calibration__card {
+    padding: 1.5rem;
+  }
+
+  .grade--large {
+    font-size: 4rem;
+  }
+
+  .admin__form {
+    flex-direction: column;
+  }
+
+  .admin-song {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .job {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .job__url {
+    max-width: 100%;
+  }
+}
