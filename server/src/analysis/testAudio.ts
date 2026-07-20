@@ -130,6 +130,48 @@ export function alternatingClicks({
   return { pcm, sampleRate, lowTimes, highTimes };
 }
 
+/**
+ * Clicks at deterministic pseudo-random times — audio with plenty of onsets
+ * and no tempo at all. The negative fixture for confidence: whatever grid the
+ * estimator settles on here is wrong by construction, and confidence must say
+ * so. Seeded LCG rather than Math.random so a failure reproduces.
+ */
+export function irregularClicks({
+  durationSec,
+  sampleRate = 44100,
+  seed = 1,
+  freqHz = 1000,
+}: {
+  durationSec: number;
+  sampleRate?: number;
+  seed?: number;
+  freqHz?: number;
+}): { pcm: Float32Array; sampleRate: number; clickTimes: number[] } {
+  const pcm = new Float32Array(Math.floor(durationSec * sampleRate));
+  const clickLen = Math.floor(sampleRate * 0.05);
+
+  let state = seed >>> 0;
+  const next = (): number => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+
+  // Random inter-click gaps between 150 and 750ms — dense enough to produce a
+  // rich onset pool, irregular enough that no periodic grid fits it.
+  const clickTimes: number[] = [];
+  for (let t = next() * 0.5; t < durationSec; t += 0.15 + next() * 0.6) {
+    clickTimes.push(t);
+    const start = Math.floor(t * sampleRate);
+    for (let i = 0; i < clickLen && start + i < pcm.length; i++) {
+      const envelope = Math.exp((-40 * i) / sampleRate) * (1 - i / clickLen);
+      pcm[start + i] =
+        pcm[start + i]! + Math.sin((2 * Math.PI * freqHz * i) / sampleRate) * envelope * 0.8;
+    }
+  }
+
+  return { pcm, sampleRate, clickTimes };
+}
+
 /** A steady sine, used to check FFT bin placement. */
 export function sine(freqHz: number, durationSec: number, sampleRate = 44100): Float32Array {
   const pcm = new Float32Array(Math.floor(durationSec * sampleRate));

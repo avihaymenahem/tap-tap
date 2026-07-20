@@ -242,26 +242,52 @@ snapping meant this never *corrupted* charts, but it silently disabled the grid:
 past the first minute nothing agreed with it, so nothing snapped, and the
 on-beat machinery below had nothing to work with.
 
-Two refinements, both in `tempo.ts`:
+Four refinements, all in `tempo.ts`:
 
-1. **Parabolic interpolation** of the winning autocorrelation lag recovers most
-   of the sub-hop period.
-2. **`refineGrid`** then polishes period and phase *jointly* against the ODF —
+1. **The tempo ODF is log-compressed** (locally — the onset detector's swept
+   thresholds see the raw ODF). Raw flux gives a loud chorus several times the
+   weight of a quiet verse, so the autocorrelation described whichever section
+   was loudest, and a grid fitted to one section drifts everywhere else.
+2. **Harmonic aggregation**: each candidate lag is scored by its own
+   autocorrelation plus half the score at double its lag. The true period's
+   whole harmonic family is present; the classic half-period (double-time)
+   error has the doubled peak but not its own, so it loses.
+3. **Parabolic interpolation** of the winning lag recovers most of the sub-hop
+   period.
+4. **`refineGrid`** then polishes period and phase *jointly* against the ODF —
    pick the (period, phase) whose beat positions collect the most onset energy
    per beat. This optimizes the exact quantity charts depend on rather than a
    proxy: an autocorrelation peak is not a parabola, and the vertex alone still
    left ~40ms of end-of-track drift. Measured on 90-second click tracks across
    seven tempos: worst end-of-track drift fell from up to ~350ms to 3–8ms.
 
-**Confidence now measures the grid, not just the periodicity.** Autocorrelation
-prominence answers "does this song have a beat?" — a grid whose tempo is
-slightly wrong scores exactly as well and then walks off the music.
-`gridAlignment` asks the direct question: what fraction of the *stronger half*
-of onsets sit within a tight tolerance of a beat or half-beat, rescaled against
-the chance rate. `bpmConfidence = prominence × (0.35 + 0.65 × alignment)` — the
-floor keeps a genuinely syncopated track from being zeroed by the heuristic,
-and alignment can only lower confidence, never manufacture it. A drifting grid
-now *reports* itself instead of claiming 0.9.
+**Confidence measures the grid, not the autocorrelation.** The first score was
+a z-score of the winning lag against the whole lag field — and real music fails
+that test while having a perfectly good beat, because a rhythmic track
+autocorrelates at *every* harmonic of its tempo, inflating the field the winner
+is judged against. Only a metronome ever scored high; steady real songs
+reported ~0.4, which is where "confidence feels way too low" came from. It is
+now built from three direct measurements of the fitted grid, each covering the
+others' blind spots:
+
+- **Beat contrast** — energy collected per beat vs. the track average. Catches
+  "there is no beat here"; blind on sparse audio, where an overfitted grid
+  towers over a near-silent baseline.
+- **Beat hit rate** — fraction of beats landing on above-average energy.
+  Catches the sparse-overfit case (an irregular-clicks fixture hits ~20% of its
+  beats); blind on dense uniform activity, where contrast is honestly low.
+  `TempoResult.confidence = min(contrast, hitRate)`.
+- **`gridAlignment`** — what fraction of the *stronger half* of onsets sit
+  within a tight tolerance of a beat or half-beat, rescaled against chance.
+  The direct measure of drift, computed in `analyze`:
+  `bpmConfidence = 0.45 × min(contrast, hitRate) + 0.55 × alignment` (contrast
+  path alone when there are too few onsets to judge — `gridAlignment` returns
+  null rather than a fake neutral score). Alignment works in both directions:
+  it rescues a dense track whose contrast is diluted by constant activity, and
+  it condemns a drifting grid regardless of how much energy it collects.
+
+Measured: metronome and kick/hat backbeat fixtures score ~1.0, irregular
+aperiodic clicks ~0.2, a deliberately mis-tempoed grid ~0.25.
 
 `analysis.json` carries an `analysisVersion` stamp, and `regenerateCharts`
 re-analyzes from `audio.m4a` when the stamp is stale (best-effort, one decode
@@ -1337,6 +1363,15 @@ the moment it is deployed publicly or shared. Do not deploy this.
   `analysis.json` now carries `analysisVersion`; Regenerate re-analyzes stale
   files from `audio.m4a` (best-effort), so the library upgrades without
   re-downloading. Regenerating still invalidates stored scores.
+
+- **2026-07-20** — Rebuilt tempo confidence after feedback that it read far too
+  low on solid songs. Root cause: the z-score prominence judged the winning lag
+  against a field inflated by the tempo's own harmonics, so only metronomes
+  scored high. Confidence is now measured off the fitted grid itself — beat
+  contrast, beat hit rate, onset alignment (§2.8) — and the tempo ODF is
+  log-compressed with harmonic lag aggregation, so the estimate stops being
+  dominated by the loudest section and stops falling into double-time. Same
+  `ANALYSIS_VERSION` bump as the precision work; one Regenerate covers both.
 
 ## 10. Open
 

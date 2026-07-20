@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyze, detectOnsets, gridAlignment } from './index.js';
 import { FFT, hannWindow } from './fft.js';
-import { alternatingClicks, clickTrack, sine } from './testAudio.js';
+import { alternatingClicks, clickTrack, irregularClicks, sine } from './testAudio.js';
 import { dominantBand } from '../charts/lanes.js';
 
 const SR = 44100;
@@ -184,7 +184,26 @@ describe('tempo confidence', () => {
     const result = analyze(pcm, SR);
     // Confidence gates snapping and on-grid selection in chart generation at
     // 0.5, so a metronome-perfect track must clear that line comfortably.
+    expect(result.bpmConfidence).toBeGreaterThan(0.7);
+  });
+
+  it('stays high for a realistic backbeat, not just a metronome', () => {
+    // Alternating kick/hat — hits of very different loudness and character on
+    // every beat. The old z-score confidence punished exactly this: real music
+    // autocorrelates at every harmonic of its tempo, inflating the field the
+    // winner was scored against, so steady songs reported ~0.4 "confidence".
+    const { pcm } = alternatingClicks({ bpm: 120, durationSec: 20, sampleRate: SR });
+    const result = analyze(pcm, SR);
+    expect(Math.abs(result.bpm - 120)).toBeLessThan(0.5);
     expect(result.bpmConfidence).toBeGreaterThan(0.5);
+  });
+
+  it('is low for aperiodic audio', () => {
+    // Clicks at irregular times: plenty of onsets, no tempo. Whatever grid the
+    // estimator settles on, both contrast and alignment must call it out.
+    const { pcm } = irregularClicks({ durationSec: 20, sampleRate: SR, seed: 7 });
+    const result = analyze(pcm, SR);
+    expect(result.bpmConfidence).toBeLessThan(0.4);
   });
 });
 
@@ -211,8 +230,8 @@ describe('gridAlignment', () => {
     expect(gridAlignment(onsets, grid)).toBeLessThan(0.3);
   });
 
-  it('stays neutral when there is too little evidence to judge', () => {
-    expect(gridAlignment([onset(1)], grid)).toBe(1);
-    expect(gridAlignment([], [])).toBe(1);
+  it('declines to judge when there is too little evidence', () => {
+    expect(gridAlignment([onset(1)], grid)).toBeNull();
+    expect(gridAlignment([], [])).toBeNull();
   });
 });

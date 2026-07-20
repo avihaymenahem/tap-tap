@@ -30,14 +30,18 @@ export function analyze(
   const { onsets, odf, odfHopSec, odfOriginSec } = detectOnsets(pcm, sampleRate, opts);
   const tempo = estimateTempo(odf, odfHopSec, duration, odfOriginSec);
 
-  // Periodicity prominence scaled by measured grid agreement. Prominence alone
-  // over-reports: a grid whose tempo is slightly wrong autocorrelates just as
-  // strongly and then drifts off the music. Alignment can only *reduce*
-  // confidence — the floor keeps a legitimately syncopated track from being
-  // zeroed by a heuristic — so "high confidence" now means both "the song has a
-  // beat" and "the grid we wrote down actually sits on it".
+  // Two independent pieces of evidence: beat contrast ("the grid collects real
+  // energy") and onset/grid agreement ("the strong onsets sit on it, start to
+  // finish"). Alignment is weighted heavier because it is the direct measure of
+  // what chart generation needs from the grid — and it works in both
+  // directions: a dense track whose contrast is diluted by constant activity
+  // is *rescued* by high alignment, while a drifting grid is condemned by low
+  // alignment no matter how much energy it collects. With too few onsets to
+  // judge (null), contrast stands alone rather than borrowing a neutral score.
   const alignment = gridAlignment(onsets, tempo.beatGrid);
-  const bpmConfidence = Number((tempo.confidence * (0.35 + 0.65 * alignment)).toFixed(3));
+  const evidence =
+    alignment === null ? tempo.confidence : 0.45 * tempo.confidence + 0.55 * alignment;
+  const bpmConfidence = Number(Math.max(0, Math.min(1, evidence)).toFixed(3));
 
   return {
     analysisVersion: ANALYSIS_VERSION,

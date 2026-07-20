@@ -244,8 +244,11 @@ scripts/
   agrees, capped at 30ms) **and confidence-gated**: below `bpmConfidence` 0.5
   the grid gets no say at all — no snapping, no on-beat selection bonus, no
   chord gating. The onsets are ground truth; the grid is an estimate that
-  drifts. `bpmConfidence` is discounted by measured onset/grid agreement
-  precisely so a drifting grid lands under that line. See PLAN.md §2.2/§2.8/§2.9.
+  drifts. `bpmConfidence` is built from measurements of the fitted grid itself
+  (beat contrast, beat hit rate, onset alignment) precisely so a drifting grid
+  lands under that line — and so a solid song scores high; the old
+  autocorrelation z-score under-reported real music, only metronomes cleared
+  it. See PLAN.md §2.2/§2.8/§2.9.
 - **`customName`, `customChart` and `themeId` protect hand edits.** Ingest
   refetches YouTube metadata and Regenerate rebuilds charts; both must respect
   these rather than silently discarding work. **Anything new that admin can set
