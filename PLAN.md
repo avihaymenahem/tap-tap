@@ -232,6 +232,68 @@ Notes before that offset are dropped from the run. Leaving them in would have th
 engine retire every one as a miss the moment the clock starts past them, ruining
 the score before the player touches a key.
 
+### 2.8 Sub-hop tempo, and a confidence score that measures the grid
+
+Tempo used to be quantized to whole ODF hops (~11.6ms of period). That sounds
+small and is not: at 120 BPM adjacent lags are ~2.8 BPM apart, so the estimate
+could sit ~1.4 BPM off a metronome-perfect track — and §2.2's rule of thumb is
+that 0.5 BPM is a full beat of drift over three minutes. The conservative
+snapping meant this never *corrupted* charts, but it silently disabled the grid:
+past the first minute nothing agreed with it, so nothing snapped, and the
+on-beat machinery below had nothing to work with.
+
+Two refinements, both in `tempo.ts`:
+
+1. **Parabolic interpolation** of the winning autocorrelation lag recovers most
+   of the sub-hop period.
+2. **`refineGrid`** then polishes period and phase *jointly* against the ODF —
+   pick the (period, phase) whose beat positions collect the most onset energy
+   per beat. This optimizes the exact quantity charts depend on rather than a
+   proxy: an autocorrelation peak is not a parabola, and the vertex alone still
+   left ~40ms of end-of-track drift. Measured on 90-second click tracks across
+   seven tempos: worst end-of-track drift fell from up to ~350ms to 3–8ms.
+
+**Confidence now measures the grid, not just the periodicity.** Autocorrelation
+prominence answers "does this song have a beat?" — a grid whose tempo is
+slightly wrong scores exactly as well and then walks off the music.
+`gridAlignment` asks the direct question: what fraction of the *stronger half*
+of onsets sit within a tight tolerance of a beat or half-beat, rescaled against
+the chance rate. `bpmConfidence = prominence × (0.35 + 0.65 × alignment)` — the
+floor keeps a genuinely syncopated track from being zeroed by the heuristic,
+and alignment can only lower confidence, never manufacture it. A drifting grid
+now *reports* itself instead of claiming 0.9.
+
+`analysis.json` carries an `analysisVersion` stamp, and `regenerateCharts`
+re-analyzes from `audio.m4a` when the stamp is stale (best-effort, one decode
+per song per version) — so the existing library picks these fixes up through
+the Regenerate button instead of being stranded on day-of-download grids.
+
+### 2.9 Handcrafted feel: contour lanes, on-beat selection, on-beat chords
+
+Play feedback: charts felt "drum machine" — locally defensible, never a phrase.
+Three causes, all fixed in generation, all keyed off the (now meaningful)
+`bpmConfidence` at `MIN_GRID_CONFIDENCE = 0.5`:
+
+- **Lanes follow the melodic contour instead of dice.** `pickLane` chose
+  randomly among non-repeat lanes in the band's range. `pickLaneContour` maps
+  each note's spectral-centroid *rank within its own band* (§2.1 reasoning:
+  relative brightness describes the phrase, absolute describes the mix) across
+  the range — a riff that climbs in pitch walks left-to-right, a falling line
+  walks back. Flat stretches step in the current sweep direction and bounce at
+  the edges, so a same-pitch stream becomes a roll rather than a jackhammer or
+  a zigzag. Easy is untouched by construction: its bands are single lanes.
+- **On-beat onsets win crowded neighbourhoods.** Selection ranked purely by
+  strength, so when a beat and a slightly-louder off-beat scuffle both could
+  not fit inside `minGapSec`, the player got the scuffle. On a trusted grid,
+  grid-aligned onsets get a 1.2× selection multiplier — strength still
+  dominates, but ties inside a spacing conflict now resolve to the pulse.
+- **Chords only land on the grid.** An off-beat two-hand hit is something a
+  human charter essentially never writes; on the beat it reads as an accent,
+  off it it reads as a mistake.
+
+Below the confidence line all of it disarms — no snapping, no bonus, no chord
+gate — and the chart is pure measured onsets, exactly as before.
+
 ---
 
 ## 3. Data contract: beatmap JSON
@@ -1261,6 +1323,20 @@ the moment it is deployed publicly or shared. Do not deploy this.
   and the alternative is hunting through browser settings. Availability is shown
   by *dimming, not disabling*: `navigator.onLine` describes the link rather than
   reachability, and it is not a good enough authority to refuse a tap.
+
+- **2026-07-20** — Beat and confidence overhaul (§2.8) plus "handcrafted feel"
+  chart generation (§2.9), after feedback that charts read as drum-machine
+  output. Tempo gained sub-hop precision — parabolic lag interpolation, then a
+  joint period+phase polish against the ODF — taking worst end-of-track drift
+  on 90s click tracks from ~350ms to 3–8ms. `bpmConfidence` is now discounted
+  by measured onset/grid agreement, so a drifting grid reports itself; below
+  0.5 generation ignores the grid entirely. On a trusted grid: on-beat onsets
+  win spacing conflicts (1.2× selection bonus), chords may only land on the
+  subdivision grid, and lanes follow each band's spectral-centroid contour —
+  rising lines sweep right, flat streams roll — via `pickLaneContour`.
+  `analysis.json` now carries `analysisVersion`; Regenerate re-analyzes stale
+  files from `audio.m4a` (best-effort), so the library upgrades without
+  re-downloading. Regenerating still invalidates stored scores.
 
 ## 10. Open
 

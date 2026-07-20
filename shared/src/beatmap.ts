@@ -125,6 +125,12 @@ export interface Onset {
 }
 
 export interface AnalysisResult {
+  /**
+   * Version of the analysis code that produced this. Optional because cached
+   * `analysis.json` files from before the stamp existed have none — absence
+   * means "old", and `regenerateCharts` treats it as stale.
+   */
+  analysisVersion?: number;
   duration: number;
   bpm: number;
   bpmConfidence: number;

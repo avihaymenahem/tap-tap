@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyze, detectOnsets } from './index.js';
+import { analyze, detectOnsets, gridAlignment } from './index.js';
 import { FFT, hannWindow } from './fft.js';
 import { alternatingClicks, clickTrack, sine } from './testAudio.js';
 import { dominantBand } from '../charts/lanes.js';
@@ -150,5 +150,69 @@ describe('tempo estimation', () => {
       const nearest = Math.min(...clickTimes.map((c) => Math.abs(c - beat)));
       expect(nearest).toBeLessThan(0.05);
     }
+  });
+
+  it.each([111, 117, 133])('recovers %i BPM to sub-hop precision', (bpm) => {
+    // BPMs chosen to land *between* integer ODF lags. Without parabolic
+    // refinement the estimate quantizes to the nearest whole hop, which at
+    // these tempos is up to ~1.4 BPM off — and the repo's own rule of thumb is
+    // that 0.5 BPM of error is a full beat of drift over three minutes.
+    const { pcm } = clickTrack({ bpm, durationSec: 30, sampleRate: SR });
+    const result = analyze(pcm, SR);
+    expect(Math.abs(result.bpm - bpm)).toBeLessThan(0.5);
+  });
+
+  it('keeps the grid on the clicks at the END of a track, not just the start', () => {
+    // The drift test. A tempo error too small for the BPM assertion above to
+    // catch still walks the grid off the music by the final chorus; asserting
+    // only the first few beats (as the test above does) can never see it.
+    const { pcm, clickTimes } = clickTrack({ bpm: 117, durationSec: 60, sampleRate: SR });
+    const { beatGrid } = analyze(pcm, SR);
+
+    const lastQuarter = beatGrid.filter((b) => b > 45);
+    expect(lastQuarter.length).toBeGreaterThan(10);
+    for (const beat of lastQuarter) {
+      const nearest = Math.min(...clickTimes.map((c) => Math.abs(c - beat)));
+      expect(nearest).toBeLessThan(0.04);
+    }
+  });
+});
+
+describe('tempo confidence', () => {
+  it('is high when the grid genuinely sits on the music', () => {
+    const { pcm } = clickTrack({ bpm: 120, durationSec: 20, sampleRate: SR });
+    const result = analyze(pcm, SR);
+    // Confidence gates snapping and on-grid selection in chart generation at
+    // 0.5, so a metronome-perfect track must clear that line comfortably.
+    expect(result.bpmConfidence).toBeGreaterThan(0.5);
+  });
+});
+
+describe('gridAlignment', () => {
+  const grid = Array.from({ length: 121 }, (_, i) => i * 0.5);
+  const onset = (t: number) => ({ t, strength: 0.8 });
+
+  it('scores onsets sitting on the grid near 1', () => {
+    const onsets = grid.slice(0, 60).map((t) => onset(t));
+    expect(gridAlignment(onsets, grid)).toBeGreaterThan(0.9);
+  });
+
+  it('accepts half-beat offbeats as aligned', () => {
+    // Hats on the offbeat are ON the music; they must not read as drift.
+    const onsets = grid.slice(0, 60).map((t) => onset(t + 0.25));
+    expect(gridAlignment(onsets, grid)).toBeGreaterThan(0.9);
+  });
+
+  it('scores a drifting grid near chance', () => {
+    // Onsets at a slightly different tempo than the grid claims — the exact
+    // failure this measure exists to expose. Over 60s they sweep through every
+    // phase, so alignment collapses to the chance rate, i.e. ~0 after rescaling.
+    const onsets = Array.from({ length: 120 }, (_, i) => onset(i * 0.508));
+    expect(gridAlignment(onsets, grid)).toBeLessThan(0.3);
+  });
+
+  it('stays neutral when there is too little evidence to judge', () => {
+    expect(gridAlignment([onset(1)], grid)).toBe(1);
+    expect(gridAlignment([], [])).toBe(1);
   });
 });

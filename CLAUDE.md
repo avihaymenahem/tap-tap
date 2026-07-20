@@ -241,8 +241,11 @@ scripts/
   original download. AAC priming delay means analysing the source times every
   note against audio nobody hears.
 - **Snapping to the beat grid is conservative** (only when the grid already
-  agrees, capped at 30ms). The onsets are ground truth; the grid is an estimate
-  that drifts. See PLAN.md §2.2.
+  agrees, capped at 30ms) **and confidence-gated**: below `bpmConfidence` 0.5
+  the grid gets no say at all — no snapping, no on-beat selection bonus, no
+  chord gating. The onsets are ground truth; the grid is an estimate that
+  drifts. `bpmConfidence` is discounted by measured onset/grid agreement
+  precisely so a drifting grid lands under that line. See PLAN.md §2.2/§2.8/§2.9.
 - **`customName`, `customChart` and `themeId` protect hand edits.** Ingest
   refetches YouTube metadata and Regenerate rebuilds charts; both must respect
   these rather than silently discarding work. **Anything new that admin can set
@@ -603,6 +606,13 @@ scripts/
 
 **Charts**
 - Regenerating charts invalidates stored scores. Mention it when you do.
+- **Regenerate re-analyzes when `analysis.json` is stale.** The file carries an
+  `analysisVersion` stamp; when it does not match `ANALYSIS_VERSION`, regenerate
+  decodes `audio.m4a` and re-analyzes (best-effort — no audio still rebuilds
+  charts from the cached pool). Bump the version when the *analysis* improves,
+  not when chart generation does — chart changes reach the library through a
+  plain regenerate for free, while a version bump costs one decode per song.
+  This can change a song's bpm, grid and confidence, which is the point.
 - **Existing songs have no holds until they are regenerated.** That is by
   design — `duration` is optional so old beatmaps stay valid — but it means a
   song will look like holds "did not work" until it is rebuilt.
