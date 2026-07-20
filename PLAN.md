@@ -127,31 +127,33 @@ imperceptible, so snapping can tidy jitter but can never itself cause drift.
 
 ### 2.3 Difficulty as a filter over one shared onset pool
 
-| | Quantize | Min gap | Chords | Target notes/sec | Approach | Lanes |
-| --- | --- | --- | --- | --- | --- | --- |
-| Easy | 1/1 beat | 450ms | no | ~1.2 | 1.9s | 3 |
-| Medium | 1/2 | 300ms | rare | ~2.0 | 1.6s | 4 |
-| Hard | 1/4 | 190ms | yes | ~3.6 | 1.3s | 5 |
-| Extreme | 1/4 | 190ms | often (~0.32) | ~4.6 | 1.0s | 5 |
+| | Quantize | Min gap | Chords | Target notes/sec | Approach | Lanes | Good/miss window |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Easy | 1/1 beat | 450ms | no | ~1.2 | 1.9s | 3 | 190ms |
+| Medium | 1/2 | 300ms | rare | ~2.0 | 1.6s | 4 | 190ms |
+| Hard | 1/4 | 190ms | yes | ~3.6 | 1.3s | 5 | 190ms |
+| Extreme | 1/4 | 140ms | often (~0.32) | ~5.4 | 0.95s | 5 | 140ms |
 
 Onsets are ranked by strength; each difficulty takes the strongest that satisfy
 its spacing constraint. Generation is seeded and deterministic, and
 `generateAllCharts` is driven off `DIFFICULTY_NAMES` — a difficulty added to the
 shared list is generated with no second edit.
 
-**Extreme shares hard's 190ms gap on purpose, and cannot go below it.** The
-`good`/miss window equals the tightest `minGapSec` across every difficulty
-(`judge.ts`, asserted in `engine.test.ts`), because `hitLane` matches a tap to
-the *nearest* note — a window wider than the spacing lets a tap retire the wrong
-note and the game eats inputs. So extreme takes its difficulty from everything
-the gap does not cap: a 1.0s approach (notes cover the highway ~23% faster than
-hard, the real reading wall), a higher average density that sits nearer the
-shared ceiling, and roughly double the chords. On a saturating pool it can tie
-hard's note count; on a real track the shorter approach and extra chords are
-where it bites. `minGapSec` is still the lever if a mode ever needs to be
-genuinely denser — but that means *raising* everyone's window is impossible
-without raising the floor, so the answer is a wider highway or faster scroll,
-not tighter spacing.
+**Extreme packs notes tighter than hard (140ms vs 190ms) — and this is only
+safe because judging windows are now per difficulty.** `hitLane` matches a tap
+to the *nearest* note, so if two same-lane notes are closer than the miss
+window a tap can retire the wrong one. That used to force a single global miss
+window at the tightest `minGapSec` (190ms), which capped how dense any
+difficulty could be. `hitWindowsFor(minGapSec)` now caps the window to each
+chart's own gap and scales the three tiers down together, keeping their ratios
+— so easy/medium/hard are untouched (their gaps are ≥ 190ms, so they keep the
+base 85/140/190ms windows) while Extreme both spaces and judges at 140ms
+(≈63/103/140ms). The tighter window is the point: an extreme tier should give
+less room to be sloppy, not just scroll faster. Extreme stacks the rest on top
+— a 0.95s approach (~27% faster than hard) and roughly double the chords — so a
+dense passage yields visibly more pills: measured ~4.7 vs ~3.4 notes/sec on the
+same pool. `engine.test.ts` asserts every difficulty's window stays within its
+own gap.
 
 **`minGapSec` is the knob that governs how hard a chart feels, not `targetNps`.**
 The target only sets the average across the whole song, while the gap sets a hard
@@ -1393,14 +1395,23 @@ the moment it is deployed publicly or shared. Do not deploy this.
   dominated by the loudest section and stops falling into double-time. Same
   `ANALYSIS_VERSION` bump as the precision work; one Regenerate covers both.
 - **2026-07-20** — Added a fourth difficulty, Extreme (§2.3): five lanes like
-  hard, but a 1.0s approach, ~4.6 target NPS and ~0.32 chord chance. It shares
-  hard's 190ms gap because that gap equals the miss window and dropping below
-  it makes `hitLane` retire the wrong note — so extreme's difficulty is reading
-  speed and chords, not tighter spacing. `generateAllCharts`, the menu picker,
-  the router and the editor were already or are now driven off `DIFFICULTY_NAMES`,
-  so the union addition plus one `DIFFICULTIES` entry was most of the change;
-  TypeScript's exhaustiveness surfaced the three hand-written `Record<Difficulty
-  Name>` literals in tests. Existing songs gain the chart on regenerate/re-ingest.
+  hard, a 1.0s approach, higher target NPS and ~0.32 chord chance. Initially it
+  shared hard's 190ms gap (the miss window was one global cap), so density could
+  not exceed hard's. `generateAllCharts`, the menu picker, the router and the
+  editor were already or are now driven off `DIFFICULTY_NAMES`, so the union
+  addition plus one `DIFFICULTIES` entry was most of the change; TypeScript's
+  exhaustiveness surfaced three hand-written `Record<DifficultyName>` literals in
+  tests. Existing songs gain the chart on regenerate/re-ingest.
+- **2026-07-20** — Made Extreme genuinely denser after feedback it "didn't feel
+  extreme". Judging windows became **per difficulty** (`hitWindowsFor` in
+  `judge.ts`, threaded through `GameEngine` via `minGapSec`): the good/miss
+  window is capped to each chart's own spacing and the tiers scale together, so
+  the single global 190ms cap on density is gone. Extreme now spaces at 140ms
+  (7.1/sec ceiling, up from 5.2) with a ~5.4 target and a 0.95s approach —
+  measured ~4.7 vs hard's ~3.4 notes/sec on the same pool, ~38% more pills.
+  Easy/medium/hard are untouched: their gaps are ≥190ms so they keep the base
+  windows. Extreme is judged tighter (≈63/103/140ms), which is the intended
+  feel. Regenerate/re-ingest to rebuild the denser extreme charts.
 - **2026-07-20** — Replaced the constant beat grid with dynamic-programming
   beat tracking (§2.8), after the second round of "confidence is way too low":
   synthetic full mixes scored 0.85+, which pointed at the one thing they do

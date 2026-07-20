@@ -385,15 +385,32 @@ describe('generateAllCharts', () => {
     expect(counts[counts.length - 1]!).toBeGreaterThan(counts[0]!);
   });
 
-  it('makes extreme play faster and busier than hard', () => {
-    // Extreme cannot pack notes tighter than hard (shared 0.19 gap = the miss
-    // window), so its difficulty has to come from a shorter approach and more
-    // chords. Assert those directly — a real song, not the saturating synthetic
-    // pool, is where the note-count difference actually shows.
+  it('makes extreme faster, denser and tighter than hard', () => {
+    // Extreme escalates on every axis: a shorter approach, more chords, a higher
+    // target, and — since judging windows are now per-difficulty — a tighter gap
+    // so genuinely more pills come through. The engine caps its window to that
+    // gap (engine.test.ts), which is what keeps the tighter spacing playable.
     expect(DIFFICULTIES.extreme.approachSec).toBeLessThan(DIFFICULTIES.hard.approachSec);
     expect(DIFFICULTIES.extreme.chordChance).toBeGreaterThan(DIFFICULTIES.hard.chordChance);
     expect(DIFFICULTIES.extreme.targetNps).toBeGreaterThan(DIFFICULTIES.hard.targetNps);
-    // The floor is shared and must stay shared, or the engine eats inputs.
-    expect(DIFFICULTIES.extreme.minGapSec).toBe(DIFFICULTIES.hard.minGapSec);
+    expect(DIFFICULTIES.extreme.minGapSec).toBeLessThan(DIFFICULTIES.hard.minGapSec);
+  });
+
+  it('actually packs more notes into a dense passage on extreme than hard', () => {
+    // The point of the tighter gap: a busy stretch of music yields more pills.
+    // A dense onset pool (~11/sec) so the gap, not the pool, is the ceiling.
+    const duration = 40;
+    const beatGrid: number[] = [];
+    for (let t = 0; t < duration; t += 0.5) beatGrid.push(Number(t.toFixed(4)));
+    const onsets: Onset[] = [];
+    for (let t = 0; t < duration; t += 0.09) {
+      onsets.push({ t: Number(t.toFixed(4)), strength: 0.9, low: 0.6, mid: 0.2, high: 0.2 });
+    }
+    const analysis: AnalysisResult = { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets };
+
+    const hard = generateChart(analysis, DIFFICULTIES.hard, 5);
+    const extreme = generateChart(analysis, DIFFICULTIES.extreme, 5);
+    const uniques = (c: typeof hard) => new Set(c.notes.map((n) => n.t)).size;
+    expect(uniques(extreme)).toBeGreaterThan(uniques(hard));
   });
 });

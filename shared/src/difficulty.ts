@@ -112,33 +112,34 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     maxConcurrentHolds: 2,
   },
   /**
-   * Extreme is hard turned up on every axis *except* spacing.
+   * Extreme is hard turned up on every axis, spacing included.
    *
-   * `minGapSec` deliberately matches hard's 0.19, and must not go lower: the
-   * `good`/miss window equals the tightest `minGapSec` across all difficulties
-   * (`judge.ts`, asserted in `engine.test.ts`), because `hitLane` resolves a
-   * tap to the nearest note — a window wider than the spacing lets a tap retire
-   * the wrong note and the game starts eating inputs. So extreme cannot get its
-   * difficulty from packing notes closer. It gets it from everything else:
+   * `minGapSec` is 0.14 — tighter than hard's 0.19, which lifts the sustained-
+   * stream ceiling from ~5.2 to ~7.1 notes/sec, so genuinely more pills come
+   * through in a dense passage. This is only safe because judging windows are
+   * now **per difficulty** (`hitWindowsFor` in `judge.ts`): the `good`/miss
+   * window is capped to the chart's own gap, so `hitLane` still cannot retire a
+   * neighbouring same-lane note. The cost is that Extreme is judged on a
+   * proportionally tighter window (~0.14s good vs 0.19s) — which is exactly
+   * what an extreme tier should feel like: less room to be sloppy.
    *
-   *   - `approachSec` 1.0 vs 1.3 — notes cover the highway ~23% faster, so
-   *     there is far less time to read and place each one. This is the core of
-   *     the mode; reading speed, not spacing, is the wall.
-   *   - `targetNps` 4.6 vs 3.6 — the average sits much closer to the ~5.2/sec
-   *     ceiling the shared 0.19 gap allows, so dense passages stay dense
-   *     instead of breathing.
-   *   - `chordChance` 0.32 vs 0.15 — roughly double the two-hand hits, which on
-   *     five lanes is the coordination load.
+   * The other levers stack on top of the tighter gap:
+   *
+   *   - `approachSec` 0.95 vs hard's 1.3 — notes cover the highway ~27% faster,
+   *     so there is far less time to read each one.
+   *   - `targetNps` 5.4 vs 3.6 — the average sits near the new ceiling, so the
+   *     dense passages actually fill in rather than breathe.
+   *   - `chordChance` 0.32 vs 0.15 — roughly double the two-hand hits.
    */
   extreme: {
     name: 'extreme',
     laneCount: 5,
     subdivision: 4,
-    minGapSec: 0.19,
+    minGapSec: 0.14,
     chords: true,
     chordChance: 0.32,
-    targetNps: 4.6,
-    approachSec: 1,
+    targetNps: 5.4,
+    approachSec: 0.95,
     // Holds off; 0.2 when enabled. Same shape as hard, a touch shorter.
     holdShare: 0,
     minHoldSec: 0.35,

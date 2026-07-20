@@ -30,23 +30,51 @@ export const TIMINGS: readonly Timing[] = ['exact', 'early', 'late'];
  * `good` doubles as the miss threshold, so raising it makes the whole game more
  * forgiving, not just the top tier.
  *
- * **`good` is capped by `minGapSec` on the hardest difficulty (0.19).** Chart
- * spacing is enforced globally, so that is the closest two notes can ever be —
- * including two in the same lane. `hitLane` resolves a tap to the *nearest*
- * candidate, so once the window is wider than the gap, a tap aimed at a note can
- * be closer to the one after it and retire the wrong one, leaving the intended
- * note to miss on its own. Widening past 0.19 trades one kind of miss for a
- * more confusing kind.
+ * **`good` is capped by the chart's own `minGapSec`.** Chart spacing is enforced
+ * globally, so that is the closest two notes can ever be — including two in the
+ * same lane. `hitLane` resolves a tap to the *nearest* candidate, so once the
+ * window is wider than the gap, a tap aimed at a note can be closer to the one
+ * after it and retire the wrong one, leaving the intended note to miss on its
+ * own. This used to be a single global cap at the hardest difficulty's 0.19s;
+ * it is now enforced per difficulty by `hitWindowsFor`, so Extreme can pack
+ * notes tighter than 0.19 and simply judges them on a proportionally tighter
+ * window — which is what makes it play *extreme* rather than merely fast.
  *
- * If fast sections still feel unfair after this, the lever is `minGapSec` — make
- * the dense passages less dense — not a wider window. `engine.test.ts` asserts
- * the cap.
+ * These are the *base* (widest) windows, used by every difficulty whose gap is
+ * at least 0.19s — easy, medium and hard, i.e. unchanged. `engine.test.ts`
+ * asserts each difficulty's effective window never exceeds its own gap.
  */
-export const HIT_WINDOWS = {
+export interface HitWindows {
+  perfect: number;
+  great: number;
+  good: number;
+}
+
+export const HIT_WINDOWS: HitWindows = {
   perfect: 0.085,
   great: 0.14,
   good: 0.19,
-} as const;
+};
+
+/**
+ * The tier windows scaled so their outer edge fits a chart's note spacing.
+ *
+ * When `minGapSec` is at or above the base `good` window (easy/medium/hard),
+ * the base windows are returned unchanged. When it is tighter (Extreme), all
+ * three tiers scale down by the same factor, so their *ratios* are preserved —
+ * "perfect" still means "the tightest third of the hittable range" — and the
+ * outer edge lands exactly on the gap, which is what keeps `hitLane` from
+ * retiring a neighbouring same-lane note.
+ */
+export function hitWindowsFor(minGapSec: number): HitWindows {
+  const good = Math.min(HIT_WINDOWS.good, minGapSec);
+  const scale = good / HIT_WINDOWS.good;
+  return {
+    perfect: HIT_WINDOWS.perfect * scale,
+    great: HIT_WINDOWS.great * scale,
+    good,
+  };
+}
 
 /**
  * Inside this, a hit counts as dead-on and neither early nor late.
@@ -58,7 +86,11 @@ export const HIT_WINDOWS = {
  */
 export const EXACT_WINDOW = 0.022;
 
-/** Past this, a tap does not belong to the note at all. */
+/**
+ * Past this, a tap does not belong to the note at all. The base value; the
+ * engine uses a per-chart window from `hitWindowsFor` so a tighter difficulty
+ * both spaces and judges its notes closer.
+ */
 export const MISS_WINDOW = HIT_WINDOWS.good;
 
 export const SCORE_VALUES: Record<Tier, number> = {
@@ -74,12 +106,16 @@ export const EXACT_BONUS = 1.25;
 /** Combo multiplier caps out so long songs do not run away with the score. */
 export const MAX_COMBO_MULTIPLIER = 4;
 
-/** Signed seconds: negative = early, positive = late. */
-export function tierFor(deltaSec: number): Tier {
+/**
+ * Signed seconds: negative = early, positive = late. `windows` defaults to the
+ * base set, so callers that do not care about difficulty (tests, tooling) keep
+ * working; the engine passes its per-chart windows.
+ */
+export function tierFor(deltaSec: number, windows: HitWindows = HIT_WINDOWS): Tier {
   const error = Math.abs(deltaSec);
-  if (error <= HIT_WINDOWS.perfect) return 'perfect';
-  if (error <= HIT_WINDOWS.great) return 'great';
-  if (error <= HIT_WINDOWS.good) return 'good';
+  if (error <= windows.perfect) return 'perfect';
+  if (error <= windows.great) return 'great';
+  if (error <= windows.good) return 'good';
   return 'miss';
 }
 

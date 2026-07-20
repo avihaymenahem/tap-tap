@@ -680,18 +680,23 @@ scripts/
   next piece: one slider fixing a whole chart's timing beats editing notes.
 - **Chart feel is still untuned** (milestone M3). Only a human can judge it. The
   hit windows have been widened twice (`judge.ts`) and are a feel knob, not a
-  fixed truth — but they are **capped**: `good` may not exceed the smallest
-  `minGapSec`, because `hitLane` matches the nearest note and a window wider
-  than the tightest spacing can retire the note *after* the one the player aimed
-  at. `engine.test.ts` asserts it. If fast passages still feel unfair, raise
-  `minGapSec` and regenerate rather than widening further.
+  fixed truth — but they are **capped per difficulty**: `good` may not exceed
+  that chart's own `minGapSec`, because `hitLane` matches the nearest note and a
+  window wider than the spacing can retire the note *after* the one the player
+  aimed at. `hitWindowsFor(minGapSec)` enforces this — it scales the three tiers
+  down together for any chart tighter than the 190ms base, and the engine takes
+  it via `EngineOptions.minGapSec` (passed from `PlayScreen`). `engine.test.ts`
+  asserts every difficulty's window stays within its gap. If a *single* fast
+  passage feels unfair, raise that difficulty's `minGapSec` and regenerate.
 - **Four difficulties: easy/medium/hard/extreme** (§2.3). Adding one is a
   `DifficultyName` union member, a `DIFFICULTY_NAMES` entry and a `DIFFICULTIES`
   row — everything downstream (menu picker, router, editor dropdown,
   `generateAllCharts`, CLI) iterates the list. TypeScript's exhaustiveness on
   `Record<DifficultyName, …>` catches any hand-written literal you miss.
-  **Extreme deliberately shares hard's 190ms `minGapSec`** and must keep it: the
-  cap above is `min(minGapSec)` over *all* difficulties, so a lower floor on any
-  one of them shrinks the miss window for the whole game. Extreme escalates via
-  `approachSec` (1.0s — faster scroll), `targetNps` and `chordChance` instead.
-  Existing songs get the new chart on regenerate/re-ingest, like any chart change.
+  **Extreme spaces at 140ms — tighter than hard's 190ms — on purpose.** That is
+  only safe because the miss window is per difficulty (`hitWindowsFor`), so
+  Extreme judges on a 140ms window while easy/medium/hard keep the base 190ms.
+  It escalates further via `approachSec` (0.95s — faster scroll), `targetNps`
+  and `chordChance`. Do not reintroduce a single global miss window; it was what
+  capped Extreme's density. Existing songs get the new chart on regenerate/
+  re-ingest, like any chart change.
