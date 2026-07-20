@@ -755,6 +755,11 @@ kbd {
   background: rgba(255, 46, 136, 0.12);
 }
 
+.difficulty--extreme.difficulty--active {
+  border-color: var(--violet);
+  background: rgba(157, 78, 221, 0.16);
+}
+
 .best-score {
   display: flex;
   gap: 1rem;

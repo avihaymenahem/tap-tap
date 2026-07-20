@@ -1,5 +1,5 @@
 import type { AnalysisResult, Beatmap, DifficultyName, Theme, Waveform } from '@tap-tap/shared';
-import { BUILTIN_THEMES, DIFFICULTIES, themeCatalog, themeFor } from '@tap-tap/shared';
+import { BUILTIN_THEMES, DIFFICULTIES, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-tap/shared';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { getAnalysis, getBeatmap, getWaveform, listCustomThemes } from '../api/client.js';
 import { drawTimeline, formatTime } from '../editor/timeline.js';
@@ -271,7 +271,7 @@ export function EditorScreen({
             value={difficulty}
             onChange={(e) => onChangeDifficulty(e.target.value as DifficultyName)}
           >
-            {(['easy', 'medium', 'hard'] as const).map((d) => (
+            {DIFFICULTY_NAMES.map((d) => (
               <option key={d} value={d}>
                 {d}
               </option>

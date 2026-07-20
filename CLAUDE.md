@@ -8,8 +8,9 @@ broken, and the traps that have already cost time.
 ## What this is
 
 A browser rhythm game. An admin pastes a YouTube link; the server downloads the
-audio, analyses it, and generates note charts at three difficulties. Players
-pick from the curated list and play on 3/4/5 lanes.
+audio, analyses it, and generates note charts at four difficulties
+(easy/medium/hard/extreme). Players pick from the curated list and play on
+3/4/5 lanes.
 
 **Local-only. Do not deploy it.** `yt-dlp` against YouTube breaks their ToS;
 that is a non-issue on `localhost` and a real problem the moment it is public.
@@ -684,3 +685,13 @@ scripts/
   than the tightest spacing can retire the note *after* the one the player aimed
   at. `engine.test.ts` asserts it. If fast passages still feel unfair, raise
   `minGapSec` and regenerate rather than widening further.
+- **Four difficulties: easy/medium/hard/extreme** (§2.3). Adding one is a
+  `DifficultyName` union member, a `DIFFICULTY_NAMES` entry and a `DIFFICULTIES`
+  row — everything downstream (menu picker, router, editor dropdown,
+  `generateAllCharts`, CLI) iterates the list. TypeScript's exhaustiveness on
+  `Record<DifficultyName, …>` catches any hand-written literal you miss.
+  **Extreme deliberately shares hard's 190ms `minGapSec`** and must keep it: the
+  cap above is `min(minGapSec)` over *all* difficulties, so a lower floor on any
+  one of them shrinks the miss window for the whole game. Extreme escalates via
+  `approachSec` (1.0s — faster scroll), `targetNps` and `chordChance` instead.
+  Existing songs get the new chart on regenerate/re-ingest, like any chart change.

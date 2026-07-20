@@ -1,5 +1,5 @@
 import type { AnalysisResult, Onset } from '@tap-tap/shared';
-import { DIFFICULTIES } from '@tap-tap/shared';
+import { DIFFICULTIES, DIFFICULTY_NAMES } from '@tap-tap/shared';
 import { describe, expect, it } from 'vitest';
 import { buildGrid, generateAllCharts, generateChart, snapNear, snapToGrid } from './generate.js';
 
@@ -370,10 +370,30 @@ describe('generateChart', () => {
 });
 
 describe('generateAllCharts', () => {
-  it('produces all three difficulties with increasing density', () => {
+  it('produces every difficulty with non-decreasing density along the ladder', () => {
     const charts = generateAllCharts(makeAnalysis(), 'test-song');
-    expect(Object.keys(charts).sort()).toEqual(['easy', 'hard', 'medium']);
-    expect(charts.easy.notes.length).toBeLessThan(charts.medium.notes.length);
-    expect(charts.medium.notes.length).toBeLessThan(charts.hard.notes.length);
+    expect(new Set(Object.keys(charts))).toEqual(new Set(DIFFICULTY_NAMES));
+
+    // Each rung must be at least as dense as the one below, and the ladder as a
+    // whole must climb — extreme shares hard's spacing floor, so on a synthetic
+    // pool that saturates the gap it can tie rather than strictly exceed, but
+    // the ends must still separate.
+    const counts = DIFFICULTY_NAMES.map((name) => charts[name].notes.length);
+    for (let i = 1; i < counts.length; i++) {
+      expect(counts[i]!).toBeGreaterThanOrEqual(counts[i - 1]!);
+    }
+    expect(counts[counts.length - 1]!).toBeGreaterThan(counts[0]!);
+  });
+
+  it('makes extreme play faster and busier than hard', () => {
+    // Extreme cannot pack notes tighter than hard (shared 0.19 gap = the miss
+    // window), so its difficulty has to come from a shorter approach and more
+    // chords. Assert those directly — a real song, not the saturating synthetic
+    // pool, is where the note-count difference actually shows.
+    expect(DIFFICULTIES.extreme.approachSec).toBeLessThan(DIFFICULTIES.hard.approachSec);
+    expect(DIFFICULTIES.extreme.chordChance).toBeGreaterThan(DIFFICULTIES.hard.chordChance);
+    expect(DIFFICULTIES.extreme.targetNps).toBeGreaterThan(DIFFICULTIES.hard.targetNps);
+    // The floor is shared and must stay shared, or the engine eats inputs.
+    expect(DIFFICULTIES.extreme.minGapSec).toBe(DIFFICULTIES.hard.minGapSec);
   });
 });

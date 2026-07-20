@@ -7,9 +7,9 @@
 
 export const BEATMAP_VERSION = 1;
 
-export type DifficultyName = 'easy' | 'medium' | 'hard';
+export type DifficultyName = 'easy' | 'medium' | 'hard' | 'extreme';
 
-export const DIFFICULTY_NAMES: readonly DifficultyName[] = ['easy', 'medium', 'hard'];
+export const DIFFICULTY_NAMES: readonly DifficultyName[] = ['easy', 'medium', 'hard', 'extreme'];
 
 export type NoteType = 'tap' | 'hold';
 

@@ -111,6 +111,40 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     maxHoldSec: 3,
     maxConcurrentHolds: 2,
   },
+  /**
+   * Extreme is hard turned up on every axis *except* spacing.
+   *
+   * `minGapSec` deliberately matches hard's 0.19, and must not go lower: the
+   * `good`/miss window equals the tightest `minGapSec` across all difficulties
+   * (`judge.ts`, asserted in `engine.test.ts`), because `hitLane` resolves a
+   * tap to the nearest note — a window wider than the spacing lets a tap retire
+   * the wrong note and the game starts eating inputs. So extreme cannot get its
+   * difficulty from packing notes closer. It gets it from everything else:
+   *
+   *   - `approachSec` 1.0 vs 1.3 — notes cover the highway ~23% faster, so
+   *     there is far less time to read and place each one. This is the core of
+   *     the mode; reading speed, not spacing, is the wall.
+   *   - `targetNps` 4.6 vs 3.6 — the average sits much closer to the ~5.2/sec
+   *     ceiling the shared 0.19 gap allows, so dense passages stay dense
+   *     instead of breathing.
+   *   - `chordChance` 0.32 vs 0.15 — roughly double the two-hand hits, which on
+   *     five lanes is the coordination load.
+   */
+  extreme: {
+    name: 'extreme',
+    laneCount: 5,
+    subdivision: 4,
+    minGapSec: 0.19,
+    chords: true,
+    chordChance: 0.32,
+    targetNps: 4.6,
+    approachSec: 1,
+    // Holds off; 0.2 when enabled. Same shape as hard, a touch shorter.
+    holdShare: 0,
+    minHoldSec: 0.35,
+    maxHoldSec: 2.5,
+    maxConcurrentHolds: 2,
+  },
 };
 
 /**

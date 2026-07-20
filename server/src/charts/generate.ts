@@ -7,7 +7,7 @@ import type {
   Onset,
   Waveform,
 } from '@tap-tap/shared';
-import { DIFFICULTIES } from '@tap-tap/shared';
+import { DIFFICULTIES, DIFFICULTY_NAMES } from '@tap-tap/shared';
 import { percentileRanks } from '../analysis/onsets.js';
 import { type Sustain, detectSustains } from '../analysis/sustain.js';
 import { hashString, mulberry32 } from '../util/rng.js';
@@ -221,11 +221,15 @@ export function generateAllCharts(
   waveform?: Waveform | null,
 ): Record<DifficultyName, Chart> {
   const seed = hashString(songId);
-  return {
-    easy: generateChart(analysis, DIFFICULTIES.easy, seed, waveform),
-    medium: generateChart(analysis, DIFFICULTIES.medium, seed + 1, waveform),
-    hard: generateChart(analysis, DIFFICULTIES.hard, seed + 2, waveform),
-  };
+  // Driven off DIFFICULTY_NAMES so a new difficulty is generated the moment it
+  // is added to the shared list — no second place to update. Each gets a seed
+  // offset by its index, so difficulties stay independent of one another and
+  // every chart is still deterministic for a given song.
+  const charts = {} as Record<DifficultyName, Chart>;
+  DIFFICULTY_NAMES.forEach((name, i) => {
+    charts[name] = generateChart(analysis, DIFFICULTIES[name], seed + i, waveform);
+  });
+  return charts;
 }
 
 /**
