@@ -30,18 +30,24 @@ export function analyze(
   const { onsets, odf, odfHopSec, odfOriginSec } = detectOnsets(pcm, sampleRate, opts);
   const tempo = estimateTempo(odf, odfHopSec, duration, odfOriginSec);
 
-  // Two independent pieces of evidence: beat contrast ("the grid collects real
-  // energy") and onset/grid agreement ("the strong onsets sit on it, start to
-  // finish"). Alignment is weighted heavier because it is the direct measure of
-  // what chart generation needs from the grid — and it works in both
-  // directions: a dense track whose contrast is diluted by constant activity
-  // is *rescued* by high alignment, while a drifting grid is condemned by low
-  // alignment no matter how much energy it collects. With too few onsets to
-  // judge (null), contrast stands alone rather than borrowing a neutral score.
+  // Two independent pieces of evidence: the tracker's own quality score ("the
+  // beats collect real energy, steadily") and onset/grid agreement ("the
+  // strong onsets sit on the grid, start to finish"). Alignment is weighted
+  // heavier because it is the direct measure of what chart generation needs —
+  // and it rescues a dense track whose beat contrast is diluted by constant
+  // activity. With too few onsets to judge (null), the tracker's score stands
+  // alone rather than borrowing a neutral value.
+  //
+  // Steadiness caps the blend rather than merely joining it: tracked beats
+  // follow whatever hits exist, so on arrhythmic audio the onsets align with
+  // the "grid" *by construction* and alignment would happily rescue a pulse
+  // that does not exist. An unsteady pulse must stay condemned.
   const alignment = gridAlignment(onsets, tempo.beatGrid);
   const evidence =
     alignment === null ? tempo.confidence : 0.45 * tempo.confidence + 0.55 * alignment;
-  const bpmConfidence = Number(Math.max(0, Math.min(1, evidence)).toFixed(3));
+  const bpmConfidence = Number(
+    Math.max(0, Math.min(1, Math.min(evidence, tempo.steadiness))).toFixed(3),
+  );
 
   return {
     analysisVersion: ANALYSIS_VERSION,

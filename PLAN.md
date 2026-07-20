@@ -232,62 +232,65 @@ Notes before that offset are dropped from the run. Leaving them in would have th
 engine retire every one as a miss the moment the clock starts past them, ruining
 the score before the player touches a key.
 
-### 2.8 Sub-hop tempo, and a confidence score that measures the grid
+### 2.8 Beats are tracked, not extrapolated — and confidence measures them
 
-Tempo used to be quantized to whole ODF hops (~11.6ms of period). That sounds
-small and is not: at 120 BPM adjacent lags are ~2.8 BPM apart, so the estimate
-could sit ~1.4 BPM off a metronome-perfect track — and §2.2's rule of thumb is
+Two generations of failure led here, both regression-tested:
+
+**Generation one: quantized constant grid.** Tempo was quantized to whole ODF
+hops (~11.6ms of period — ~2.8 BPM steps at 120), and §2.2's rule of thumb is
 that 0.5 BPM is a full beat of drift over three minutes. The conservative
-snapping meant this never *corrupted* charts, but it silently disabled the grid:
-past the first minute nothing agreed with it, so nothing snapped, and the
-on-beat machinery below had nothing to work with.
+snapping meant this never *corrupted* charts, but it silently disabled the
+grid: past the first minute nothing agreed with it. Fixed by log-compressing
+the tempo ODF (locally — the onset detector's swept thresholds still see the
+raw ODF, §2.4), harmonic lag aggregation (a candidate scores its own
+autocorrelation plus half the score at double its lag, which demotes the
+classic double-time error), parabolic lag interpolation, and a joint
+period+phase polish. Worst end-of-track drift on 90s click tracks: ~350ms →
+3–8ms.
 
-Four refinements, all in `tempo.ts`:
+**Generation two: the constant grid itself.** A single (period, phase) is only
+right for machine-quantized music. Anything played by humans drifts a few
+percent, and against that a constant grid is wrong everywhere except one lucky
+stretch — so honest confidence read low on real songs ("confidence is way too
+low"), and dishonest confidence (the old autocorrelation z-score) read low for
+a *different* reason: real music correlates at every harmonic of its tempo,
+inflating the field the winner was judged against, so only metronomes scored
+high. The fix for both is `trackBeats` — Ellis-style dynamic programming over
+the compressed ODF. Each beat lands where the music actually put it, paying a
+penalty for straying from the estimated period (`TIGHTNESS = 10`: halving the
+gap onto the hats costs more than a hat is worth — the double-time regression,
+measured at tightness 3 — while a human ramp's ~3% gap changes cost nearly
+nothing). Beats are refined to sub-frame positions against local ODF peaks.
+The wire format was already `beatGrid: number[]`, so nothing downstream
+changed shape; `buildGrid` subdivides between consecutive beats and works
+unmodified. Measured on a 118→126 BPM ramp: every beat within 5ms of the
+clicks, where any constant grid is off by whole beats.
 
-1. **The tempo ODF is log-compressed** (locally — the onset detector's swept
-   thresholds see the raw ODF). Raw flux gives a loud chorus several times the
-   weight of a quiet verse, so the autocorrelation described whichever section
-   was loudest, and a grid fitted to one section drifts everywhere else.
-2. **Harmonic aggregation**: each candidate lag is scored by its own
-   autocorrelation plus half the score at double its lag. The true period's
-   whole harmonic family is present; the classic half-period (double-time)
-   error has the doubled peak but not its own, so it loses.
-3. **Parabolic interpolation** of the winning lag recovers most of the sub-hop
-   period.
-4. **`refineGrid`** then polishes period and phase *jointly* against the ODF —
-   pick the (period, phase) whose beat positions collect the most onset energy
-   per beat. This optimizes the exact quantity charts depend on rather than a
-   proxy: an autocorrelation peak is not a parabola, and the vertex alone still
-   left ~40ms of end-of-track drift. Measured on 90-second click tracks across
-   seven tempos: worst end-of-track drift fell from up to ~350ms to 3–8ms.
+**Confidence is four direct measurements of the tracked beats**, each covering
+another's blind spot; BPM is the interquartile mean of the tracked gaps:
 
-**Confidence measures the grid, not the autocorrelation.** The first score was
-a z-score of the winning lag against the whole lag field — and real music fails
-that test while having a perfectly good beat, because a rhythmic track
-autocorrelates at *every* harmonic of its tempo, inflating the field the winner
-is judged against. Only a metronome ever scored high; steady real songs
-reported ~0.4, which is where "confidence feels way too low" came from. It is
-now built from three direct measurements of the fitted grid, each covering the
-others' blind spots:
+- **Beat contrast** — energy per beat vs. the track average. Catches "no beat
+  here"; blind on sparse audio, where beats overfitted onto a near-silent
+  baseline tower over the average.
+- **Beat hit rate** — fraction of beats on above-average energy. Catches the
+  sparse-overfit case; blind on dense uniform activity, where contrast is
+  honestly low.
+- **Gap steadiness** — share of inter-beat gaps within ±12% of the typical
+  gap, rescaled so chance-level regularity maps to 0. *The* discriminator now
+  that beats are tracked: the tracker will faithfully follow arrhythmic hits
+  (its job), and those beats pass every energy measure — their scattered gaps
+  are what give them away. Caps the final blend outright, because onsets
+  align with tracked beats *by construction*, so alignment must never rescue
+  an unsteady pulse.
+- **`gridAlignment`** — fraction of the stronger half of onsets within a tight
+  tolerance of a beat or half-beat (nearest-beat search — the grid is no
+  longer uniform), rescaled against chance; null (not a fake neutral) when
+  there are too few onsets to judge.
 
-- **Beat contrast** — energy collected per beat vs. the track average. Catches
-  "there is no beat here"; blind on sparse audio, where an overfitted grid
-  towers over a near-silent baseline.
-- **Beat hit rate** — fraction of beats landing on above-average energy.
-  Catches the sparse-overfit case (an irregular-clicks fixture hits ~20% of its
-  beats); blind on dense uniform activity, where contrast is honestly low.
-  `TempoResult.confidence = min(contrast, hitRate)`.
-- **`gridAlignment`** — what fraction of the *stronger half* of onsets sit
-  within a tight tolerance of a beat or half-beat, rescaled against chance.
-  The direct measure of drift, computed in `analyze`:
-  `bpmConfidence = 0.45 × min(contrast, hitRate) + 0.55 × alignment` (contrast
-  path alone when there are too few onsets to judge — `gridAlignment` returns
-  null rather than a fake neutral score). Alignment works in both directions:
-  it rescues a dense track whose contrast is diluted by constant activity, and
-  it condemns a drifting grid regardless of how much energy it collects.
-
-Measured: metronome and kick/hat backbeat fixtures score ~1.0, irregular
-aperiodic clicks ~0.2, a deliberately mis-tempoed grid ~0.25.
+`bpmConfidence = min(steadiness, 0.45 × min(contrast, hitRate, steadiness) +
+0.55 × alignment)`. Measured: metronome, backbeat, jittered groove and
+full-mix fixtures 0.85–1.0; the 118→126 ramp ~1.0 (a human performance is not
+punished for being human); irregular aperiodic clicks 0.0–0.04.
 
 `analysis.json` carries an `analysisVersion` stamp, and `regenerateCharts`
 re-analyzes from `audio.m4a` when the stamp is stale (best-effort, one decode
@@ -1372,6 +1375,16 @@ the moment it is deployed publicly or shared. Do not deploy this.
   log-compressed with harmonic lag aggregation, so the estimate stops being
   dominated by the loudest section and stops falling into double-time. Same
   `ANALYSIS_VERSION` bump as the precision work; one Regenerate covers both.
+- **2026-07-20** — Replaced the constant beat grid with dynamic-programming
+  beat tracking (§2.8), after the second round of "confidence is way too low":
+  synthetic full mixes scored 0.85+, which pointed at the one thing they do
+  not model — human timing. A constant grid is wrong everywhere on a drifting
+  performance, so honest confidence had to read low; tracked beats follow the
+  player (118→126 BPM ramp: every beat within 5ms) and confidence gains a gap-
+  steadiness cap so arrhythmic audio cannot pass just because the tracker
+  faithfully followed it (irregular clicks: 0.97 → 0.0). BPM is now the
+  interquartile mean of tracked gaps. `beatGrid` was already `number[]` on the
+  wire, so charts, editor and admin consume the non-uniform grid unchanged.
 
 ## 10. Open
 

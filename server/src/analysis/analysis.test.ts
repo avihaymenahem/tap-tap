@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { analyze, detectOnsets, gridAlignment } from './index.js';
 import { FFT, hannWindow } from './fft.js';
-import { alternatingClicks, clickTrack, irregularClicks, sine } from './testAudio.js';
+import {
+  alternatingClicks,
+  clickTrack,
+  drumLoop,
+  irregularClicks,
+  sine,
+  tempoRamp,
+} from './testAudio.js';
 import { dominantBand } from '../charts/lanes.js';
 
 const SR = 44100;
@@ -199,11 +206,54 @@ describe('tempo confidence', () => {
   });
 
   it('is low for aperiodic audio', () => {
-    // Clicks at irregular times: plenty of onsets, no tempo. Whatever grid the
-    // estimator settles on, both contrast and alignment must call it out.
-    const { pcm } = irregularClicks({ durationSec: 20, sampleRate: SR, seed: 7 });
+    // Clicks at irregular times: plenty of onsets, no tempo. The beat tracker
+    // will happily follow them — that is its job — so energy and alignment
+    // measures all pass. Gap steadiness is what must condemn it.
+    for (const seed of [7, 13, 42]) {
+      const { pcm } = irregularClicks({ durationSec: 20, sampleRate: SR, seed });
+      const result = analyze(pcm, SR);
+      expect(result.bpmConfidence).toBeLessThan(0.2);
+    }
+  });
+
+  it('stays high for a humanized drum groove', () => {
+    // Jittered kick/snare/hats with sixteenth fills. Also the double-time
+    // regression guard: hats sit on every half-beat, so a too-loose tracker
+    // halves its gaps and reports ~233 BPM.
+    const { pcm } = drumLoop({ bpm: 120, durationSec: 30, sampleRate: SR, seed: 1 });
     const result = analyze(pcm, SR);
-    expect(result.bpmConfidence).toBeLessThan(0.4);
+    expect(Math.abs(result.bpm - 120)).toBeLessThan(1.5);
+    expect(result.bpmConfidence).toBeGreaterThan(0.7);
+  });
+});
+
+describe('beat tracking follows a human tempo', () => {
+  it('keeps beats on the clicks through an 118→126 BPM ramp', () => {
+    // No constant grid fits this: extrapolating one tempo from either end is
+    // whole beats off by the other. The tracker must follow the player, and
+    // confidence must NOT punish the song for having been played by a human —
+    // that is the "solid songs read low confidence" complaint in its purest
+    // form.
+    const { pcm, clickTimes } = tempoRamp({
+      fromBpm: 118,
+      toBpm: 126,
+      durationSec: 45,
+      sampleRate: SR,
+    });
+    const result = analyze(pcm, SR);
+
+    expect(result.bpmConfidence).toBeGreaterThan(0.7);
+    // Reported BPM is the honest middle of the ramp.
+    expect(result.bpm).toBeGreaterThan(118);
+    expect(result.bpm).toBeLessThan(126);
+
+    const lastClick = clickTimes[clickTimes.length - 1]!;
+    const beats = result.beatGrid.filter((b) => b > 1 && b <= lastClick);
+    expect(beats.length).toBeGreaterThan(60);
+    for (const beat of beats) {
+      const nearest = Math.min(...clickTimes.map((c) => Math.abs(c - beat)));
+      expect(nearest).toBeLessThan(0.03);
+    }
   });
 });
 
