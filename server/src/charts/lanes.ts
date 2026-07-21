@@ -36,6 +36,69 @@ export function laneRangesFor(laneCount: number): LaneRanges {
   };
 }
 
+/**
+ * Split the board into contiguous per-band lane ranges whose *widths* follow how
+ * many onsets each band actually has — low on the left through high on the right.
+ *
+ * The fixed 1/N/1 split (`laneRangesFor`) assumes a drum-kit-balanced song. Real
+ * tracks are frequently dominated by one band: a hat-driven pop song fires the
+ * great majority of its onsets in the high band, and the fixed split then stacks
+ * nearly every note on that band's single lane — the reported "~85% of the taps
+ * on the right lane". Sizing each band's range to its share spreads a dominant
+ * band across several lanes (the contour then rolls the notes within them), while
+ * a balanced song still resolves to roughly the kit-mirror it had before.
+ *
+ * Order is always low → mid → high left to right, so bass stays on the left and
+ * treble on the right; only the widths move. Every band that has any onsets gets
+ * at least one lane (its notes must land somewhere), so on four lanes a single
+ * band can occupy at most `laneCount - (presentBands - 1)` of them.
+ */
+export function laneRangesByPopulation(
+  laneCount: number,
+  counts: Readonly<Record<Band, number>>,
+): LaneRanges {
+  const order: Band[] = ['low', 'mid', 'high'];
+  const total = order.reduce((sum, b) => sum + counts[b], 0);
+  const present = order.filter((b) => counts[b] > 0);
+
+  // Nothing to size against, or not enough lanes to give each present band a
+  // floor: fall back to the hand-tuned split.
+  if (total === 0 || present.length === 0 || present.length > laneCount) {
+    return laneRangesFor(laneCount);
+  }
+
+  // Floor of one lane per present band, then apportion the rest by onset share
+  // with the largest-remainder method so the widths sum to laneCount exactly and
+  // the busiest band takes the most lanes.
+  const width: Record<Band, number> = { low: 0, mid: 0, high: 0 };
+  const ideal: Record<Band, number> = { low: 0, mid: 0, high: 0 };
+  for (const b of present) {
+    width[b] = 1;
+    ideal[b] = (counts[b] / total) * laneCount;
+  }
+  let remaining = laneCount - present.length;
+  while (remaining > 0) {
+    let pick: Band = present[0]!;
+    let gap = Number.NEGATIVE_INFINITY;
+    for (const b of present) {
+      const g = ideal[b] - width[b];
+      if (g > gap) {
+        gap = g;
+        pick = b;
+      }
+    }
+    width[pick]++;
+    remaining--;
+  }
+
+  const ranges: Record<Band, number[]> = { low: [], mid: [], high: [] };
+  let lane = 0;
+  for (const b of order) {
+    for (let k = 0; k < width[b]; k++) ranges[b].push(lane++);
+  }
+  return ranges;
+}
+
 export function dominantBand(onset: Onset): Band {
   if (onset.low >= onset.mid && onset.low >= onset.high) return 'low';
   if (onset.high >= onset.mid) return 'high';

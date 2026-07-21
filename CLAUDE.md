@@ -235,6 +235,13 @@ scripts/
   feel. `requestAnimationFrame` drives rendering only.
 - **`laneCount` is a parameter, never a constant.** Difficulty determines it
   (3/4/5). Anything that hardcodes 3 is a bug.
+- **Lane *widths* are sized to the song, not fixed at `low[0] mid[1,2] high[3]`.**
+  `laneRangesByPopulation` (charts/lanes.ts) gives each band a lane range
+  proportional to how many onsets it carries, so a hat-dominated song does not
+  stack ~85% of its taps on the single high lane (the "Bye Bye Bye" report). A
+  balanced song still resolves to the old fixed split; the ordering (bass left,
+  treble right) never moves. If you change band classification or add a band,
+  keep this — the fixed split re-introduces the one-lane collapse. PLAN.md §2.1.
 - **The server binds `TAP_TAP_SERVER_PORT`, not `PORT`.** It runs alongside Vite
   under one `npm run dev`; a generic `PORT` in the environment gets applied to
   both and one steals the other's port.

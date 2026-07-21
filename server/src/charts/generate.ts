@@ -11,7 +11,13 @@ import { DIFFICULTIES, DIFFICULTY_NAMES } from '@tap-tap/shared';
 import { percentileRanks } from '../analysis/onsets.js';
 import { type Sustain, detectSustains } from '../analysis/sustain.js';
 import { hashString, mulberry32 } from '../util/rng.js';
-import { type Band, dominantBand, laneRangesFor, pickLane, pickLaneContour } from './lanes.js';
+import {
+  type Band,
+  dominantBand,
+  laneRangesByPopulation,
+  pickLane,
+  pickLaneContour,
+} from './lanes.js';
 
 /**
  * Turn a shared onset pool into a playable chart.
@@ -75,8 +81,16 @@ export function generateChart(
   //    — the same scale-free reasoning as band classification itself (§2.1):
   //    absolute brightness describes the mix, relative brightness describes
   //    the phrase.
-  const ranges = laneRangesFor(params.laneCount);
+  //
+  //    Lane *widths* are sized to how many onsets each band carries, not fixed
+  //    at 1/N/1. A hat-driven song is almost all high-band onsets; on a fixed
+  //    split those all pile onto the single high lane (the "85% on the right"
+  //    report). Sizing the high band's range to its share spreads them across
+  //    several lanes, which the contour then rolls through.
   const bands = accepted.map((onset) => dominantBand(onset));
+  const bandCounts: Record<Band, number> = { low: 0, mid: 0, high: 0 };
+  for (const band of bands) bandCounts[band]++;
+  const ranges = laneRangesByPopulation(params.laneCount, bandCounts);
   const contours = contoursByBand(accepted, bands);
 
   const notes: Note[] = [];
@@ -98,8 +112,20 @@ export function generateChart(
     // accent, off it it reads as a mistake.
     const secondary = secondaryBand(onset, band);
     const onAccent = !gridTrusted || onset.onGrid;
-    if (secondary && onAccent && onset.strength > 0.55 && rand() < params.chordChance) {
-      const chordLane = pickLane(ranges[secondary], lane, rand);
+    // The chord goes to the secondary band's lanes, unless that band carried no
+    // dominant onsets of its own and so was allocated none (a single-band song).
+    // Then it falls to another lane of the primary band, which now spans
+    // several — so the two-hand accent still lands rather than being dropped.
+    const chordRange =
+      secondary && ranges[secondary].length > 0 ? ranges[secondary] : ranges[band];
+    if (
+      secondary &&
+      chordRange.length > 0 &&
+      onAccent &&
+      onset.strength > 0.55 &&
+      rand() < params.chordChance
+    ) {
+      const chordLane = pickLane(chordRange, lane, rand);
       if (chordLane !== lane) {
         notes.push({ t: round(onset.t), lane: chordLane, type: 'tap' });
       }

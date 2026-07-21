@@ -3,6 +3,9 @@ import { DIFFICULTIES, DIFFICULTY_NAMES } from '@tap-tap/shared';
 import { describe, expect, it } from 'vitest';
 import { buildGrid, generateAllCharts, generateChart, snapNear, snapToGrid } from './generate.js';
 
+/** Matches the 4-decimal rounding `generate.ts` applies to note times. */
+const round = (t: number): number => Number(t.toFixed(4));
+
 function makeAnalysis(overrides: Partial<AnalysisResult> = {}): AnalysisResult {
   const duration = 60;
   const bpm = 120;
@@ -183,10 +186,12 @@ describe('musicality: the grid shapes selection when it is trusted', () => {
     const chart = generateChart(analysis, { ...DIFFICULTIES.hard, chords: false, laneCount: 5 }, 1);
     expect(chart.notes.length).toBeGreaterThan(60);
 
-    // All mid-band notes stay in the mid lanes of a 5-lane chart.
+    // Every onset is mid-band, so the mid band now owns the whole 5-lane board
+    // (population-sized ranges) and the contour sweeps across all of it. Notes
+    // stay in range trivially; the real assertion is the sweep below.
     for (const note of chart.notes) {
-      expect(note.lane).toBeGreaterThanOrEqual(1);
-      expect(note.lane).toBeLessThanOrEqual(3);
+      expect(note.lane).toBeGreaterThanOrEqual(0);
+      expect(note.lane).toBeLessThanOrEqual(4);
     }
 
     const third = Math.floor(chart.notes.length / 3);
@@ -354,20 +359,58 @@ describe('generateChart', () => {
     expect(a).toEqual(b);
   });
 
-  it('routes bands to their designated lanes on easy', () => {
-    // Only low-band onsets: on a 3-lane chart they must all land in lane 0.
-    const analysis = makeAnalysis({
-      onsets: Array.from({ length: 40 }, (_, i) => ({
-        t: i * 0.5,
+  it('keeps bass on the left and treble on the right', () => {
+    // The kit-mirror, tested on a mixed song rather than a single band: low
+    // onsets must sit to the left of high onsets on average. (A single-band
+    // song no longer collapses to one lane — it spreads across the board, which
+    // is the whole point of the population-sized ranges — so the ordering has to
+    // be asserted with both bands present.)
+    const onsets: Onset[] = [];
+    for (let t = 0; t < 30; t += 0.5) {
+      const low = Math.round(t / 0.5) % 2 === 0;
+      onsets.push({
+        t,
         strength: 0.9,
-        low: 0.8,
+        low: low ? 0.8 : 0.1,
         mid: 0.1,
-        high: 0.1,
-      })),
-    });
+        high: low ? 0.1 : 0.8,
+      });
+    }
+    const analysis = makeAnalysis({ onsets });
     const chart = generateChart(analysis, DIFFICULTIES.easy, 1);
+
+    const bandAt = new Map(onsets.map((o) => [round(o.t), o.low > o.high ? 'low' : 'high']));
+    const meanLane = (band: string) => {
+      const lanes = chart.notes.filter((n) => bandAt.get(n.t) === band).map((n) => n.lane);
+      return lanes.reduce((s, l) => s + l, 0) / lanes.length;
+    };
     expect(chart.notes.length).toBeGreaterThan(0);
-    for (const note of chart.notes) expect(note.lane).toBe(0);
+    expect(meanLane('low')).toBeLessThan(meanLane('high'));
+  });
+
+  it('does not pile a hat-dominated song onto one lane', () => {
+    // The reported failure: a song whose onsets are ~85% high-band put ~85% of
+    // its taps on the single rightmost lane. Population-sized ranges give the
+    // dominant band several lanes, so no one lane runs away with the chart.
+    const onsets: Onset[] = [];
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0), seed / 0x100000000);
+    for (let t = 0; t < 60; t += 0.14) {
+      const r = rnd();
+      const [low, mid, high] = r < 0.82 ? [0.1, 0.1, 0.8] : r < 0.93 ? [0.1, 0.8, 0.1] : [0.8, 0.1, 0.1];
+      onsets.push({ t: round(t), strength: 0.5 + 0.5 * rnd(), low, mid, high });
+    }
+    const analysis = makeAnalysis({ duration: 60, onsets });
+
+    for (const params of [DIFFICULTIES.hard, DIFFICULTIES.extreme]) {
+      const chart = generateChart(analysis, params, 5);
+      const hist = new Array(params.laneCount).fill(0);
+      for (const note of chart.notes) hist[note.lane]++;
+      const worst = Math.max(...hist) / chart.notes.length;
+      // Was ~0.85 on the fixed 1/N/1 split; the dominant band now covers two of
+      // the four lanes, so the worst single lane sits well under half.
+      expect(worst).toBeLessThan(0.5);
+    }
   });
 
   it('handles a song with no detected beats', () => {

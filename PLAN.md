@@ -109,6 +109,23 @@ Measured lane spread on the starter library after the change (easy, 3 lanes):
 every song uses every lane, worst case 47% in one lane, against several songs
 that previously left a lane completely unused.
 
+**But classification is only half of it — the lane *widths* have to follow the
+song too.** Percentile ranking fixes "which band", not "how many lanes that band
+gets". The board was a fixed split — `low[0] mid[1,2] high[3]` on four lanes —
+which assumes a drum-kit-balanced song. Real tracks often are not: a hat-driven
+pop song (the report was NSYNC's "Bye Bye Bye") fires ~80%+ of its onsets in the
+high band, and the fixed split then stacked ~85% of the taps on the single
+rightmost lane — a jackhammer on one finger. `laneRangesByPopulation` sizes each
+band's range to how many onsets it actually carries, low→mid→high left to right,
+every present band guaranteed at least one lane. A balanced song still resolves
+to exactly the old `low[0] mid[1,2] high[3]`; a hat-dominated one gives the high
+band two of the four lanes (`low[0] mid[1] high[2,3]`), and the contour then
+rolls the notes *between* those two rather than hammering one. On the crafted
+82%-high fixture the worst single lane drops from ~85% to under 40%. A
+single-band song hands the whole board to that band (`high[0,1,2,3]`), spread by
+brightness, instead of collapsing to a lane. `lanes.test.ts` locks in both the
+unchanged balanced case and the anti-collapse guarantee.
+
 ### 2.2 Timing fidelity: onsets are truth, the grid is a guess
 
 Two bugs made early charts feel unrelated to the music. Both are now regression-tested.
@@ -1099,6 +1116,16 @@ the moment it is deployed publicly or shared. Do not deploy this.
 
 ## 9. Progress log
 
+- **2026-07-21** — Fixed a hat-driven song ("Bye Bye Bye") putting ~85% of its
+  taps on the single rightmost lane. Percentile-rank classification was right
+  about *which* band each onset belonged to, but the board used a fixed
+  `low[0] mid[1,2] high[3]` split, so a song that is mostly high-band onsets
+  stacked nearly everything on the one high lane. `laneRangesByPopulation` now
+  sizes each band's lane range to its onset share (low→mid→high, one lane
+  minimum per present band); a balanced song is unchanged, a dominant band gets
+  several lanes and the contour rolls between them. Worst single lane on a
+  crafted 82%-high fixture: ~85% → <40%. Chords whose secondary band has no
+  lanes (single-band song) fall back to another lane of the primary band. §2.1.
 - **2026-07-19** — Plan written. Settled: self-hosted audio, desktop-first `ASDFG`,
   `laneCount` parameterized.
 - **2026-07-19** — Pivoted off Python/Docker/essentia to all-TypeScript. DSP written
