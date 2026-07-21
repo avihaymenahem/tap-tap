@@ -6,6 +6,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import type { NoteState } from '../game/engine.js';
 import type { Tier } from '../game/judge.js';
 import type { Theme } from '@tap-tap/shared';
+import { DEFAULT_ACCENT } from '@tap-tap/shared';
 import { laneColor } from './palette.js';
 
 /**
@@ -20,14 +21,14 @@ import { laneColor } from './palette.js';
  */
 
 const LANE_WIDTH = 1.15;
-/** Tap-tile footprint on the track, in world units. Wide across the lane, and now tall front-to-back. */
-const TILE_WIDTH = LANE_WIDTH * 0.84;
-/** ~3x the original 0.62 — chunky tiles that read big as they approach. */
-const TILE_DEPTH = 1.9;
-/** The hit-zone frame — the same shape as a tile, a little deeper so a tile lands *inside* it. */
-const HIT_ZONE_DEPTH = 2.8;
+/** Tap-tile footprint on the track, in world units. */
+const TILE_WIDTH = LANE_WIDTH * 0.72;
+/** Front-to-back length of a tile — its on-screen height. */
+const TILE_DEPTH = 1.2;
+/** The hit-zone frame now matches the tile footprint exactly (requested), so a tile drops dead-centre. */
+const HIT_ZONE_DEPTH = TILE_DEPTH;
 /** World-space distance from the spawn point to the hit line. */
-const HIGHWAY_LENGTH = 26;
+const HIGHWAY_LENGTH = 18;
 
 /**
  * How far the far end of the highway lifts, in world units.
@@ -41,7 +42,7 @@ const HIGHWAY_LENGTH = 26;
  * This is the one number to change if the curve feels wrong. Much past the
  * camera height (6.2) the far end rises to eye level and folds over on itself.
  */
-const CURVE_HEIGHT = 1.4;
+const CURVE_HEIGHT = 0.5;
 
 /**
  * Falloff of the lift. Must stay above 1 so the slope is still zero at the hit
@@ -165,8 +166,13 @@ const STAR_COUNT = 560;
  * Camera rig. Height and distance set how steeply you look down the highway:
  * higher and closer tilts the view further over, which shows more of the lane
  * and makes note spacing easier to read.
+ *
+ * The height is per-style. The stage look uses a flatter, higher camera; the
+ * classic synthwave look keeps its original 6.2, where its striped sun sits
+ * framed on the horizon — the higher stage camera pushes that sun off the top.
  */
-const CAMERA_HEIGHT = 6.2;
+const CAMERA_HEIGHT = 7.5;
+const CLASSIC_CAMERA_HEIGHT = 6.2;
 const CAMERA_DISTANCE = 6.2;
 const CAMERA_TARGET_Z = -9;
 const BASE_FOV = 60;
@@ -223,6 +229,12 @@ export interface HighwayOptions {
   theme: Theme;
   /** Beat times, used to pulse the scene in time with the music. */
   beatGrid?: readonly number[];
+  /**
+   * The song's cover image. Ringed at the vanishing point in `stage` style —
+   * the reference's signature. Ignored by the classic look. Optional because a
+   * song may have no thumbnail, in which case the ring is simply omitted.
+   */
+  coverUrl?: string;
 }
 
 export class Highway {
@@ -234,6 +246,12 @@ export class Highway {
   private readonly laneCount: number;
   private readonly approachSec: number;
   private readonly theme: Theme;
+  /** Beatstar-style rendering: dark colourless track, glowing rails, cover ring. */
+  private readonly stage: boolean;
+  /** The theme's bright accent — metal notes, rails, firework. */
+  private readonly accent: number;
+  /** Camera height, per style — the classic sun needs the lower original camera. */
+  private readonly camHeight: number;
   private readonly beatGrid: readonly number[];
   private beatCursor = 0;
 
@@ -268,6 +286,12 @@ export class Highway {
   private readonly pads: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
   /** Rectangular hit-zone frames, one per lane. The target a tap tile lands in. */
   private readonly hitZones: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
+  /** The two bright glowing rails down the outer edges of the track. */
+  private readonly rails: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>[] = [];
+  /** Radial spikes around the cover art — the audio-wave firework (stage only). */
+  private readonly coverBars: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
+  /** Per-bar random phase so the ring shimmers instead of pulsing as one. */
+  private readonly coverBarSeed: number[] = [];
 
   private readonly particles: THREE.Points;
   private readonly particlePositions: Float32Array;
@@ -295,12 +319,17 @@ export class Highway {
   private readonly color = new THREE.Color();
   private disposed = false;
 
-  constructor({ canvas, laneCount, approachSec, theme, beatGrid = [] }: HighwayOptions) {
+  constructor({ canvas, laneCount, approachSec, theme, beatGrid = [], coverUrl }: HighwayOptions) {
     this.laneCount = laneCount;
     this.approachSec = approachSec;
     // Assigned before any build* call: every one of them reads it, and a field
     // set after `buildBackdrop()` would be undefined at the moment it is needed.
     this.theme = theme;
+    // Stage is the default look now; the classic synthwave sun is an explicit
+    // opt-in that nothing ships with, so a theme is classic only if it says so.
+    this.stage = theme.style !== 'classic';
+    this.accent = theme.accent ?? DEFAULT_ACCENT;
+    this.camHeight = this.stage ? CAMERA_HEIGHT : CLASSIC_CAMERA_HEIGHT;
     this.beatGrid = beatGrid;
     this.laneFlash = new Float32Array(laneCount);
 
@@ -313,14 +342,34 @@ export class Highway {
     // Derived from the theme rather than a fixed near-black. The backdrop plane
     // covers the frustum in normal play, but it stops short at very wide aspect
     // ratios, and a violet sliver either side of an arctic sky reads as a bug.
-    this.scene.background = new THREE.Color(theme.sky.top).multiplyScalar(0.3);
+    this.scene.background = new THREE.Color(theme.sky.below).multiplyScalar(0.4);
+
+    // Lights exist ONLY for the note buttons — every other object uses an unlit
+    // MeshBasicMaterial and ignores them, so the rest of the scene is unchanged.
+    // A key light raking down from above-front lets the tiles' beveled edges
+    // catch a real highlight and shade, which is what makes them read as solid
+    // 3D metal; the ambient keeps the shadowed bevels from crushing to black.
+    const key = new THREE.DirectionalLight(0xffffff, 2.4);
+    key.position.set(0.25, 1, 0.5);
+    this.scene.add(key);
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+    // The environment the metal notes reflect. Only MeshStandardMaterial reads
+    // it (everything else is unlit/basic), so it costs nothing elsewhere. A warm
+    // studio gradient with a bright overhead light band gives the gold a moving
+    // reflection — the thing that actually makes it look like metal.
+    this.scene.environment = Highway.makeEnvTexture();
 
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 300);
-    this.camera.position.set(0, CAMERA_HEIGHT, CAMERA_DISTANCE);
+    this.camera.position.set(0, this.camHeight, CAMERA_DISTANCE);
     this.camera.lookAt(0, 0, CAMERA_TARGET_Z);
 
     this.backdrop = this.buildBackdrop();
     this.scene.add(this.backdrop);
+
+    // The cover art ringed at the vanishing point — the reference's signature.
+    // Stage style only, and only when the song actually has a thumbnail.
+    if (this.stage && coverUrl) this.buildAlbumRing(coverUrl);
 
     this.starPositions = new Float32Array(STAR_COUNT * 3);
     this.starSpeeds = new Float32Array(STAR_COUNT);
@@ -334,6 +383,9 @@ export class Highway {
 
     this.floor = this.buildFloor();
     this.scene.add(this.floor);
+
+    // Rails are a stage-style flourish; the classic synthwave look has none.
+    if (this.stage) this.buildRails();
 
     this.buildReceptors();
 
@@ -361,7 +413,10 @@ export class Highway {
     // Tight radius and a high threshold. A wide radius smears the hit line and
     // lit floor across the entire sky as a flat haze, which reads as a washed
     // out background rather than as glow.
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.45, 0.2, 0.8);
+    // Radius 0 and a low strength: a wide, strong bloom smears every bright edge
+    // into a soft haze that reads as the whole scene being out of focus. Keep it
+    // to a faint flare so the notes, rails and glow stay crisp.
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.16, 0.0, 0.85);
     this.composer.addPass(this.bloom);
 
     this.composer.addPass(new OutputPass());
@@ -377,7 +432,115 @@ export class Highway {
     return (lane - (this.laneCount - 1) / 2) * LANE_WIDTH;
   }
 
+  /** A note's tile colour: the theme's accent in `stage` style, the lane hue otherwise. */
+  private noteHex(lane: number): number {
+    return this.stage ? this.accent : laneColor(this.theme, lane);
+  }
+
   private buildBackdrop(): THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
+    // The classic synthwave sky: a striped sun setting on the horizon over a
+    // graded backdrop. Statements only — the shared header below declares the
+    // uniforms, helpers and consts it uses.
+    const classicMain = /* glsl */ `
+          // The sky colours arrive as LINEAR uniforms — THREE.Color converted
+          // them from the theme's sRGB hex. ACES tone mapping plus the sRGB
+          // transfer curve lifts midtones hard, so a theme whose sky reads as a
+          // reasonable hex still has to be a *dark* hex: linear 0.14 lands near
+          // sRGB 0.42 on screen.
+          //
+          // Everything below is deliberately dim. This is a backdrop: the notes
+          // and the hit line have to stay the brightest things on screen, so
+          // nothing here may cross the bloom threshold (0.8) and start glowing
+          // in competition with them.
+          float sky = smoothstep(HORIZON, 0.545, vUv.y);
+
+          vec3 horizonCol = mix(uSkyHorizon, uSkyHorizonAlt, 0.3 + uTreble * 0.3);
+          vec3 base = mix(horizonCol, uSkyTop, sky);
+
+          // Below eye level the backdrop only peeks past the edges of the
+          // track, so it drops away to near-black rather than competing.
+          base = mix(base, uSkyBelow, smoothstep(HORIZON, HORIZON - 0.08, vUv.y));
+
+          // --- sun --- anchored in world space, not guessed in uv. The disc
+          // beats with the track: uPulse swells and flares it on the downbeat.
+          float sunR = SUN_R * (1.0 + uPulse * 0.06);
+          vec2 sunOffset = vec2((vUv.x - 0.5) * PLANE_ASPECT, vUv.y - SUN_Y);
+          float sunDist = length(sunOffset);
+          float sunMask = smoothstep(sunR, sunR - 0.004, sunDist);
+
+          // 0 at the crown, 1 at the waterline.
+          float depth = clamp((SUN_Y + SUN_R - vUv.y) / (2.0 * SUN_R), 0.0, 1.0);
+
+          // Horizontal slits, the retrowave signature. Gaps widen toward the
+          // bottom so the disc dissolves into the haze, crown stays solid.
+          float slitPhase = fract(vUv.y * 150.0);
+          float gap = mix(0.10, 0.66, depth);
+          sunMask *= mix(1.0, step(gap, slitPhase), smoothstep(0.12, 0.5, depth));
+
+          vec3 sunCol = mix(uSun, uSunCrown, smoothstep(HORIZON, SUN_Y + SUN_R, vUv.y));
+          sunCol *= 1.0 + uPulse * 0.5;
+          // Cut flat at the horizon so the sun sets behind the world.
+          sunMask *= step(HORIZON, vUv.y);
+          base = mix(base, sunCol, sunMask);
+
+          // Atmospheric bloom around the disc, swelling with the beat.
+          base += uHaze * smoothstep(SUN_R * 2.6, SUN_R * 0.9, sunDist) * (0.5 + uPulse * 0.55);
+
+          // Drifting nebula, kept subtle: it is texture, not a light source.
+          float n = noise(vUv * vec2(5.0, 3.0) + vec2(uTime * 0.03, uTime * 0.015));
+          n *= noise(vUv * vec2(11.0, 7.0) - vec2(uTime * 0.02, 0.0));
+          base += uGlow * 0.34 * n * (0.05 + uTreble * 0.14) * sky;
+
+          // Haze hugging the horizon.
+          base += uHaze * 0.34 * smoothstep(0.022, 0.0, abs(vUv.y - HORIZON)) * 0.40;
+
+          // Glow at the vanishing point, swelling on the low end and each beat.
+          float d = distance(vUv, vec2(0.5, 0.44));
+          float glow = smoothstep(0.20, 0.0, d) * (0.03 + uBass * 0.18 + uPulse * 0.10);
+          base += uGlow * glow;
+
+          gl_FragColor = vec4(base, 1.0);
+    `;
+
+    // The Beatstar-style dark stage: near-black lit only by a warm lamp pooled
+    // behind the vanishing point. See the note below on why the glow is a thin
+    // horizontal band rather than a disc.
+    const stageMain = /* glsl */ `
+          // The scene is near-black. The only real light is a warm bloom pooled
+          // behind the track's vanishing point — a stage lamp, not a setting
+          // sun. Colours arrive as LINEAR uniforms, so the multipliers are tiny:
+          // ACES + sRGB lift midtones hard. The glow is the one place the
+          // background may approach the bloom threshold, because it sits behind
+          // the horizon where no notes are; everything else stays dim.
+
+          // The visible slice of this plane is only ~0.1 of vUv.y tall (measured,
+          // not derived — the camera squashes the sky into a sliver), so the
+          // glow's vertical reach must be tiny or it washes the whole frame.
+          // Hence the large vertical multiplier: it pools the light into a thin
+          // horizontal band at the horizon.
+          float GLOW_Y = 0.45;
+          float GLOW_R = 0.30;
+
+          vec3 base = uSkyBelow * 0.06;
+
+          vec2 g = vec2((vUv.x - 0.5) * 1.0, (vUv.y - GLOW_Y) * 4.2);
+          float d = length(g);
+          float glow = pow(smoothstep(GLOW_R, 0.0, d), 1.7);
+          float beat = 0.4 + uBass * 0.4 + uPulse * 0.5;
+          base += uSun * glow * beat;
+
+          // A hotter core that crosses the bloom threshold, so the centre of the
+          // stage blooms like a lamp behind the horizon.
+          float core = pow(smoothstep(GLOW_R * 0.42, 0.0, d), 2.0);
+          base += uSunCrown * core * (0.7 + uPulse * 0.5);
+
+          // Faint drifting haze inside the glow, so the light has texture.
+          float n = noise(vUv * vec2(6.0, 3.5) + vec2(uTime * 0.03, uTime * 0.015));
+          base += uGlow * n * glow * (0.05 + uTreble * 0.10);
+
+          gl_FragColor = vec4(base, 1.0);
+    `;
+
     const material = new THREE.ShaderMaterial({
       depthWrite: false,
       uniforms: {
@@ -447,107 +610,16 @@ export class Highway {
 
         /** Plane is 200x120, so x must be scaled to measure a round sun. */
         const float PLANE_ASPECT = 200.0 / 120.0;
-        /** Just above the horizon line, so the disc reads as half-set. */
-        const float SUN_Y = 0.446;
+        /** Just above the horizon line, so the disc reads as half-set. Lowered
+         * from 0.446 and shrunk so the crown clears the top of the frame under
+         * the current (shorter, flatter) track framing instead of being cut. */
+        const float SUN_Y = 0.428;
         /** ~7.4 world units. Roughly the sky's height above the horizon. */
-        const float SUN_R = 0.062;
+        const float SUN_R = 0.05;
 
 
         void main() {
-          // The sky colours arrive as LINEAR uniforms — THREE.Color converted
-          // them from the theme's sRGB hex. ACES tone mapping plus the sRGB
-          // transfer curve lifts midtones hard, so a theme whose sky reads as a
-          // reasonable hex still has to be a *dark* hex: linear 0.14 lands near
-          // sRGB 0.42 on screen.
-          //
-          // Everything below is deliberately dim. This is a backdrop: the notes
-          // and the hit line have to stay the brightest things on screen, so
-          // nothing here may cross the bloom threshold (0.8) and start glowing
-          // in competition with them. That is a constraint on any new theme, not
-          // just on these defaults.
-          // The whole sky is the 0.045 of uv between the horizon and the top of
-          // frame, so every gradient stop lives inside that sliver.
-          float sky = smoothstep(HORIZON, 0.545, vUv.y);
-
-          vec3 horizonCol = mix(uSkyHorizon, uSkyHorizonAlt, 0.3 + uTreble * 0.3);
-          vec3 base = mix(horizonCol, uSkyTop, sky);
-
-          // Below eye level the backdrop only peeks past the edges of the
-          // track, so it drops away to near-black rather than competing.
-          base = mix(base, uSkyBelow, smoothstep(HORIZON, HORIZON - 0.08, vUv.y));
-
-          // --- sun -------------------------------------------------------
-          // Anchored in world space, not guessed in uv. The backdrop plane is
-          // 120 units tall centred on world y=8, so uv.y = 0.5 + (worldY-8)/120
-          // and the camera's eye level (6.2) lands on HORIZON. Sizing from that
-          // relationship is what stops the sun coming out either invisible or
-          // big enough to fill the frame.
-          // The sun beats with the track: uPulse spikes to 1 on each beat and
-          // decays, so the disc swells a touch and flares bright on the downbeat.
-          float sunR = SUN_R * (1.0 + uPulse * 0.06);
-          vec2 sunOffset = vec2((vUv.x - 0.5) * PLANE_ASPECT, vUv.y - SUN_Y);
-          float sunDist = length(sunOffset);
-          float sunMask = smoothstep(sunR, sunR - 0.004, sunDist);
-
-          // 0 at the crown, 1 at the waterline.
-          float depth = clamp((SUN_Y + SUN_R - vUv.y) / (2.0 * SUN_R), 0.0, 1.0);
-
-          // Horizontal slits, the retrowave signature. The gaps widen toward the
-          // bottom so the disc dissolves into the haze instead of being sliced
-          // by an even comb, and the crown stays solid.
-          float slitPhase = fract(vUv.y * 150.0);
-          float gap = mix(0.10, 0.66, depth);
-          sunMask *= mix(1.0, step(gap, slitPhase), smoothstep(0.12, 0.5, depth));
-
-          // Hot pink at the horizon into a pale pink crown. Held under the bloom
-          // threshold (0.8) so the sun glows without competing with the notes.
-          //
-          // Pink the whole way up rather than the poster's yellow crown, to
-          // match the menu's sun — a warm crown reads as cream here and made the
-          // two backgrounds look like different scenes.
-          //
-          // Ramped across the *visible* half only. Spanning the full disc puts
-          // most of the gradient below the horizon where nobody can see it, and
-          // the part on screen comes out flat.
-          vec3 sunCol = mix(uSun, uSunCrown, smoothstep(HORIZON, SUN_Y + SUN_R, vUv.y));
-          // Flare on the beat. This deliberately pushes the crown past the bloom
-          // threshold (0.8) at the peak of a pulse, so the sun visibly blooms
-          // brighter on the downbeat and settles back between beats.
-          sunCol *= 1.0 + uPulse * 0.5;
-          // Cut flat at the horizon. The track's far end is far too narrow to
-          // hide the disc's base, so without this the sun hangs in the sky as a
-          // complete circle instead of setting behind the world.
-          sunMask *= step(HORIZON, vUv.y);
-          base = mix(base, sunCol, sunMask);
-
-          // Atmospheric bloom around the disc — swells with the beat too, so the
-          // whole sun throbs rather than just its face.
-          base += uHaze * smoothstep(SUN_R * 2.6, SUN_R * 0.9, sunDist) * (0.5 + uPulse * 0.55);
-
-          // --- atmosphere ------------------------------------------------
-          // The scalars below used to be baked into four separate literals, one
-          // per term. They are pulled out as plain multipliers so the *hue* of
-          // the air comes from the theme while the relative strengths — which
-          // were tuned against the bloom threshold, not against a colour — stay
-          // where they were.
-          //
-          // Drifting nebula, kept subtle: it is texture, not a light source.
-          float n = noise(vUv * vec2(5.0, 3.0) + vec2(uTime * 0.03, uTime * 0.015));
-          n *= noise(vUv * vec2(11.0, 7.0) - vec2(uTime * 0.02, 0.0));
-          base += uGlow * 0.34 * n * (0.05 + uTreble * 0.14) * sky;
-
-          // Haze hugging the horizon, so the sky meets the track through air
-          // rather than at a hard line.
-          base += uHaze * 0.34 * smoothstep(0.022, 0.0, abs(vUv.y - HORIZON)) * 0.40;
-
-          // Glow at the vanishing point, swelling on the low end and each beat.
-          float d = distance(vUv, vec2(0.5, 0.44));
-          float glow = smoothstep(0.20, 0.0, d) * (0.03 + uBass * 0.18 + uPulse * 0.10);
-          base += uGlow * glow;
-
-
-
-          gl_FragColor = vec4(base, 1.0);
+          ${this.stage ? stageMain : classicMain}
         }
       `,
     });
@@ -555,9 +627,144 @@ export class Highway {
     // Sized to overshoot the frustum in every direction: a visible plane edge
     // reads as a hard seam across the sky.
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(200, 120), material);
-    mesh.position.set(0, 8, -HIGHWAY_LENGTH - 14);
+    // Classic sits at its original -40 (where its sun was tuned to frame on the
+    // horizon, back when the track was longer); stage tucks the plane closer so
+    // its glow band and cover ring sit right behind the shorter track.
+    mesh.position.set(0, 8, this.stage ? -HIGHWAY_LENGTH - 14 : -40);
     mesh.renderOrder = -2;
     return mesh;
+  }
+
+  /**
+   * The song's cover art, ringed and standing at the vanishing point — the one
+   * element that most makes the reference read as itself. A disc textured with
+   * the thumbnail, a bright warm ring around it, tilted to face the player and
+   * sitting just in front of the backdrop so the glow haloes it.
+   *
+   * The texture loads asynchronously; the meshes are built now and simply show
+   * black until it arrives. Loaded through the same origin the menu thumbnails
+   * use, so there is no CORS taint on the canvas.
+   */
+  private buildAlbumRing(coverUrl: string): void {
+    const RADIUS = 2.5;
+    // Standing just past the track's far end, on the horizon glow. Lowered and
+    // shrunk so the whole disc (and its ring of spikes) clears the top HUD
+    // instead of being cropped by the frame edge.
+    const center = new THREE.Vector3(0, 2.9, -HIGHWAY_LENGTH - 4);
+    const tilt = -0.15;
+
+    const texture = new THREE.TextureLoader().load(coverUrl);
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(RADIUS, 64),
+      new THREE.MeshBasicMaterial({ map: texture, toneMapped: false, fog: false }),
+    );
+    disc.position.copy(center);
+    disc.rotation.x = tilt;
+    // In front of the backdrop, behind everything on the track.
+    disc.renderOrder = -1;
+    this.scene.add(disc);
+
+    // A thin bright rim. Was 12% of the radius thick and additive — a fat glowing
+    // band. A slim ring at moderate opacity reads as a crisp edge, not a halo.
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(RADIUS * 1.0, RADIUS * 1.035, 96),
+      new THREE.MeshBasicMaterial({
+        color: this.accent,
+        transparent: true,
+        opacity: 0.55,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+        fog: false,
+      }),
+    );
+    ring.position.copy(center);
+    ring.rotation.x = tilt;
+    ring.renderOrder = -1;
+    this.scene.add(ring);
+
+    this.buildCoverWave(center, tilt, RADIUS);
+  }
+
+  /**
+   * A ring of radial spikes around the cover art, driven by the live audio
+   * spectrum — the "firework" around the CD. Each spike lies in the disc's tilted
+   * plane and grows outward with its frequency band, flaring on the beat. Built
+   * as a pool of thin additive quads with their pivot at the inner end, so a
+   * per-frame scale on the length axis is all it takes to animate them.
+   */
+  private buildCoverWave(center: THREE.Vector3, tilt: number, radius: number): void {
+    const COUNT = 96;
+    const group = new THREE.Group();
+    group.position.copy(center);
+    group.rotation.x = tilt;
+
+    for (let i = 0; i < COUNT; i++) {
+      const angle = (i / COUNT) * Math.PI * 2;
+
+      // A thin quad whose pivot is its inner (bottom) end, so scaling Y grows it
+      // straight outward from the ring rather than from its middle.
+      const geometry = new THREE.PlaneGeometry(0.045, 1);
+      geometry.translate(0, 0.5, 0);
+
+      const bar = new THREE.Mesh(
+        geometry,
+        new THREE.MeshBasicMaterial({
+          color: this.accent,
+          transparent: true,
+          opacity: 0.85,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          toneMapped: false,
+          fog: false,
+        }),
+      );
+      // Point local +Y radially outward at this angle, seated just outside the rim.
+      bar.rotation.z = angle - Math.PI / 2;
+      bar.position.set(Math.cos(angle) * radius * 1.06, Math.sin(angle) * radius * 1.06, 0);
+      bar.scale.y = 0.001;
+
+      this.coverBars.push(bar);
+      this.coverBarSeed.push(Math.random() * Math.PI * 2);
+      group.add(bar);
+    }
+
+    group.renderOrder = -1;
+    this.scene.add(group);
+  }
+
+  private updateCoverWave(songTime: number, pulse: number, spectrum?: Uint8Array): void {
+    if (this.coverBars.length === 0) return;
+
+    const count = this.coverBars.length;
+    // The buffer is 512 but the analyser only fills its 256 real bins; the rest
+    // stay zero, so cap here or the treble half of the ring reads dead.
+    const bins = spectrum ? Math.min(spectrum.length, 256) : 0;
+    for (let i = 0; i < count; i++) {
+      const bar = this.coverBars[i]!;
+
+      // Map the ring symmetrically onto the spectrum: both sides sweep bass→treble
+      // from the bottom of the circle up, so the firework is mirrored left/right.
+      const half = i < count / 2 ? i : count - 1 - i;
+      const frac = half / (count / 2);
+      let level = 0;
+      if (bins > 0) {
+        // Skip the lowest couple of bins (DC/rumble); ride the low-mid range where
+        // the energy is. Byte spectrum is 0..255.
+        const bin = 2 + Math.floor(frac * (bins * 0.55));
+        level = (spectrum![Math.min(bin, bins - 1)] ?? 0) / 255;
+      }
+
+      // A gentle idle shimmer so the ring lives even in quiet passages, plus a
+      // beat flare that shoots the spikes out on the downbeat.
+      const shimmer = 0.5 + 0.5 * Math.sin(songTime * 5 + this.coverBarSeed[i]!);
+      const length = 0.08 + level * 1.1 + pulse * 0.25 + shimmer * 0.06;
+
+      bar.scale.y = length;
+      (bar.material as THREE.MeshBasicMaterial).opacity = 0.35 + level * 0.6 + pulse * 0.2;
+    }
   }
 
   /**
@@ -585,62 +792,25 @@ export class Highway {
   }
 
   /**
-   * A wide rounded-rectangle tap tile: soft-filled with a bright rim.
-   *
-   * White so it can be tinted per-lane by the instance colour. The rim is
-   * near-opaque so it catches the bloom and reads as a lit edge; the fill is
-   * translucent so the lane tint underneath still shows through. Drawn at the
-   * tile's own aspect (~3:2) so the rounded corners stay circular when the quad
-   * is stretched to the lane.
-   */
-  private static makeTileTexture(): THREE.CanvasTexture {
-    // Canvas aspect matches the tile's world aspect (~1:2, tall now) so the
-    // rounded corners map to circles rather than stretched ovals.
-    const w = 128;
-    const h = 256;
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      const inset = 12;
-      const r = 30;
-      Highway.roundRectPath(ctx, inset, inset, w - inset * 2, h - inset * 2, r);
-
-      const fill = ctx.createLinearGradient(0, inset, 0, h - inset);
-      fill.addColorStop(0, 'rgba(255,255,255,0.95)');
-      fill.addColorStop(0.5, 'rgba(255,255,255,0.72)');
-      fill.addColorStop(1, 'rgba(255,255,255,0.85)');
-      ctx.fillStyle = fill;
-      ctx.fill();
-
-      ctx.lineWidth = 9;
-      ctx.strokeStyle = 'rgba(255,255,255,1)';
-      ctx.stroke();
-    }
-
-    return new THREE.CanvasTexture(canvas);
-  }
-
-  /**
    * A hollow rounded-rectangle frame for the hit zones — transparent inside, a
    * bright rim, so the receptor reads as a target a tile drops into rather than
    * a filled pad. Matches `makeTileTexture` so tile and target share a shape.
    */
-  private static makeFrameTexture(): THREE.CanvasTexture {
-    // Taller than the tile (the hit zone is deeper), aspect-matched for round corners.
-    const w = 128;
-    const h = 320;
+  private static makeFrameTexture(aspect: number): THREE.CanvasTexture {
+    // Matches the tile footprint and its rounding, so a bar drops into a slot of
+    // the same rounded shape. Aspect-driven like the tile so corners stay round.
+    const w = 256;
+    const h = Math.round(w * aspect);
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
 
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      const inset = 14;
-      Highway.roundRectPath(ctx, inset, inset, w - inset * 2, h - inset * 2, 30);
-      ctx.lineWidth = 10;
+      const inset = Math.round(w * 0.1);
+      const r = Math.round((w - inset * 2) * 0.14);
+      Highway.roundRectPath(ctx, inset, inset, w - inset * 2, h - inset * 2, r);
+      ctx.lineWidth = 18;
       ctx.strokeStyle = 'rgba(255,255,255,1)';
       ctx.stroke();
       // A faint inner wash so an empty lane still reads as a slot, not a gap.
@@ -648,7 +818,9 @@ export class Highway {
       ctx.fill();
     }
 
-    return new THREE.CanvasTexture(canvas);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.anisotropy = 8;
+    return texture;
   }
 
   /** Rounded-rect path helper; `roundRect` is not in every target's 2D context. */
@@ -859,8 +1031,10 @@ export class Highway {
           // Sides fall away too, so the plane's left and right edges never show.
           float sideFade = smoothstep(0.5, 0.24, abs(vUv.x - 0.5));
 
+          // On the dark stage the grid is only a faint hint of a floor; in the
+          // classic synthwave look it is the signature neon and stays bright.
           float alpha = grid * clear * farFade * nearFade * sideFade
-                      * (0.34 + uBass * 0.20 + uPulse * 0.10);
+                      * (${this.stage ? '0.08 + uBass * 0.06 + uPulse * 0.04' : '0.34 + uBass * 0.20 + uPulse * 0.10'});
 
           gl_FragColor = vec4(col, alpha);
         }
@@ -949,7 +1123,9 @@ export class Highway {
           // Each lane carries its own colour, brightest near the hit line. Kept
           // dim on purpose: the floor is a stage, and the notes are the subject.
           float nearGlow = pow(1.0 - vUv.y, 3.6);
-          float laneBody = nearGlow * (0.14 + uBass * 0.22 + uPulse * 0.08);
+          // In stage style the track is near-black — the lane hue lives almost
+          // entirely in the hit flash below — so the ambient body is a whisper.
+          float laneBody = nearGlow * (${this.stage ? '0.03 + uBass * 0.05 + uPulse * 0.03' : '0.14 + uBass * 0.22 + uPulse * 0.08'});
 
           // A press lights the whole lane, not just the near end. The constant
           // term is what carries the highlight all the way up the highway;
@@ -957,9 +1133,15 @@ export class Highway {
           // separate object rather than as "this lane".
           float flashGlow = flash * (0.34 + nearGlow * 0.85);
 
-          vec3 col = tint * (laneBody + flashGlow)
-                   + tint * separator * 0.22
-                   + vec3(0.55, 0.75, 1.0) * rungs * 0.28;
+          // Stage keeps the track colourless — a neutral grey ambient and grey
+          // separators — so the lane hue appears only in the flash on a hit.
+          // Classic tints the whole lane as before.
+          vec3 ambient = ${this.stage ? 'vec3(0.7)' : 'tint'};
+          vec3 rungCol = ${this.stage ? 'vec3(0.7)' : 'vec3(0.55, 0.75, 1.0)'};
+          vec3 col = ambient * laneBody
+                   + tint * flashGlow
+                   + ambient * separator * 0.22
+                   + rungCol * rungs * 0.28;
 
           // Dissolve the far end instead of stopping at a hard edge, so the
           // highway reads as receding into the distance rather than being cut.
@@ -1009,6 +1191,86 @@ export class Highway {
     geometry.computeVertexNormals();
   }
 
+  /**
+   * The two bright rails running down the outer edges of the track — the
+   * signature of the reference look. Each is a thin strip lying on the track
+   * surface, bent onto the curve and tapered inward with it, glowing hot enough
+   * to cross the bloom threshold so it reads as a light strip, not a painted
+   * line. Tinted by the theme's warm sun colour so it matches the stage glow.
+   */
+  private buildRails(): void {
+    const RAIL_WIDTH = 0.14;
+    const railColor = new THREE.Color(this.accent);
+
+    for (const side of [-1, 1] as const) {
+      const material = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: {
+          uColor: { value: new THREE.Vector3(railColor.r, railColor.g, railColor.b) },
+          uBass: { value: 0 },
+          uPulse: { value: 0 },
+        },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          varying vec2 vUv;
+          uniform vec3 uColor;
+          uniform float uBass;
+          uniform float uPulse;
+          void main() {
+            // Bright core across the strip's width, feathering to nothing at the
+            // edges so it reads as a glowing tube rather than a hard band.
+            float cross = pow(smoothstep(0.5, 0.0, abs(vUv.x - 0.5)), 1.6);
+            // Dissolve into the horizon glow at the far end, and pull the very
+            // near tip down so it doesn't stack on the receptor.
+            float farFade = smoothstep(1.0, 0.55, vUv.y);
+            float nearFade = smoothstep(0.0, 0.04, vUv.y);
+            // Pushed well past the bloom threshold so the rail actually blooms;
+            // it breathes with the low end and flares on the downbeat.
+            float bright = 1.7 + uBass * 1.2 + uPulse * 1.4;
+            vec3 col = uColor * bright * cross;
+            float alpha = cross * farFade * nearFade;
+            gl_FragColor = vec4(col, alpha);
+          }
+        `,
+      });
+      material.toneMapped = false;
+
+      // Long and thin, segmented so it can bend along the curve.
+      const geometry = new THREE.PlaneGeometry(RAIL_WIDTH, HIGHWAY_LENGTH, 1, 96);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.rotation.x = -Math.PI / 2;
+      // Just above the floor (-0.12) so it sits on the surface, not through it.
+      const meshZ = -HIGHWAY_LENGTH / 2;
+      mesh.position.set(0, -0.04, meshZ);
+
+      // Bend onto the curve and ride the outer edge. Same local-space mapping as
+      // bendToCurve: rotation.x = -PI/2 writes lift into local Z, and a vertex's
+      // world z is meshZ - localY. The edge itself tapers with curveWidth, so the
+      // rail follows the narrowing track instead of hanging off it.
+      const position = geometry.attributes['position'] as THREE.BufferAttribute;
+      for (let i = 0; i < position.count; i++) {
+        const worldZ = meshZ - position.getY(i);
+        const w = curveWidth(worldZ);
+        position.setZ(i, curveLift(worldZ));
+        position.setX(i, side * this.halfWidth * w + position.getX(i) * w);
+      }
+      position.needsUpdate = true;
+      geometry.computeVertexNormals();
+
+      mesh.renderOrder = 1;
+      this.rails.push(mesh);
+      this.scene.add(mesh);
+    }
+  }
+
   private buildReceptors(): void {
     for (let lane = 0; lane < this.laneCount; lane++) {
       const hex = laneColor(this.theme, lane);
@@ -1016,9 +1278,11 @@ export class Highway {
       const pad = new THREE.Mesh(
         new THREE.PlaneGeometry(LANE_WIDTH * 0.96, 1.35),
         new THREE.MeshBasicMaterial({
-          color: hex,
+          // Stage receptors are dark warm slabs, not glowing colour: the colour
+          // arrives only when the lane is struck.
+          color: this.stage ? 0x2a251d : hex,
           transparent: true,
-          opacity: 0.18,
+          opacity: this.stage ? 0.42 : 0.18,
           toneMapped: false,
         }),
       );
@@ -1033,10 +1297,12 @@ export class Highway {
       const frame = new THREE.Mesh(
         new THREE.PlaneGeometry(1, 1),
         new THREE.MeshBasicMaterial({
-          map: Highway.makeFrameTexture(),
-          color: hex,
+          map: Highway.makeFrameTexture(HIT_ZONE_DEPTH / TILE_WIDTH),
+          // A neutral warm outline in stage style — the reference's rounded pad
+          // border — versus the lane-coloured frame of the classic look.
+          color: this.stage ? 0xf2e6ca : hex,
           transparent: true,
-          opacity: 0.6,
+          opacity: this.stage ? 0.42 : 0.6,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
           toneMapped: false,
@@ -1044,9 +1310,31 @@ export class Highway {
       );
       frame.rotation.x = -Math.PI / 2;
       frame.position.set(this.laneX(lane), -0.05, 0);
-      frame.scale.set(LANE_WIDTH * 0.92, 1, HIT_ZONE_DEPTH);
+      // Exactly the tile footprint (requested): the target is the same rectangle
+      // as the bar that drops into it.
+      frame.scale.set(TILE_WIDTH, 1, TILE_DEPTH);
       this.hitZones.push(frame);
       this.scene.add(frame);
+
+      // The bright dash across each receptor — the crisp timing marker the
+      // reference puts in the middle of every pad. Stage style only; the classic
+      // look reads its timing off the coloured frame.
+      if (this.stage) {
+        const dash = new THREE.Mesh(
+          new THREE.PlaneGeometry(LANE_WIDTH * 0.4, 0.13),
+          new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.85,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          }),
+        );
+        dash.rotation.x = -Math.PI / 2;
+        dash.position.set(this.laneX(lane), -0.03, 0);
+        this.scene.add(dash);
+      }
     }
   }
 
@@ -1117,25 +1405,31 @@ export class Highway {
   }
 
   private buildNotes(): THREE.InstancedMesh {
-    // A wide, flat rounded-rect tile — the Beatstar / hibeatz tap-tile — rather
-    // than a pill. A unit plane laid flat on the track (XZ), sized per-instance
-    // to the lane and tilted onto the slope in `updateNotes`, exactly as the
-    // glow quad is.
-    const geometry = new THREE.PlaneGeometry(1, 1);
-    geometry.rotateX(-Math.PI / 2);
+    // Real 3D geometry, not a painted tile. A rounded rectangle extruded into a
+    // slab with BEVELLED edges, lit by the scene's key light so the chamfers
+    // catch a highlight on top and shade underneath — genuinely three-dimensional
+    // metal, which a flat quad with a baked-in bevel could never fake at this
+    // camera angle. Sized in world units here (not per-instance-scaled from a
+    // unit cube), so the bevel stays even.
+    const geometry = Highway.makeTileGeometry();
 
-    const material = new THREE.MeshBasicMaterial({
-      // The tile's shape and bright rim come from the texture; the lane tint
-      // comes from `instanceColor`. No `vertexColors` — InstancedMesh supplies
-      // per-instance tints via `instanceColor`, and turning vertexColors on
-      // makes the shader hunt for a per-vertex `color` attribute this geometry
-      // has never had, rendering every note black.
-      //
-      // `fog: false` matters as much: scene fog fades toward near-black well
-      // before the spawn distance, so fogged notes arrive nearly invisible.
-      map: Highway.makeTileTexture(),
-      transparent: true,
-      toneMapped: false,
+    // Real metal, not a Phong hotspot. What actually makes something read as
+    // metal is *reflection*: a metal surface shows its surroundings, tinted by
+    // its own colour. So the notes use MeshStandardMaterial with metalness 1 and
+    // low roughness, and the scene carries a small procedural environment map
+    // (set in the constructor) for them to reflect. The gold comes from
+    // `instanceColor` tinting the reflection. `fog:false` so distant notes don't
+    // fade out before arriving.
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      metalness: 1,
+      roughness: 0.25,
+      envMapIntensity: 1.9,
+      // A self-glow in the theme's accent so the metal pushes past the bloom
+      // threshold and haloes a little, without washing out the reflection that
+      // makes it read as metal. Tinted per theme so a cyan theme glows cyan.
+      emissive: this.accent,
+      emissiveIntensity: 0.4,
       fog: false,
     });
 
@@ -1146,14 +1440,119 @@ export class Highway {
     return mesh;
   }
 
+  /** A soft rounded-rect glow, shaped to the tile, for the outer glow it casts on the lane. */
+  private static makeGlowTexture(aspect: number): THREE.CanvasTexture {
+    const w = 128;
+    const h = Math.round(w * aspect);
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      // A small rounded rect blurred hard, so it feathers out into a glow that
+      // reaches zero alpha WELL before the canvas edge — otherwise the still-lit
+      // blur meets the quad boundary and reads as a hard rectangular cut. The
+      // generous pad plus the blur radius guarantees a fully transparent margin.
+      const pad = Math.round(w * 0.24);
+      ctx.filter = `blur(${Math.round(w * 0.1)}px)`;
+      Highway.roundRectPath(ctx, pad, pad, w - pad * 2, h - pad * 2, Math.round((w - pad * 2) * 0.45));
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.fill();
+    }
+
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  /** A rounded-rect slab with bevelled edges, laid flat on the track (thickness up). */
+  private static makeTileGeometry(): THREE.ExtrudeGeometry {
+    const w = TILE_WIDTH;
+    const d = TILE_DEPTH;
+    const r = Math.min(w, d) * 0.22;
+    const x0 = -w / 2;
+    const y0 = -d / 2;
+
+    const shape = new THREE.Shape();
+    shape.moveTo(x0 + r, y0);
+    shape.lineTo(x0 + w - r, y0);
+    shape.quadraticCurveTo(x0 + w, y0, x0 + w, y0 + r);
+    shape.lineTo(x0 + w, y0 + d - r);
+    shape.quadraticCurveTo(x0 + w, y0 + d, x0 + w - r, y0 + d);
+    shape.lineTo(x0 + r, y0 + d);
+    shape.quadraticCurveTo(x0, y0 + d, x0, y0 + d - r);
+    shape.lineTo(x0, y0 + r);
+    shape.quadraticCurveTo(x0, y0, x0 + r, y0);
+
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      // Thinner slab than before, with a rounder edge: more bevel segments turn
+      // the chamfer into a soft rounded-over lip instead of a hard facet.
+      depth: 0.1,
+      bevelEnabled: true,
+      bevelThickness: 0.08,
+      bevelSize: 0.08,
+      bevelSegments: 4,
+      steps: 1,
+      curveSegments: 14,
+    });
+    // Extruded along +Z; lay it flat so thickness runs up (+Y) and depth into
+    // the screen. Keep the extrude's own normals (no recompute) so the bevel
+    // facets stay crisp rather than smoothing into a dome.
+    geometry.rotateX(-Math.PI / 2);
+    geometry.computeBoundingBox();
+    // Seat the base on the track: shift so the lowest point sits at y = 0.
+    geometry.translate(0, -(geometry.boundingBox?.min.y ?? 0), 0);
+    return geometry;
+  }
+
+  /**
+   * A tiny equirectangular environment for the metal notes to reflect. Vertical
+   * axis is elevation: a dim warm sky up top, a hot near-white band where the
+   * key light sits, a warm horizon, then a dark floor. Metal reflecting this
+   * shows a bright streak that slides across the face as the tile tilts and
+   * moves — the moving highlight that reads as polished metal. Cheap: a 256x128
+   * canvas gradient, mipmapped so the material's roughness can soften it.
+   */
+  private static makeEnvTexture(): THREE.CanvasTexture {
+    const w = 256;
+    const h = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      // Neutral greyscale, kept bright throughout. Metal reflects this tinted by
+      // the note's own accent colour, so a neutral environment lets every theme's
+      // colour read true (a warm-gold env muddied cyan and green metals); and the
+      // bright floor keeps the tiles from going near-black where they'd reflect a
+      // dark ground. The near-white band is the overhead key light's reflection.
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0.0, 'rgb(120,120,120)');
+      g.addColorStop(0.28, 'rgb(180,180,180)');
+      g.addColorStop(0.4, 'rgb(255,255,255)');
+      g.addColorStop(0.52, 'rgb(190,190,190)');
+      g.addColorStop(0.62, 'rgb(120,120,120)');
+      g.addColorStop(1.0, 'rgb(80,80,80)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.mapping = THREE.EquirectangularReflectionMapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
   private buildNoteGlow(): THREE.InstancedMesh {
     // A flat quad lying on the highway, so the glow reads as light spilling
-    // onto the lane rather than as a sprite floating in front of it.
+    // onto the lane rather than as a sprite floating in front of it. In stage
+    // style it is a rounded-rect glow shaped to the bar (a round dot under a
+    // rectangle read as a weird blob); classic keeps the soft dot.
     const geometry = new THREE.PlaneGeometry(1, 1);
     geometry.rotateX(-Math.PI / 2);
 
     const material = new THREE.MeshBasicMaterial({
-      map: Highway.makeDotTexture(),
+      map: this.stage ? Highway.makeGlowTexture(TILE_DEPTH / TILE_WIDTH) : Highway.makeDotTexture(),
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -1263,7 +1662,7 @@ export class Highway {
    * desktop is untouched.
    */
   private fovFor(aspect: number): number {
-    const distanceToHitLine = Math.hypot(CAMERA_HEIGHT, CAMERA_DISTANCE);
+    const distanceToHitLine = Math.hypot(this.camHeight, CAMERA_DISTANCE);
     const requiredHalfWidth = this.halfWidth * 1.18; // a little breathing room
     const horizontalHalf = Math.atan(requiredHalfWidth / distanceToHitLine);
     const verticalHalf = Math.atan(Math.tan(horizontalHalf) / Math.max(0.1, aspect));
@@ -1403,6 +1802,7 @@ export class Highway {
     dt: number,
     bass: number,
     treble: number,
+    spectrum?: Uint8Array,
   ): void {
     if (this.disposed) return;
 
@@ -1415,6 +1815,7 @@ export class Highway {
     this.updateParticles(dt);
     this.updateShockwaves(dt);
     this.updateCamera(dt, songTime, pulse);
+    this.updateCoverWave(songTime, pulse, spectrum);
 
     const floorUniforms = this.floor.material.uniforms;
     floorUniforms['uTime']!.value = songTime;
@@ -1436,9 +1837,18 @@ export class Highway {
     backdropUniforms['uTreble']!.value = treble;
     backdropUniforms['uPulse']!.value = pulse;
 
-    (this.stars.material as THREE.PointsMaterial).opacity = 0.55 + treble * 0.45;
+    for (const rail of this.rails) {
+      rail.material.uniforms['uBass']!.value = bass;
+      rail.material.uniforms['uPulse']!.value = pulse;
+    }
 
-    this.bloom.strength = 0.45 + bass * 0.25 + this.punch * 0.3;
+    // Dim, sparse motes on the dark stage; the classic look keeps its brighter
+    // synthwave starfield.
+    (this.stars.material as THREE.PointsMaterial).opacity = this.stage
+      ? 0.18 + treble * 0.18
+      : 0.55 + treble * 0.45;
+
+    this.bloom.strength = 0.16 + bass * 0.12 + this.punch * 0.2;
 
     this.composer.render();
   }
@@ -1530,35 +1940,46 @@ export class Highway {
       const slope = Math.atan(curveSlope(z));
       const swell = 1 + nearness * 0.06;
 
-      // --- tap tile ---
+      // --- tap tile (3D bevelled slab) ---
+      // The geometry is already world-sized, so scale only applies the arrival
+      // swell and the track's width taper (X), never the base dimensions.
       this.dummy.position.set(laneX, 0.05 + lift, z);
       this.dummy.rotation.set(slope, 0, 0);
-      this.dummy.scale.set(TILE_WIDTH * curveWidth(z) * swell, 1, TILE_DEPTH * swell);
+      this.dummy.scale.set(curveWidth(z) * swell, swell, swell);
       this.dummy.updateMatrix();
       this.notes.setMatrixAt(count, this.dummy.matrix);
 
       // Brighter than the old pill core: the tile's fill is translucent, so it
       // needs more colour to read as solid neon. The texture's opaque white rim
       // carries the bloom, so the tile keeps a crisp lit edge either way.
-      this.color.setHex(laneColor(this.theme, state.note.lane));
+      this.color.setHex(this.noteHex(state.note.lane));
       this.color.multiplyScalar((0.72 + nearness * 0.3) * missFade * spawnFade);
       this.notes.setColorAt(count, this.color);
 
-      // --- halo: light spilling onto the lane under the tile ---
-      // Widened to the tile's shape (wider than deep) rather than a round dot,
-      // so the glow sits under the rectangle instead of poking out at its ends.
-      const glowW = LANE_WIDTH * 1.24 * (0.8 + nearness * 0.4) * curveWidth(z);
+      // --- outer glow: light spilling onto the lane around the tile ---
+      // Stage: a rounded-rect glow spread beyond the bar's footprint, so it
+      // haloes the tile. Classic: the old wide soft dot.
+      let glowW: number;
+      let glowD: number;
+      if (this.stage) {
+        const spread = 1.7 + nearness * 0.5;
+        glowW = TILE_WIDTH * spread * curveWidth(z);
+        glowD = TILE_DEPTH * spread;
+      } else {
+        glowW = LANE_WIDTH * 1.24 * (0.8 + nearness * 0.4) * curveWidth(z);
+        glowD = glowW * 0.64;
+      }
       this.dummy.position.set(laneX, 0.015 + lift, z);
       this.dummy.rotation.set(slope, 0, 0);
-      this.dummy.scale.set(glowW, 1, glowW * 0.64);
+      this.dummy.scale.set(glowW, 1, glowD);
       this.dummy.updateMatrix();
       this.noteGlow.setMatrixAt(count, this.dummy.matrix);
 
-      this.color.setHex(laneColor(this.theme, state.note.lane));
+      this.color.setHex(this.noteHex(state.note.lane));
       // Eased back from 0.38 + 0.7: the halo was bright enough to bleed into
-      // its neighbours through the bloom, which softened the pill's own edge.
-      // The core carries legibility, so the halo can afford to sit lower.
-      this.color.multiplyScalar((0.3 + nearness * 0.55) * missFade * spawnFade);
+      // its neighbours through the bloom, which softened the tile's own edge.
+      const haloScale = this.stage ? 0.85 : 1;
+      this.color.multiplyScalar((0.3 + nearness * 0.55) * haloScale * missFade * spawnFade);
       this.noteGlow.setColorAt(count, this.color);
 
       count++;
@@ -1584,9 +2005,11 @@ export class Highway {
       const frame = this.hitZones[lane];
       if (frame) {
         frame.material.opacity = 0.5 + decayed * 0.5 + pulse * 0.14;
-        // A small punch-out on a press, in the plane (X width, Z depth).
+        // A small punch-out on a press, in the plane (X width, Z depth). Uses the
+        // tile footprint so the target stays exactly the bar's size — this line
+        // overrides the size set in buildReceptors every frame, so it must match.
         const s = 1 + decayed * 0.14;
-        frame.scale.set(LANE_WIDTH * 0.92 * s, 1, HIT_ZONE_DEPTH * s);
+        frame.scale.set(TILE_WIDTH * s, 1, HIT_ZONE_DEPTH * s);
       }
     }
   }
@@ -1609,7 +2032,7 @@ export class Highway {
 
     this.camera.position.set(
       sway + shakeX,
-      CAMERA_HEIGHT - this.punch * 0.16 - pulse * 0.03 + shakeY,
+      this.camHeight - this.punch * 0.16 - pulse * 0.03 + shakeY,
       CAMERA_DISTANCE - this.punch * 0.3,
     );
     this.camera.lookAt(sway * 0.3 + shakeX * 0.4, shakeY * 0.4, CAMERA_TARGET_Z);

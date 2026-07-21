@@ -45,25 +45,58 @@ export interface SkyPalette {
   glow: number;
 }
 
+/**
+ * Which way the renderer draws the scene.
+ *
+ * `classic` (the default when unset) is the synthwave highway: a striped sun on
+ * the horizon, a neon grid floor, brightly coloured lanes. `stage` is the
+ * Beatstar-style look: a near-black stage lit only by a warm glow behind the
+ * vanishing point, glowing rails down the track's edges, a dark colourless
+ * track where the lane colour shows only on a hit, and the song's cover art
+ * ringed at the horizon.
+ *
+ * It lives on the theme rather than being a global switch because the two looks
+ * are meant to coexist — a library can have synthwave songs and stage songs.
+ * The renderer branches on it; everything else (persistence, admin, resolution)
+ * treats it as an ordinary field.
+ */
+export type ThemeStyle = 'classic' | 'stage';
+
 export interface Theme {
   id: string;
   /** Shown in admin. */
   name: string;
+  /**
+   * How the renderer draws the scene. **Absent means `stage`** — the dark,
+   * spotlit look every theme now uses. `classic` (the old synthwave sun +
+   * neon grid) is kept only as an explicit opt-in; nothing ships with it.
+   */
+  style?: ThemeStyle;
+  /**
+   * The theme's bright accent, in stage rendering: the metal note tint, the
+   * glowing rails, and the cover-art firework. Unlike the sky palette this is
+   * *meant* to be bright and bloom, so it is deliberately NOT held under
+   * `MAX_SKY_LINEAR`. Absent falls back to a warm gold.
+   */
+  accent?: number;
   /**
    * Lane colours, left to right. **At least 5 is a hard requirement**, not a
    * convention: hard difficulty uses five lanes and indexes straight into this.
    * A four-colour theme wraps and gives two lanes the same colour, which is
    * unplayable rather than merely ugly. `assertThemes` enforces it.
    *
-   * They also have to stay *distinguishable at speed*, which is why no theme is
-   * five shades of one hue however well that would suit its name. The sky
-   * carries a theme's identity; the lanes carry its readability.
+   * In stage rendering the track is colourless and the lane hue shows only in
+   * the hit-flash, but the five-distinct rule still holds: any lane can be
+   * struck, and two lanes that flash alike are as confusing as two painted alike.
    */
   lanes: readonly number[];
   /** The bar across the receptors. Additively blended, so this reads as a tint. */
   hitLine: number;
   sky: SkyPalette;
 }
+
+/** Fallback accent when a theme (e.g. a custom one) doesn't set one — a warm gold. */
+export const DEFAULT_ACCENT = 0xf5d152;
 
 export const MIN_THEME_LANES = 5;
 
@@ -103,6 +136,7 @@ export const BUILTIN_THEMES: readonly Theme[] = [
   {
     id: 'synthwave',
     name: 'Synthwave',
+    accent: 0xff4fa0,
     lanes: [0xff2e88, 0x00e5ff, 0xffd60a, 0x9d4edd, 0x00ff9d],
     hitLine: 0xffffff,
     // These six are the exact sRGB equivalents of the literals the backdrop
@@ -122,6 +156,7 @@ export const BUILTIN_THEMES: readonly Theme[] = [
   {
     id: 'inferno',
     name: 'Inferno',
+    accent: 0xff7a2e,
     lanes: [0xff4d2e, 0xffb020, 0xffe94a, 0x2ee5ff, 0xff2e9f],
     hitLine: 0xfff0d8,
     sky: {
@@ -138,6 +173,7 @@ export const BUILTIN_THEMES: readonly Theme[] = [
   {
     id: 'arctic',
     name: 'Arctic',
+    accent: 0x3fd0f0,
     // A cold palette is the hardest to keep readable, because every hue that
     // suits the name sits between cyan and violet. The first pass used
     // 0x7c9dff for lane 1 and 0xa8f0d0 for lane 2, and on the receptors they
@@ -162,6 +198,7 @@ export const BUILTIN_THEMES: readonly Theme[] = [
   {
     id: 'toxic',
     name: 'Toxic',
+    accent: 0x7dff3a,
     lanes: [0x9dff2e, 0x00ffcc, 0xffe600, 0xff2ecc, 0xff7a1f],
     hitLine: 0xf2ffe0,
     sky: {
@@ -181,6 +218,7 @@ export const BUILTIN_THEMES: readonly Theme[] = [
   {
     id: 'mono',
     name: 'Black & White',
+    accent: 0xeaeaea,
     /**
      * Greyscale is the hardest possible case for the readability rule above,
      * because lightness is the *only* axis left to separate five lanes on.
@@ -212,6 +250,34 @@ export const BUILTIN_THEMES: readonly Theme[] = [
       haze: 0x8a8a8a,
       glow: 0x6e6e78,
     },
+  },
+  {
+    id: 'stage',
+    name: 'Stage',
+    accent: 0xf5d152,
+    // The dark, spotlit look. The track itself is drawn near-black in this
+    // style, so these lane colours are seen almost only as the *hit flash* that
+    // fires up a lane when it is struck — the burst of colour the reference gets
+    // from its green perfect-flash. They still have to satisfy the five-distinct
+    // rule: a chart can strike any lane, and two lanes that flash the same
+    // colour are as confusing here as two that are painted the same.
+    lanes: [0xff8a3c, 0xffd23c, 0x3cff7a, 0x3cc4ff, 0xff4fb0],
+    hitLine: 0xffffff,
+    // Warm gold. In `stage` style the sky is not a sun but a single lamp behind
+    // the horizon, so `sun`/`sunCrown` are the pooled glow and its hot core and
+    // `glow`/`haze` are the air around it. Every channel stays at or below 0xE0
+    // (0.745 linear) so the lamp bloom does not swamp the notes.
+    sky: {
+      top: 0x1a0f04,
+      horizon: 0x5a3410,
+      horizonAlt: 0x4a2a0e,
+      below: 0x120a03,
+      sun: 0xd08a2a,
+      sunCrown: 0xe0b060,
+      haze: 0xb0702a,
+      glow: 0xc07f2e,
+    },
+    style: 'stage',
   },
 ];
 

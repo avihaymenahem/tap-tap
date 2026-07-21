@@ -242,6 +242,7 @@ export function PlayScreen({
           approachSec: params.approachSec,
           theme: themeFor(themeCatalog(customThemes), map.themeId),
           beatGrid: map.beatGrid,
+          coverUrl: `/media/${songId}/thumb.jpg`,
         });
         highwayRef.current.resize(canvas.clientWidth, canvas.clientHeight);
 
@@ -443,6 +444,7 @@ export function PlayScreen({
         dt,
         bass,
         treble,
+        spectrum,
       );
       paintCountdown(now / 1000);
 
