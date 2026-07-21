@@ -65,6 +65,75 @@ export function foldTapDelta(delta: number, beatSec: number): number {
   return phase >= beatSec - MAX_LEAD_SEC ? phase - beatSec : phase;
 }
 
+// --- auto-calibration ------------------------------------------------------
+
+/**
+ * Tuning for the auto-calibration that runs *during play*, learning the
+ * player's real latency from their hits instead of a metronome screen.
+ */
+export const AUTO_CAL = {
+  /** Confident hits to gather before considering a correction. Enough to average out jitter. */
+  window: 16,
+  /** Below this measured bias, leave it alone — do not fidget over a few ms. */
+  deadzoneSec: 0.012,
+  /** Fraction of the measured bias corrected per step. Damped, so it converges rather than rings. */
+  gain: 0.5,
+  /**
+   * Hard cap per step. The correction is applied *live*, so every step shifts
+   * the on-screen notes; keeping it ≤10ms means no single adjustment is
+   * perceptible. A large initial bias is closed over several steps instead, and
+   * — the real win — the result is persisted, so the next song starts dialled in.
+   */
+  maxStepSec: 0.01,
+  /** Total drift allowed within one run, so a bad streak can never run the offset away. */
+  maxDriftSec: 0.25,
+} as const;
+
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  if (sorted.length === 0) return 0;
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/**
+ * One live auto-calibration step from a window of recent hit errors.
+ *
+ * `deltas` are signed seconds, **late positive**, exactly as `hitLane` reports
+ * them (`delta = judged tap time − note time`). Returns the amount to *add* to
+ * the calibration offset, or 0 when nothing should change.
+ *
+ * **The sign is the whole ballgame** (this file's comments exist because it was
+ * once wrong). `hitLane` judges `songTime − calibration`, so raising the offset
+ * pulls a *late* bias back toward zero: a window that skews late (positive
+ * median) returns a positive step. Nothing here can invert that.
+ *
+ * Median, not mean — one recovered fumble must not swing the calibration. Damped
+ * and capped so a step is imperceptible mid-song, and bounded by `driftSoFar`
+ * against `maxDriftSec` so it cannot wander. Convergence comes from *repeating*
+ * the step across many hits and from the offset persisting between songs, not
+ * from any single large jump.
+ *
+ * @param deltas      recent confident-hit errors, late positive
+ * @param driftSoFar  auto-calibration already applied this run (signed)
+ */
+export function autoCalibrationStep(deltas: readonly number[], driftSoFar: number): number {
+  if (deltas.length < AUTO_CAL.window) return 0;
+
+  const bias = median(deltas);
+  if (Math.abs(bias) < AUTO_CAL.deadzoneSec) return 0;
+
+  let step = bias * AUTO_CAL.gain;
+  step = Math.max(-AUTO_CAL.maxStepSec, Math.min(AUTO_CAL.maxStepSec, step));
+
+  // Never let the run's total drift exceed the budget.
+  const projected = driftSoFar + step;
+  if (Math.abs(projected) > AUTO_CAL.maxDriftSec) {
+    step = Math.sign(projected) * AUTO_CAL.maxDriftSec - driftSoFar;
+  }
+  return step;
+}
+
 export function resolveCalibration(stored: number | null, outputLatency: number): number {
   // A stored value wins. The player measured their own device by ear, and that
   // measurement already contains the output latency — adding it again would

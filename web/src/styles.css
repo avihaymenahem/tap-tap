@@ -160,8 +160,18 @@ button {
      and a grid that stopped at the viewport would show two hard vertical cuts. */
   left: -60%;
   right: -60%;
-  bottom: 0;
-  height: calc(100% - var(--horizon));
+  /*
+   * Pushed below the viewport, and made taller, so the floor actually reaches
+   * the bottom edge. `transform-origin: center top` + `rotateX` foreshortens the
+   * plane and lifts its near edge ~10% of the height short of the bottom,
+   * leaving a dead strip. Measured across viewports: a ~12% downward offset
+   * closes it with a small safe overshoot (the excess falls off-screen), and the
+   * 1.15 height keeps the far edge up near the horizon rather than sliding down
+   * with the offset. Height alone cannot fix it — past a point the projected
+   * near edge asymptotes to a false horizon and stops descending.
+   */
+  bottom: -12%;
+  height: calc((100% - var(--horizon)) * 1.15);
   background-image:
     repeating-linear-gradient(to right, rgba(255, 46, 136, 0.85) 0 2px, transparent 2px 60px),
     repeating-linear-gradient(to bottom, rgba(0, 229, 255, 0.6) 0 2px, transparent 2px 84px);
@@ -716,10 +726,9 @@ kbd {
 }
 
 .difficulty {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 0.8rem;
+  display: flex;
   align-items: center;
+  justify-content: center;
   padding: 0.85rem 1rem;
   border: 2px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-sm);
@@ -731,13 +740,8 @@ kbd {
 
 .difficulty__name {
   font-weight: 800;
+  letter-spacing: 0.03em;
   text-transform: capitalize;
-}
-
-.difficulty__lanes,
-.difficulty__notes {
-  color: var(--muted);
-  font-size: 0.8rem;
 }
 
 .difficulty--easy.difficulty--active {
@@ -892,6 +896,26 @@ kbd {
   font-weight: 800;
   letter-spacing: 0.3em;
   pointer-events: none;
+}
+
+/* Auto-calibration confirmation. Low and unobtrusive — it acknowledges the
+   game tuned itself without pulling the eye off the notes. Opacity is driven
+   imperatively; the transition does the fade. */
+.play__calib {
+  position: absolute;
+  bottom: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(0, 229, 255, 0.14);
+  color: var(--cyan);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
 }
 
 .play__countdown {
@@ -2170,19 +2194,8 @@ kbd {
 
   .difficulty {
     flex: 1;
-    grid-template-columns: 1fr;
-    justify-items: center;
-    gap: 0.1rem;
-    padding: 0.6rem 0.3rem;
+    padding: 0.7rem 0.3rem;
     text-align: center;
-  }
-
-  .difficulty__lanes {
-    font-size: 0.7rem;
-  }
-
-  .difficulty__notes {
-    font-size: 0.7rem;
   }
 
   .best-score {
@@ -2269,6 +2282,16 @@ kbd {
   .admin-song {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  /* Below this width the row stacks and its actions move to the *left* edge, so
+     the default `right: 0` anchor grows the menu leftward off the screen. Anchor
+     it to the left instead so it opens rightward into the row, and cap its width
+     to the viewport for the narrowest phones. */
+  .dropdown--row {
+    left: 0;
+    right: auto;
+    max-width: calc(100vw - 2rem);
   }
 
   .job {

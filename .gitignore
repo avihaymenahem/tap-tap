@@ -2,6 +2,8 @@ node_modules/
 dist/
 # tsc output for the service worker's separate program. Not matched by `dist/`.
 dist-sw/
+# Incremental typecheck caches — machine-local, and they churn on every build.
+*.tsbuildinfo
 .venv/
 __pycache__/
 *.pyc

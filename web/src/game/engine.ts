@@ -109,7 +109,8 @@ export class GameEngine {
   private readonly notes: NoteState[];
   /** Per-lane note ids, plus a cursor to the earliest unjudged note. */
   private readonly lanes: { ids: number[]; cursor: number }[];
-  private readonly calibrationSec: number;
+  /** Not readonly: auto-calibration nudges it during play. See `bumpCalibration`. */
+  private calibrationSec: number;
   /** Judging windows for this chart, capped to its spacing. */
   private readonly windows: HitWindows;
   /** Outer edge of `windows` — the miss threshold and retirement horizon. */
@@ -178,6 +179,24 @@ export class GameEngine {
    */
   judgementTime(songTime: number): number {
     return songTime - this.calibrationSec;
+  }
+
+  /** The offset currently subtracted from input and playback time. */
+  get calibration(): number {
+    return this.calibrationSec;
+  }
+
+  /**
+   * Shift the calibration offset by `delta` seconds, mid-run.
+   *
+   * Used by live auto-calibration. `calibrationSec` is read fresh by `hitLane`,
+   * `update` and `judgementTime` every frame, so a bump takes effect on the next
+   * one for judgement *and* rendering together — they stay in lockstep, which is
+   * the invariant that keeps a calibrated device playable. Kept small by the
+   * caller so the on-screen notes never visibly jump.
+   */
+  bumpCalibration(delta: number): void {
+    this.calibrationSec += delta;
   }
 
   /**

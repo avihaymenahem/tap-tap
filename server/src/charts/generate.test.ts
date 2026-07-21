@@ -172,7 +172,15 @@ describe('musicality: the grid shapes selection when it is trusted', () => {
 
     const analysis: AnalysisResult = { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets };
     // Chords off so every note comes from the mid range and the sweep is clean.
-    const chart = generateChart(analysis, { ...DIFFICULTIES.hard, chords: false }, 1);
+    //
+    // Pinned to 5 lanes on purpose. The shipped difficulties are all 4-lane now,
+    // where the mid band is only [1, 2]; with two lanes the anti-repeat rule
+    // ping-pongs consecutive notes and the contour sweep collapses to
+    // alternation (a genuine consequence of the narrower board, not a bug). This
+    // test exercises the `pickLaneContour` algorithm itself, which needs at
+    // least three lanes in a band to sweep — the case that still applies to the
+    // 5-lane charts already on disk.
+    const chart = generateChart(analysis, { ...DIFFICULTIES.hard, chords: false, laneCount: 5 }, 1);
     expect(chart.notes.length).toBeGreaterThan(60);
 
     // All mid-band notes stay in the mid lanes of a 5-lane chart.

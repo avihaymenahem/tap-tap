@@ -9,6 +9,7 @@ import {
   Download,
   Loader2,
   Palette,
+  RefreshCw,
   Search,
   TriangleAlert,
   X,
@@ -62,6 +63,13 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SongSort>('title');
   const [page, setPage] = useState(1);
+  /**
+   * Bulk-regenerate progress, or null when idle. Snapshotted from `songs` when
+   * it starts, so the concurrent poll cannot change the set mid-run.
+   */
+  const [regen, setRegen] = useState<{ done: number; total: number; failed: string[] } | null>(
+    null,
+  );
 
   // Derived during render rather than mirrored into state — keeping a second
   // copy in sync with songs/query/sort is exactly how filtered lists go stale.
@@ -139,6 +147,52 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
     }
   };
 
+  /**
+   * Rebuild every song's charts, one at a time.
+   *
+   * A client-side loop over the existing per-song endpoint rather than a new
+   * bulk route: it reuses code that is already tested, and — more usefully — it
+   * can report live progress and keep going when a single song fails, instead
+   * of one bad `analysis.json` aborting the whole run. Sequential on purpose;
+   * regeneration can decode audio to rebuild a missing waveform, and firing 29
+   * of those at once would swamp the machine for no gain locally.
+   */
+  const regenerateAll = async (): Promise<void> => {
+    if (regen) return; // already running
+    // Snapshot now: the background poll rewrites `songs`, and the run must
+    // operate on a stable set.
+    const batch = [...songs];
+    if (batch.length === 0) return;
+    if (
+      !window.confirm(
+        `Regenerate charts for all ${batch.length} songs? This rebuilds every chart from the ` +
+          `cached analysis and makes existing high scores no longer comparable. Hand edits are preserved.`,
+      )
+    ) {
+      return;
+    }
+
+    setError(null);
+    const failed: string[] = [];
+    setRegen({ done: 0, total: batch.length, failed });
+
+    for (let i = 0; i < batch.length; i++) {
+      const song = batch[i]!;
+      try {
+        await regenerateCharts(song.songId);
+      } catch {
+        failed.push(song.title);
+      }
+      setRegen({ done: i + 1, total: batch.length, failed: [...failed] });
+    }
+
+    await refreshRef.current();
+    setRegen(null);
+    if (failed.length > 0) {
+      setError(`Regenerated all songs. ${failed.length} failed: ${failed.join(', ')}.`);
+    }
+  };
+
   return (
     <div className="admin">
       <header className="admin__header">
@@ -209,11 +263,34 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
       )}
 
       <section className="admin__section">
-        {/* Shows both numbers while filtering, so a short list reads as "the
-            search is narrow" rather than "songs went missing". */}
-        <h2>
-          Songs ({query.trim() ? `${visible.length} of ${songs.length}` : songs.length})
-        </h2>
+        <div className="admin__section-head">
+          {/* Shows both numbers while filtering, so a short list reads as "the
+              search is narrow" rather than "songs went missing". */}
+          <h2>
+            Songs ({query.trim() ? `${visible.length} of ${songs.length}` : songs.length})
+          </h2>
+
+          {songs.length > 0 && (
+            <button
+              type="button"
+              className="btn btn--ghost btn--small"
+              disabled={regen !== null}
+              onClick={() => void regenerateAll()}
+            >
+              {regen ? (
+                <>
+                  <Loader2 size={15} className="spin" aria-hidden />
+                  Regenerating {regen.done}/{regen.total}…
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={15} aria-hidden />
+                  Regenerate all
+                </>
+              )}
+            </button>
+          )}
+        </div>
 
         {songs.length > 0 && (
           <div className="admin__tools">

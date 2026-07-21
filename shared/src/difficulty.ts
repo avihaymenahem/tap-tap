@@ -63,7 +63,11 @@ export interface DifficultyParams {
 export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
   easy: {
     name: 'easy',
-    laneCount: 3,
+    // Four lanes at every difficulty — the board is always `A S D F`. Only the
+    // density, spacing, speed and chording change between tiers, so a player's
+    // hand position never has to be relearned moving up. (Charts generated
+    // before this change keep their old lane count until regenerated.)
+    laneCount: 4,
     subdivision: 1,
     // ~2.2 notes/sec ceiling: roughly quarter notes at typical tempos.
     minGapSec: 0.45,
@@ -96,7 +100,7 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
   },
   hard: {
     name: 'hard',
-    laneCount: 5,
+    laneCount: 4,
     subdivision: 4,
     // ~5.2 notes/sec ceiling: comfortable eighths with sixteenth-note bursts.
     minGapSec: 0.19,
@@ -104,8 +108,7 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     chordChance: 0.15,
     targetNps: 3.6,
     approachSec: 1.3,
-    // Holds off; 0.18 when enabled. More and shorter — a hold occupies its
-    // lane, so on five lanes at this density they also force hand position.
+    // Holds off; 0.18 when enabled. More and shorter than easy/medium.
     holdShare: 0,
     minHoldSec: 0.4,
     maxHoldSec: 3,
@@ -133,7 +136,7 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
    */
   extreme: {
     name: 'extreme',
-    laneCount: 5,
+    laneCount: 4,
     subdivision: 4,
     minGapSec: 0.14,
     chords: true,

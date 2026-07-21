@@ -329,6 +329,42 @@ scripts/
 - The sun is hidden under 560px and dimmed on admin. Both are deliberate — it
   reads as a nub or a blob otherwise.
 
+**Play visuals (tiles, hit-zones, impact)**
+- **Notes are wide flat tap-tiles, not pills** — a textured unit plane laid flat
+  (`rotateX(-PI/2)`) and sized per-instance to `TILE_WIDTH × TILE_DEPTH`, tilted
+  onto the slope with `atan(curveSlope(z))` and tapered by `curveWidth(z)`, the
+  same treatment the glow quad gets. The shape and lit rim come from a canvas
+  texture (`makeTileTexture`); the lane colour comes from `instanceColor`. A
+  flat plane needs the slope tilt or it shears through the rising track.
+- **Receptors are rectangular frames** (`makeFrameTexture`, `hitZones[]`), the
+  same shape as a tile so a tile visibly drops *into* its target. The old rings
+  are gone, and so is the **white hit-line bar** — the frames alone mark the
+  target now (they sit at z=0, so the timing reference the old bar carried is
+  preserved). `theme.hitLine` is now unused by the renderer but kept in the
+  schema.
+- **Tile/frame textures are aspect-matched to the world footprint.** A tile is
+  ~1:2 (tall), the frame ~1:2.5, so the texture canvases are 128×256 / 128×320 —
+  match the canvas aspect to the world aspect or the rounded corners map to
+  stretched ovals. `TILE_DEPTH`/`HIT_ZONE_DEPTH` are the "height" knob.
+- **The sun pulses to the beat** (`uPulse` in the backdrop shader): it brightens
+  past the bloom threshold and swells slightly on each downbeat. `uPulse` is
+  `beatPulse(songTime)`, driven by `beatGrid`.
+- **Never put a backtick in GLSL.** The shaders are JS template literals, so a
+  stray `` ` `` (e.g. around an identifier in a comment) closes the string early
+  and TypeScript then parses the GLSL as code — a wall of "',' expected" errors
+  pointing *inside* the shader. Cost real time once.
+- **The hit line is raised on portrait phones via `camera.setViewOffset`**, not
+  by moving anything in the scene — it pans the projection up without touching
+  the 3D framing or perspective, and is cleared on landscape. It must be set
+  *after* `updateProjectionMatrix` (which resets the offset). The Y-only offset
+  does not affect `laneAtScreenPoint` (X projection is unchanged).
+- **Hit impact** = particle burst + an expanding `RingGeometry` shockwave from
+  the receptor + a camera `shake` that scales with **combo** (passed into
+  `burst(lane, tier, combo)`) and caps, with a squared falloff so the low end
+  never leaves the lanes feeling permanently loose. Shader/material changes here
+  are built in the `Highway` constructor, so **they need a full reload, not HMR**
+  to show up.
+
 **three.js**
 - **Backdrop coordinates: measure, do not derive.** The sky plane is 200x120 at
   world y=8, so `uv.y = 0.5 + (worldY - 8) / 120`. But the on-screen horizon is
@@ -438,6 +474,18 @@ scripts/
   calibration symptom before it is a rendering or input one. `resolveCalibration`
   now floors stored values at `MIN_STORED_SEC`; large *positive* values are left
   alone, because 300ms is an ordinary Bluetooth reading.
+- **Auto-calibration learns from real hits, live** (`autoCalibrationStep` in
+  `calibration.ts`, wired in `PlayScreen`). Confident hits (perfect/great only)
+  feed a rolling window; when it fills, the offset is nudged toward zeroing the
+  **median** bias and the result is persisted, so the next song starts dialled
+  in — the metronome screen is now optional. **The sign is the whole point and
+  is unit-tested**: a *late* bias (positive median) raises the offset, because
+  `hitLane` judges `songTime − calibration`. Steps are capped at 10ms so a live
+  nudge never visibly jumps the notes, damped so it converges rather than rings,
+  bounded by a per-run drift budget, and the persisted value is floored at
+  `MIN_STORED_SEC` exactly as `resolveCalibration` floors on read. `bumpCalibration`
+  is why `calibrationSec` is no longer `readonly`; the engine reads it fresh each
+  frame so judgement and rendering shift together.
 - **A metronome aliases, and it aliases exactly where Bluetooth lives.** Matching
   a tap to the *nearest* click flips sign at half a period: at 120 BPM a genuine
   300ms-late tap is nearer the next click and gets measured as **200ms early**.

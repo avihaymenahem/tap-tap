@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_LEAD_SEC, MIN_STORED_SEC, foldTapDelta, resolveCalibration } from './calibration.js';
+import {
+  AUTO_CAL,
+  MAX_LEAD_SEC,
+  MIN_STORED_SEC,
+  autoCalibrationStep,
+  foldTapDelta,
+  resolveCalibration,
+} from './calibration.js';
 import { MISS_WINDOW } from './judge.js';
 
 describe('foldTapDelta', () => {
@@ -97,5 +104,76 @@ describe('resolveCalibration', () => {
     expect(resolveCalibration(null, Number.NaN)).toBe(0);
     expect(resolveCalibration(null, -0.2)).toBe(0);
     expect(resolveCalibration(null, 0)).toBe(0);
+  });
+});
+
+describe('autoCalibrationStep', () => {
+  const full = (v: number): number[] => new Array(AUTO_CAL.window).fill(v);
+
+  it('does nothing until the window has filled', () => {
+    const almost = new Array(AUTO_CAL.window - 1).fill(0.1);
+    expect(autoCalibrationStep(almost, 0)).toBe(0);
+  });
+
+  it('does nothing inside the deadzone', () => {
+    expect(autoCalibrationStep(full(AUTO_CAL.deadzoneSec * 0.5), 0)).toBe(0);
+    expect(autoCalibrationStep(full(-AUTO_CAL.deadzoneSec * 0.5), 0)).toBe(0);
+  });
+
+  it('pulls a LATE bias back with a POSITIVE step', () => {
+    // The sign that matters. hitLane judges `songTime - calibration`, so late
+    // hits (positive delta) are corrected by *raising* the offset. A wrong sign
+    // here would drive the game away from the beat — the exact historical bug.
+    const step = autoCalibrationStep(full(0.08), 0);
+    expect(step).toBeGreaterThan(0);
+  });
+
+  it('pushes an EARLY bias forward with a NEGATIVE step', () => {
+    const step = autoCalibrationStep(full(-0.08), 0);
+    expect(step).toBeLessThan(0);
+  });
+
+  it('never steps more than the per-step cap, however large the bias', () => {
+    expect(autoCalibrationStep(full(1.0), 0)).toBeCloseTo(AUTO_CAL.maxStepSec);
+    expect(autoCalibrationStep(full(-1.0), 0)).toBeCloseTo(-AUTO_CAL.maxStepSec);
+  });
+
+  it('is damped near convergence — a small residual gets a fraction of a step', () => {
+    const bias = AUTO_CAL.deadzoneSec * 1.5; // just outside the deadzone
+    const step = autoCalibrationStep(full(bias), 0);
+    expect(step).toBeCloseTo(bias * AUTO_CAL.gain);
+    expect(step).toBeLessThan(bias); // moved toward zero, not past it
+  });
+
+  it('uses the median, so one wild tap does not swing it', () => {
+    const deltas = full(0.005); // a steady on-time player, inside the deadzone
+    deltas[0] = 0.9; // one huge fumble
+    // Median is still ~0.005, inside the deadzone → no correction.
+    expect(autoCalibrationStep(deltas, 0)).toBe(0);
+  });
+
+  it('respects the total-drift budget', () => {
+    // Already at the cap, still measuring late — must not push further.
+    expect(autoCalibrationStep(full(0.5), AUTO_CAL.maxDriftSec)).toBeCloseTo(0);
+    // Just under the cap — the step is clamped to land exactly on it.
+    const drift = AUTO_CAL.maxDriftSec - AUTO_CAL.maxStepSec / 2;
+    const step = autoCalibrationStep(full(0.5), drift);
+    expect(drift + step).toBeCloseTo(AUTO_CAL.maxDriftSec);
+  });
+
+  it('converges a large bias over repeated windows', () => {
+    // Simulate: a player 120ms late. Each window applies a capped step; the
+    // residual shrinks by that step. It should reach the deadzone eventually and
+    // never overshoot into a negative offset.
+    let residual = 0.12;
+    let drift = 0;
+    for (let i = 0; i < 40 && Math.abs(residual) >= AUTO_CAL.deadzoneSec; i++) {
+      const step = autoCalibrationStep(full(residual), drift);
+      if (step === 0) break;
+      drift += step;
+      residual -= step; // raising the offset reduces the measured late bias
+    }
+    expect(Math.abs(residual)).toBeLessThan(AUTO_CAL.deadzoneSec);
+    expect(residual).toBeGreaterThan(-AUTO_CAL.deadzoneSec); // no overshoot past zero
   });
 });

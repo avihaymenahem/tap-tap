@@ -20,6 +20,12 @@ import { laneColor } from './palette.js';
  */
 
 const LANE_WIDTH = 1.15;
+/** Tap-tile footprint on the track, in world units. Wide across the lane, and now tall front-to-back. */
+const TILE_WIDTH = LANE_WIDTH * 0.84;
+/** ~3x the original 0.62 — chunky tiles that read big as they approach. */
+const TILE_DEPTH = 1.9;
+/** The hit-zone frame — the same shape as a tile, a little deeper so a tile lands *inside* it. */
+const HIT_ZONE_DEPTH = 2.8;
 /** World-space distance from the spawn point to the hit line. */
 const HIGHWAY_LENGTH = 26;
 
@@ -150,7 +156,9 @@ export function holdSpan(
  * chording across it.
  */
 const HOLD_SEGMENTS = 24;
-const MAX_PARTICLES = 900;
+const MAX_PARTICLES = 1500;
+/** Concurrent hit shockwaves. A short burst can stack a few across lanes. */
+const MAX_SHOCKWAVES = 16;
 const STAR_COUNT = 560;
 
 /**
@@ -164,6 +172,14 @@ const CAMERA_TARGET_Z = -9;
 const BASE_FOV = 60;
 /** Upper bound on widening; past this the perspective distortion is worse than the crop. */
 const MAX_FOV = 96;
+
+/**
+ * Aspect below which the board counts as "portrait phone" and the hit line is
+ * raised. Just under square, so tall phones qualify and landscape never does.
+ */
+const PORTRAIT_ASPECT = 0.85;
+/** How far up the receptor line is nudged on a phone, as a fraction of viewport height. */
+const HIT_RAISE_FRACTION = 0.13;
 
 /** Stars stream from `STAR_FAR_Z` toward the camera and recycle past it. */
 const STAR_FAR_Z = -130;
@@ -248,10 +264,10 @@ export class Highway {
   private readonly starPositions: Float32Array;
   /** Per-star travel speed, so the field parallaxes instead of moving as a sheet. */
   private readonly starSpeeds: Float32Array;
-  private readonly hitLine: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
 
   private readonly pads: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
-  private readonly rings: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>[] = [];
+  /** Rectangular hit-zone frames, one per lane. The target a tap tile lands in. */
+  private readonly hitZones: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
 
   private readonly particles: THREE.Points;
   private readonly particlePositions: Float32Array;
@@ -264,6 +280,14 @@ export class Highway {
   private readonly laneFlash: Float32Array;
   /** Camera kick on a hit, decaying back to rest. */
   private punch = 0;
+  /** Screen-shake magnitude, decaying to rest. Bumped on a hit, scaled by combo. */
+  private shake = 0;
+
+  /** Expanding shockwave rings, one pool slot per concurrent hit. */
+  private readonly shockwaves: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>[] = [];
+  /** 1 → 0 over a shockwave's life; 0 means the slot is free. */
+  private readonly shockwaveLife = new Float32Array(MAX_SHOCKWAVES);
+  private shockwaveCursor = 0;
 
   private readonly dummy = new THREE.Object3D();
   /** Scratch vector for projecting receptors during hit testing. */
@@ -313,9 +337,6 @@ export class Highway {
 
     this.buildReceptors();
 
-    this.hitLine = this.buildHitLine();
-    this.scene.add(this.hitLine);
-
     // Before the notes, so a hold's head pill draws over its own body rather
     // than being swallowed by it.
     this.buildHoldBodies();
@@ -332,6 +353,8 @@ export class Highway {
     this.particleLife = new Float32Array(MAX_PARTICLES);
     this.particles = this.buildParticles();
     this.scene.add(this.particles);
+
+    this.buildShockwaves();
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -459,9 +482,12 @@ export class Highway {
           // and the camera's eye level (6.2) lands on HORIZON. Sizing from that
           // relationship is what stops the sun coming out either invisible or
           // big enough to fill the frame.
+          // The sun beats with the track: uPulse spikes to 1 on each beat and
+          // decays, so the disc swells a touch and flares bright on the downbeat.
+          float sunR = SUN_R * (1.0 + uPulse * 0.06);
           vec2 sunOffset = vec2((vUv.x - 0.5) * PLANE_ASPECT, vUv.y - SUN_Y);
           float sunDist = length(sunOffset);
-          float sunMask = smoothstep(SUN_R, SUN_R - 0.004, sunDist);
+          float sunMask = smoothstep(sunR, sunR - 0.004, sunDist);
 
           // 0 at the crown, 1 at the waterline.
           float depth = clamp((SUN_Y + SUN_R - vUv.y) / (2.0 * SUN_R), 0.0, 1.0);
@@ -484,14 +510,19 @@ export class Highway {
           // most of the gradient below the horizon where nobody can see it, and
           // the part on screen comes out flat.
           vec3 sunCol = mix(uSun, uSunCrown, smoothstep(HORIZON, SUN_Y + SUN_R, vUv.y));
+          // Flare on the beat. This deliberately pushes the crown past the bloom
+          // threshold (0.8) at the peak of a pulse, so the sun visibly blooms
+          // brighter on the downbeat and settles back between beats.
+          sunCol *= 1.0 + uPulse * 0.5;
           // Cut flat at the horizon. The track's far end is far too narrow to
           // hide the disc's base, so without this the sun hangs in the sky as a
           // complete circle instead of setting behind the world.
           sunMask *= step(HORIZON, vUv.y);
           base = mix(base, sunCol, sunMask);
 
-          // Atmospheric bloom around the disc.
-          base += uHaze * smoothstep(SUN_R * 2.6, SUN_R * 0.9, sunDist) * 0.5;
+          // Atmospheric bloom around the disc — swells with the beat too, so the
+          // whole sun throbs rather than just its face.
+          base += uHaze * smoothstep(SUN_R * 2.6, SUN_R * 0.9, sunDist) * (0.5 + uPulse * 0.55);
 
           // --- atmosphere ------------------------------------------------
           // The scalars below used to be baked into four separate literals, one
@@ -551,6 +582,91 @@ export class Highway {
     }
 
     return new THREE.CanvasTexture(canvas);
+  }
+
+  /**
+   * A wide rounded-rectangle tap tile: soft-filled with a bright rim.
+   *
+   * White so it can be tinted per-lane by the instance colour. The rim is
+   * near-opaque so it catches the bloom and reads as a lit edge; the fill is
+   * translucent so the lane tint underneath still shows through. Drawn at the
+   * tile's own aspect (~3:2) so the rounded corners stay circular when the quad
+   * is stretched to the lane.
+   */
+  private static makeTileTexture(): THREE.CanvasTexture {
+    // Canvas aspect matches the tile's world aspect (~1:2, tall now) so the
+    // rounded corners map to circles rather than stretched ovals.
+    const w = 128;
+    const h = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const inset = 12;
+      const r = 30;
+      Highway.roundRectPath(ctx, inset, inset, w - inset * 2, h - inset * 2, r);
+
+      const fill = ctx.createLinearGradient(0, inset, 0, h - inset);
+      fill.addColorStop(0, 'rgba(255,255,255,0.95)');
+      fill.addColorStop(0.5, 'rgba(255,255,255,0.72)');
+      fill.addColorStop(1, 'rgba(255,255,255,0.85)');
+      ctx.fillStyle = fill;
+      ctx.fill();
+
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = 'rgba(255,255,255,1)';
+      ctx.stroke();
+    }
+
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  /**
+   * A hollow rounded-rectangle frame for the hit zones — transparent inside, a
+   * bright rim, so the receptor reads as a target a tile drops into rather than
+   * a filled pad. Matches `makeTileTexture` so tile and target share a shape.
+   */
+  private static makeFrameTexture(): THREE.CanvasTexture {
+    // Taller than the tile (the hit zone is deeper), aspect-matched for round corners.
+    const w = 128;
+    const h = 320;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const inset = 14;
+      Highway.roundRectPath(ctx, inset, inset, w - inset * 2, h - inset * 2, 30);
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = 'rgba(255,255,255,1)';
+      ctx.stroke();
+      // A faint inner wash so an empty lane still reads as a slot, not a gap.
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fill();
+    }
+
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  /** Rounded-rect path helper; `roundRect` is not in every target's 2D context. */
+  private static roundRectPath(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number,
+  ): void {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
   /** Randomize a star's lateral position. Depth is set by the caller. */
@@ -911,53 +1027,27 @@ export class Highway {
       this.pads.push(pad);
       this.scene.add(pad);
 
-      // Nearly the full lane width, and thick enough to read at a glance —
-      // the receptors are the one thing the player's eye rests on.
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(LANE_WIDTH * 0.34, LANE_WIDTH * 0.48, 40),
+      // A lit rectangular frame the same shape as a tap tile, so a tile visibly
+      // drops *into* its target. Replaces the old ring — the receptors are the
+      // one thing the player's eye rests on, so the shape has to match the notes.
+      const frame = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
         new THREE.MeshBasicMaterial({
+          map: Highway.makeFrameTexture(),
           color: hex,
           transparent: true,
-          opacity: 0.55,
-          side: THREE.DoubleSide,
+          opacity: 0.6,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
           toneMapped: false,
         }),
       );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.set(this.laneX(lane), -0.05, 0);
-      this.rings.push(ring);
-      this.scene.add(ring);
+      frame.rotation.x = -Math.PI / 2;
+      frame.position.set(this.laneX(lane), -0.05, 0);
+      frame.scale.set(LANE_WIDTH * 0.92, 1, HIT_ZONE_DEPTH);
+      this.hitZones.push(frame);
+      this.scene.add(frame);
     }
-  }
-
-  private buildHitLine(): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
-    const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(this.halfWidth * 2 + 0.5, 0.1),
-      new THREE.MeshBasicMaterial({
-        color: this.theme.hitLine,
-        transparent: true,
-        opacity: 0.95,
-        toneMapped: false,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    );
-    mesh.rotation.x = -Math.PI / 2;
-    // z=0, on the receptor centres — NOT in front of them.
-    //
-    // This sat at z=0.45 and was actively teaching bad timing. The bar is the
-    // brightest, sharpest thing on the track, so it reads as *the* target, but
-    // 0.45 world units is 22ms on hard and 33ms on easy — the bright line
-    // marked a moment a player could only reach by tapping late. Meanwhile the
-    // receptor ring is far wider than a note, so the pill *touches* it ~40ms
-    // early. The two obvious cues bracketed the real moment and neither one
-    // marked it, which showed up as a player scoring `perfect` while reading
-    // 80% EARLY. Kept 0.01 above the rings (y=-0.04 vs -0.05) so it still
-    // composites cleanly over them rather than z-fighting.
-    mesh.position.set(0, -0.04, 0);
-    return mesh;
   }
 
   private buildHoldBodies(): void {
@@ -1027,20 +1117,24 @@ export class Highway {
   }
 
   private buildNotes(): THREE.InstancedMesh {
-    // A pill reads better than a box at this camera angle: the rounded caps
-    // catch the bloom and give the note a soft, playful silhouette. Kept close
-    // to round — a long thin capsule reads as a dash rather than as an object.
-    const geometry = new THREE.CapsuleGeometry(0.2, LANE_WIDTH * 0.14, 6, 18);
-    geometry.rotateZ(Math.PI / 2);
+    // A wide, flat rounded-rect tile — the Beatstar / hibeatz tap-tile — rather
+    // than a pill. A unit plane laid flat on the track (XZ), sized per-instance
+    // to the lane and tilted onto the slope in `updateNotes`, exactly as the
+    // glow quad is.
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    geometry.rotateX(-Math.PI / 2);
 
     const material = new THREE.MeshBasicMaterial({
-      // Deliberately no `vertexColors`: InstancedMesh supplies per-instance
-      // tints via `instanceColor`. Turning vertexColors on makes the shader
-      // look for a per-vertex `color` attribute this geometry has never had,
-      // and every note renders black.
+      // The tile's shape and bright rim come from the texture; the lane tint
+      // comes from `instanceColor`. No `vertexColors` — InstancedMesh supplies
+      // per-instance tints via `instanceColor`, and turning vertexColors on
+      // makes the shader hunt for a per-vertex `color` attribute this geometry
+      // has never had, rendering every note black.
       //
       // `fog: false` matters as much: scene fog fades toward near-black well
       // before the spawn distance, so fogged notes arrive nearly invisible.
+      map: Highway.makeTileTexture(),
+      transparent: true,
       toneMapped: false,
       fog: false,
     });
@@ -1146,6 +1240,18 @@ export class Highway {
     this.camera.fov = this.fovFor(aspect);
     this.camera.updateProjectionMatrix();
 
+    // Raise the hit line on portrait phones, where it otherwise sits right
+    // against the bottom edge — awkward for a thumb and cramped against the
+    // phone's gesture bar. `setViewOffset` pans the projection up without
+    // touching the 3D framing or the perspective; a positive y-offset shows a
+    // window lower in the virtual frame, which slides the whole scene (and the
+    // receptors with it) upward. Cleared on landscape so desktop is untouched.
+    // Must come *after* updateProjectionMatrix, which resets the offset.
+    if (aspect < PORTRAIT_ASPECT) {
+      this.camera.setViewOffset(width, height, 0, height * HIT_RAISE_FRACTION, width, height);
+    } else {
+      this.camera.clearViewOffset();
+    }
   }
 
   /**
@@ -1172,37 +1278,115 @@ export class Highway {
     this.laneFlash[lane] = Math.min(1.6, (this.laneFlash[lane] ?? 0) + intensity);
   }
 
-  /** Spawn a burst at a lane's receptor. */
-  burst(lane: number, tier: Tier): void {
+  /**
+   * Big hit impact at a lane's receptor: particle burst, an expanding
+   * shockwave ring, a camera punch, and a screen shake that grows with the
+   * combo. `combo` is the streak *after* this hit — higher combo, harder hit.
+   */
+  burst(lane: number, tier: Tier, combo = 0): void {
     if (lane < 0 || lane >= this.laneCount) return;
 
-    const count = tier === 'perfect' ? 34 : tier === 'great' ? 24 : tier === 'good' ? 14 : 8;
-    const speed = tier === 'perfect' ? 4.6 : 3.2;
+    const count = tier === 'perfect' ? 56 : tier === 'great' ? 40 : tier === 'good' ? 24 : 12;
+    const speed = tier === 'perfect' ? 5.0 : 3.4;
     this.color.setHex(tier === 'miss' ? 0x662233 : laneColor(this.theme, lane));
     const x = this.laneX(lane);
 
-    if (tier !== 'miss') this.punch = Math.min(1, this.punch + (tier === 'perfect' ? 0.5 : 0.3));
+    if (tier !== 'miss') {
+      this.punch = Math.min(1, this.punch + (tier === 'perfect' ? 0.6 : 0.36));
+      this.triggerShockwave(lane, this.color);
+
+      // Shake grows with the streak and caps, so a long combo *feels* heavier
+      // without ever getting so violent the lanes become unreadable. A perfect
+      // hits harder than a good.
+      const comboFactor = Math.min(1, combo / 40);
+      const base = tier === 'perfect' ? 0.16 : tier === 'great' ? 0.11 : 0.07;
+      this.shake = Math.min(0.42, this.shake + base * (0.6 + comboFactor));
+    }
 
     for (let i = 0; i < count; i++) {
       const p = this.particleCursor;
       this.particleCursor = (this.particleCursor + 1) % MAX_PARTICLES;
 
       const angle = Math.random() * Math.PI * 2;
-      const lift = 0.4 + Math.random() * 1.1;
+      const lift = 0.4 + Math.random() * 1.3;
+      // Some fly out fast, some drift — a mix of radii reads as a spray "all
+      // around" rather than a tidy uniform fan.
+      const spread = 0.5 + Math.random() * 0.9;
 
-      this.particlePositions[p * 3] = x + (Math.random() - 0.5) * 0.5;
+      this.particlePositions[p * 3] = x + (Math.random() - 0.5) * 0.7;
       this.particlePositions[p * 3 + 1] = 0.12;
-      this.particlePositions[p * 3 + 2] = 0.2 + (Math.random() - 0.5) * 0.4;
+      this.particlePositions[p * 3 + 2] = 0.2 + (Math.random() - 0.5) * 0.6;
 
-      this.particleVelocities[p * 3] = Math.cos(angle) * speed * 0.34;
+      // Wider lateral and depth fan than before, so the burst throws particles
+      // out to the sides and toward the camera instead of mostly straight up.
+      this.particleVelocities[p * 3] = Math.cos(angle) * speed * 0.6 * spread;
       this.particleVelocities[p * 3 + 1] = lift * speed * 0.55;
-      this.particleVelocities[p * 3 + 2] = Math.sin(angle) * speed * 0.22 + 1.2;
+      this.particleVelocities[p * 3 + 2] = Math.sin(angle) * speed * 0.42 * spread + 1.2;
 
       this.particleColors[p * 3] = this.color.r;
       this.particleColors[p * 3 + 1] = this.color.g;
       this.particleColors[p * 3 + 2] = this.color.b;
 
       this.particleLife[p] = 1;
+    }
+  }
+
+  private buildShockwaves(): void {
+    for (let i = 0; i < MAX_SHOCKWAVES; i++) {
+      // A thin flat annulus that starts small at the receptor and expands. Lies
+      // on the track (rotateX) so it reads as a ring rushing outward across the
+      // lane, not a disc facing the camera.
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(0.34, 0.46, 40),
+        new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          toneMapped: false,
+          fog: false,
+        }),
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(0, 0.02, 0);
+      mesh.visible = false;
+      this.shockwaves.push(mesh);
+      this.scene.add(mesh);
+    }
+  }
+
+  /** Fire a shockwave from a lane's receptor, reusing the oldest pool slot. */
+  private triggerShockwave(lane: number, color: THREE.Color): void {
+    const slot = this.shockwaveCursor;
+    this.shockwaveCursor = (this.shockwaveCursor + 1) % MAX_SHOCKWAVES;
+
+    const mesh = this.shockwaves[slot]!;
+    mesh.position.x = this.laneX(lane);
+    mesh.material.color.copy(color);
+    mesh.visible = true;
+    this.shockwaveLife[slot] = 1;
+  }
+
+  private updateShockwaves(dt: number): void {
+    for (let i = 0; i < MAX_SHOCKWAVES; i++) {
+      const life = this.shockwaveLife[i]!;
+      if (life <= 0) continue;
+
+      const next = life - dt * 3.4; // ~0.3s
+      this.shockwaveLife[i] = next;
+
+      const mesh = this.shockwaves[i]!;
+      if (next <= 0) {
+        mesh.visible = false;
+        continue;
+      }
+
+      // Grow outward as it fades. `1 - next` runs 0 → 1 over the life.
+      const t = 1 - next;
+      const scale = 1 + t * 6;
+      mesh.scale.set(scale, scale, 1);
+      mesh.material.opacity = next * 0.7;
     }
   }
 
@@ -1229,6 +1413,7 @@ export class Highway {
     this.updateLanes(dt, pulse);
     this.updateStars(dt, bass);
     this.updateParticles(dt);
+    this.updateShockwaves(dt);
     this.updateCamera(dt, songTime, pulse);
 
     const floorUniforms = this.floor.material.uniforms;
@@ -1251,7 +1436,6 @@ export class Highway {
     backdropUniforms['uTreble']!.value = treble;
     backdropUniforms['uPulse']!.value = pulse;
 
-    this.hitLine.material.opacity = 0.75 + pulse * 0.25;
     (this.stars.material as THREE.PointsMaterial).opacity = 0.55 + treble * 0.45;
 
     this.bloom.strength = 0.45 + bass * 0.25 + this.punch * 0.3;
@@ -1340,33 +1524,33 @@ export class Highway {
       // floats off the surface as the track climbs away.
       const lift = curveLift(z);
 
-      // --- solid core: near-constant brightness, so the edges stay crisp ---
-      this.dummy.position.set(laneX, 0.1 + lift, z);
-      // The pill is a capsule lying along X, so it is a surface of revolution
-      // about that axis — tilting it into the slope would change nothing.
-      this.dummy.rotation.set(0, 0, 0);
-      // A gentle swell as the note arrives makes the hit moment land.
-      this.dummy.scale.setScalar((0.86 + nearness * 0.22) * missFade);
+      // A tile lies flat on the track, so it takes the slope tilt (like the
+      // glow), and its width tapers with the floor. A small swell as it arrives
+      // lands the hit moment.
+      const slope = Math.atan(curveSlope(z));
+      const swell = 1 + nearness * 0.06;
+
+      // --- tap tile ---
+      this.dummy.position.set(laneX, 0.05 + lift, z);
+      this.dummy.rotation.set(slope, 0, 0);
+      this.dummy.scale.set(TILE_WIDTH * curveWidth(z) * swell, 1, TILE_DEPTH * swell);
       this.dummy.updateMatrix();
       this.notes.setMatrixAt(count, this.dummy.matrix);
 
-      // Deliberately kept under the bloom threshold (0.8): anything above it
-      // blooms into its own silhouette and the pill loses its edges. All the
-      // glow comes from the halo below, so the core only has to be legible.
+      // Brighter than the old pill core: the tile's fill is translucent, so it
+      // needs more colour to read as solid neon. The texture's opaque white rim
+      // carries the bloom, so the tile keeps a crisp lit edge either way.
       this.color.setHex(laneColor(this.theme, state.note.lane));
-      this.color.multiplyScalar((0.62 + nearness * 0.2) * missFade * spawnFade);
+      this.color.multiplyScalar((0.72 + nearness * 0.3) * missFade * spawnFade);
       this.notes.setColorAt(count, this.color);
 
-      // --- halo: carries all the glow, and every note gets one ---
-      // Scaled by the taper too, so the halo keeps covering roughly one lane
-      // rather than spilling across a narrowed track in the distance.
-      const glowSize = LANE_WIDTH * 1.32 * (0.75 + nearness * 0.45) * curveWidth(z);
+      // --- halo: light spilling onto the lane under the tile ---
+      // Widened to the tile's shape (wider than deep) rather than a round dot,
+      // so the glow sits under the rectangle instead of poking out at its ends.
+      const glowW = LANE_WIDTH * 1.24 * (0.8 + nearness * 0.4) * curveWidth(z);
       this.dummy.position.set(laneX, 0.015 + lift, z);
-      // The halo is a flat quad meant to read as light spilling onto the lane,
-      // so unlike the pill it has to lie *along* the slope. Left level it would
-      // cut through the rising track and shear into a hard edge.
-      this.dummy.rotation.set(Math.atan(curveSlope(z)), 0, 0);
-      this.dummy.scale.set(glowSize, 1, glowSize);
+      this.dummy.rotation.set(slope, 0, 0);
+      this.dummy.scale.set(glowW, 1, glowW * 0.64);
       this.dummy.updateMatrix();
       this.noteGlow.setMatrixAt(count, this.dummy.matrix);
 
@@ -1397,27 +1581,38 @@ export class Highway {
       const pad = this.pads[lane];
       if (pad) pad.material.opacity = 0.16 + decayed * 0.5;
 
-      const ring = this.rings[lane];
-      if (ring) {
-        ring.material.opacity = 0.45 + decayed * 0.55 + pulse * 0.15;
-        const scale = 1 + decayed * 0.32;
-        ring.scale.set(scale, scale, 1);
+      const frame = this.hitZones[lane];
+      if (frame) {
+        frame.material.opacity = 0.5 + decayed * 0.5 + pulse * 0.14;
+        // A small punch-out on a press, in the plane (X width, Z depth).
+        const s = 1 + decayed * 0.14;
+        frame.scale.set(LANE_WIDTH * 0.92 * s, 1, HIT_ZONE_DEPTH * s);
       }
     }
   }
 
   private updateCamera(dt: number, songTime: number, pulse: number): void {
     this.punch = Math.max(0, this.punch - dt * 3.2);
+    this.shake = Math.max(0, this.shake - dt * 2.6);
 
     // A little sway and a beat-synced dip keep the frame alive without
     // making the lanes harder to read.
     const sway = Math.sin(songTime * 0.55) * 0.06;
+
+    // Screen shake: a fast random jitter scaled by `shake`. Applied to the
+    // camera position and a fraction of it to the look target, so the frame
+    // rattles rather than just sliding. Squared falloff (shake*shake) keeps the
+    // low, constant end from making the lanes feel permanently loose.
+    const s = this.shake * this.shake;
+    const shakeX = (Math.random() - 0.5) * s * 1.6;
+    const shakeY = (Math.random() - 0.5) * s * 1.2;
+
     this.camera.position.set(
-      sway,
-      CAMERA_HEIGHT - this.punch * 0.16 - pulse * 0.03,
+      sway + shakeX,
+      CAMERA_HEIGHT - this.punch * 0.16 - pulse * 0.03 + shakeY,
       CAMERA_DISTANCE - this.punch * 0.3,
     );
-    this.camera.lookAt(sway * 0.3, 0, CAMERA_TARGET_Z);
+    this.camera.lookAt(sway * 0.3 + shakeX * 0.4, shakeY * 0.4, CAMERA_TARGET_Z);
   }
 
   private updateParticles(dt: number): void {

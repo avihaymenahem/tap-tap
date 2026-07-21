@@ -1,5 +1,5 @@
 import type { DifficultyName, SongSummary } from '@tap-tap/shared';
-import { DIFFICULTIES, DIFFICULTY_NAMES } from '@tap-tap/shared';
+import { DIFFICULTY_NAMES } from '@tap-tap/shared';
 import { ChevronDown, Download, Star, WifiOff } from 'lucide-react';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { listSongs } from '../api/client.js';
@@ -440,10 +440,6 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                       onClick={() => setDifficulty(name)}
                     >
                       <span className="difficulty__name">{name}</span>
-                      <span className="difficulty__lanes">{DIFFICULTIES[name].laneCount} lanes</span>
-                      <span className="difficulty__notes">
-                        {selectedSong.noteCounts[name] ?? 0} notes
-                      </span>
                     </button>
                   ))}
                 </div>

@@ -11,8 +11,8 @@ import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
 import { HapticToggle } from '../components/HapticToggle.js';
-import { getStoredCalibration } from '../storage.js';
-import { resolveCalibration } from '../game/calibration.js';
+import { getStoredCalibration, setCalibration } from '../storage.js';
+import { MIN_STORED_SEC, autoCalibrationStep, resolveCalibration } from '../game/calibration.js';
 
 /**
  * Seconds of silence before the audio begins. Without it the first notes are
@@ -25,14 +25,16 @@ const LEAD_IN_SEC = 3;
 const RESUME_COUNTDOWN_SEC = 3;
 
 /**
- * How long the track keeps playing after the final note.
+ * How long the track keeps playing after the final note, before the run ends.
  *
- * A chart's last note usually lands well before the audio ends, so ending the
- * run the instant it is judged chops the song off mid-phrase. Let it ride, then
- * fade out.
+ * A chart's last note usually lands before the audio ends, so cutting the run
+ * the instant it is judged chops the song off mid-phrase. Ride it out for this
+ * long — with the audio fading across the same window — then finish. The fade
+ * is timed to land exactly on this point, not on the audio's own end, so the
+ * ending feels the same whether the track has two seconds of tail left or two
+ * minutes.
  */
-const OUTRO_SEC = 4;
-const OUTRO_FADE_SEC = 2.5;
+const OUTRO_SEC = 2;
 
 /**
  * How long the finished highway stays up while the crowd cheers, before the
@@ -147,6 +149,15 @@ export function PlayScreen({
   /** Pending hand-off to the results screen, held while the cheer plays. */
   const finishTimerRef = useRef<number | null>(null);
 
+  // --- live auto-calibration ---
+  /** Recent confident-hit errors (late positive), a rolling window for auto-cal. */
+  const autoDeltasRef = useRef<number[]>([]);
+  /** Auto-calibration applied so far this run, for the drift cap. */
+  const autoDriftRef = useRef(0);
+  /** The "timing tuned" toast and its dismiss timer. */
+  const calibToastRef = useRef<HTMLDivElement>(null);
+  const calibTimerRef = useRef<number | null>(null);
+
   /**
    * The phase the game logic reads. Kept alongside the state copy because the
    * render loop must not be torn down and rebuilt when the phase changes —
@@ -223,6 +234,8 @@ export function PlayScreen({
           calibrationSec: effectiveCalibration(clock),
           minGapSec: params.minGapSec,
         });
+        autoDeltasRef.current = [];
+        autoDriftRef.current = 0;
         highwayRef.current = new Highway({
           canvas,
           laneCount: chart.laneCount,
@@ -450,14 +463,20 @@ export function PlayScreen({
       if (judgementRef.current) judgementRef.current.style.opacity = String(judgementAlpha);
       if (timingRef.current) timingRef.current.style.opacity = String(judgementAlpha * 0.9);
 
-      // Ride out the tail rather than cutting on the last note.
+      const finishAt = lastNoteAt + OUTRO_SEC;
+
+      // Ride out the tail rather than cutting on the last note. Fade across the
+      // window between now and the finish point, so the audio reaches silence
+      // exactly as the run ends — capped by the audio actually remaining, in
+      // the rare case the track ends inside the outro.
       if (snap.finished && !outroStarted) {
         outroStarted = true;
-        const remaining = Math.max(0, clock.duration - songTime);
-        clock.fadeOut(Math.min(OUTRO_FADE_SEC, Math.max(0.4, remaining - 0.2)));
+        const untilFinish = finishAt - songTime;
+        const audioLeft = Math.max(0, clock.duration - songTime) - 0.2;
+        clock.fadeOut(Math.max(0.4, Math.min(untilFinish, audioLeft)));
       }
 
-      const outroDone = songTime >= lastNoteAt + OUTRO_SEC;
+      const outroDone = songTime >= finishAt;
       if ((snap.finished && outroDone) || (songTime > 0 && songTime >= clock.duration)) {
         finish();
         return;
@@ -534,6 +553,8 @@ export function PlayScreen({
         calibrationSec: effectiveCalibration(clock),
         minGapSec: params.minGapSec,
       });
+      autoDeltasRef.current = [];
+      autoDriftRef.current = 0;
       outroStarted = false;
       void clock.start(introOffset, LEAD_IN_SEC);
       applyPhase('playing');
@@ -556,9 +577,53 @@ export function PlayScreen({
       highway.flashLane(lane);
       const result = engine.hitLane(lane, clock.currentTime);
       if (result) {
-        highway.burst(lane, result.tier);
+        // Combo drives how hard the impact shakes — a long streak hits heavier.
+        highway.burst(lane, result.tier, result.combo);
         showJudgement(result.tier, result.timing);
+        autoCalibrate(engine, result.tier, result.delta);
       }
+    };
+
+    /**
+     * Learn the player's latency from their own hits, live.
+     *
+     * Only *confident* hits feed it — perfect and great, never a sloppy `good`
+     * near the miss window, which would just add noise. Once a window has filled
+     * it nudges the engine's offset by a tiny, capped amount toward zeroing the
+     * measured bias (`autoCalibrationStep` owns the maths and the sign), then
+     * clears the window to measure the residual afresh. The nudge is small enough
+     * to be invisible mid-song; the real payoff is persisting the result, so the
+     * *next* song starts already calibrated. This is why the metronome screen is
+     * now optional rather than a gate.
+     */
+    const autoCalibrate = (engine: GameEngine, tier: Tier, delta: number): void => {
+      if (tier !== 'perfect' && tier !== 'great') return;
+
+      const window = autoDeltasRef.current;
+      window.push(delta);
+
+      const step = autoCalibrationStep(window, autoDriftRef.current);
+      if (step === 0) return;
+
+      engine.bumpCalibration(step);
+      autoDriftRef.current += step;
+      window.length = 0;
+      // Persist floored, for the same reason `resolveCalibration` floors on read:
+      // a value below `MIN_STORED_SEC` is physically impossible and makes the
+      // game unplayable, so it must never reach storage.
+      setCalibration(Math.max(MIN_STORED_SEC, engine.calibration));
+      showCalibToast();
+    };
+
+    /** Brief, unobtrusive "timing tuned" flash so the auto-cal is visible when it acts. */
+    const showCalibToast = (): void => {
+      const el = calibToastRef.current;
+      if (!el) return;
+      el.style.opacity = '1';
+      if (calibTimerRef.current !== null) window.clearTimeout(calibTimerRef.current);
+      calibTimerRef.current = window.setTimeout(() => {
+        el.style.opacity = '0';
+      }, 850);
     };
 
     /**
@@ -578,7 +643,7 @@ export function PlayScreen({
       if (result.completed) {
         // Same burst as a hit: finishing a hold is the same kind of success and
         // should feel like one.
-        highwayRef.current?.burst(lane, 'perfect');
+        highwayRef.current?.burst(lane, 'perfect', engine.snapshot.combo);
         vibrateTap();
       }
     };
@@ -706,6 +771,10 @@ export function PlayScreen({
         window.clearTimeout(finishTimerRef.current);
         finishTimerRef.current = null;
       }
+      if (calibTimerRef.current !== null) {
+        window.clearTimeout(calibTimerRef.current);
+        calibTimerRef.current = null;
+      }
       // Never leave the device buzzing after the screen is gone.
       cancelHaptics();
     };
@@ -736,6 +805,9 @@ export function PlayScreen({
       <div ref={judgementRef} className="play__judgement" style={{ opacity: 0 }} />
       <div ref={timingRef} className="play__timing" style={{ opacity: 0 }} />
       <div ref={countdownRef} className="play__countdown" style={{ opacity: 0 }} />
+      <div ref={calibToastRef} className="play__calib" style={{ opacity: 0 }}>
+        ⏱ timing synced
+      </div>
 
       {phase === 'playing' && (
         <button
@@ -807,7 +879,7 @@ export function PlayScreen({
         <div className="play__overlay play__overlay--ready">
           <h2>{beatmap.title}</h2>
           <p className="muted">
-            {difficulty} · {params.laneCount} lanes · {beatmap.bpm} BPM
+            {difficulty} · {beatmap.bpm} BPM
           </p>
           <div className="keycaps">
             {keys.map((key) => (
