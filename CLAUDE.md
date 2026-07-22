@@ -7,36 +7,47 @@ broken, and the traps that have already cost time.
 
 ## What this is
 
-A browser rhythm game. An admin pastes a YouTube link; the server downloads the
-audio, analyses it, and generates note charts at four difficulties
-(easy/medium/hard/extreme). Players pick from the curated list and play on
-3/4/5 lanes.
+A rhythm game, now shipped as a **serverless Capacitor Android app** (PLAN.md §6h).
+You paste a YouTube link; a bundled yt-dlp downloads the audio on the device, the
+analysis runs on-device, and note charts are generated at four difficulties
+(easy/medium/hard/extreme). Songs are stored on the device; players play on
+3/4/5 lanes. (A Node dev server still exists for browser UI development — see
+Commands — but it is not part of the shipped app.)
 
-**Local-only. Do not deploy it.** `yt-dlp` against YouTube breaks their ToS;
-that is a non-issue on `localhost` and a real problem the moment it is public.
+**Personal/sideload only. Never publish it.** `yt-dlp` against YouTube breaks
+their ToS, so this cannot go on the Play Store — that is a permanent constraint,
+not a temporary one. On your own device for your own use it is a non-issue.
 
 ## Commands
 
 ```bash
-npm run dev                    # server :8787 + web :5173 — USE THIS. Live reload.
+npm run dev                    # dev-only backend :8787 + web :5173 — USE THIS for
+                               #   UI work. Live reload. The shipped app is Android.
 npm test                       # vitest, all workspaces
 npx tsc -b                     # typecheck the project graph
 npm run build                  # production web build — app, then the service worker
+npm run build:android          # web build + cap sync (bundle into the Android app)
+npm run android                # build:android, then open the project in Studio
 npm run icons                  # regenerate PWA icons (only when the art changes)
-npm run serve:public           # build + serve everything from :8787. USE THIS to
-                               #   test offline/PWA; the worker is prod-only.
-npm run ingest -w server -- "<youtube-url>"   # ingest one song from the CLI
+npm run ingest -w server -- "<youtube-url>"   # author a song on the desktop (CLI)
 ```
 
 The Browser pane tools (`preview_start`, then `navigate`/`computer`) are the way
-to run and verify the app. `.claude/launch.json` already defines the dev server.
+to run and verify the **web UI**; the Android app is verified via the emulator/
+device with `adb` (see "Building the Android app"). `.claude/launch.json` defines
+the dev server.
 
-**Develop on :5173, not :8787.** `serve:public` builds the frontend and serves it
-from Express, which is right for sharing and wrong for working: it has no HMR, so
-every edit needs a rebuild and the page silently keeps showing the last build.
-This cost real time once. `npm run dev` passes `--no-web` so the server refuses
-to serve a stale `web/dist` alongside the live Vite app — without that flag both
-ports serve the game and one of them is frozen.
+**This is a mobile-only, serverless game (PLAN.md §6h).** The shipped artifact is
+the Capacitor Android APK, which has no server — it stores its library on the
+device and ingests YouTube links with a bundled yt-dlp. The Express server is now
+a **dev-only** backend: it powers fast browser UI development (the `web/src/data`
+layer dispatches to it when not running natively) and desktop content authoring
+(`npm run ingest`). Docker, the pinggy tunnel and `serve:public` were removed
+(MD1) — do not look for them.
+
+**Develop the UI on :5173.** `npm run dev` runs Vite (with HMR) plus the dev
+backend for `/api` + `/media`. For anything native — ingest, Filesystem storage,
+the splash/icon — build and run the APK.
 
 ## Building the Android app (Capacitor)
 
@@ -83,119 +94,6 @@ cd android && ./gradlew assembleDebug   # build the debug APK directly
 - **The APK has no server.** Until MB2 (on-device storage) lands, the app loads
   and the highway renders but the song list is empty — `api/client.ts` still
   fetches `/api`, which does not exist in the APK. That is expected at MB1.
-
-## Running it in Docker
-
-For keeping it up without starting it by hand — `restart: unless-stopped` brings
-it back after a crash or a reboot. **Still local-only**; the ToS note above does
-not stop applying because it is in a container.
-
-```bash
-docker compose up -d --build     # start
-docker compose logs -f           # watch
-docker compose down              # stop. The volume and its songs survive.
-```
-
-It serves the **production build on :8787**, the same as `npm run serve:public`
-— which is also the only mode where the service worker exists, so the PWA and
-offline play work here and do not under `npm run dev`.
-
-- **Develop with `npm run dev`, not the container.** There is no HMR inside it
-  and every change needs a rebuild.
-- **:8787 collides with `npm run dev`'s API server.** Windows Docker does not
-  reliably refuse the bind — it publishes anyway and the host routes to
-  whichever process got there first. The tell is the container "serving" a 404
-  at `/`, which is really the dev server answering with `--no-web`. Stop one, or
-  republish the container on another port.
-- **Everything persistent is one directory**, so one volume covers it: audio,
-  thumbnails, beatmaps, cached analysis, waveforms and `themes.json` all live
-  under `MEDIA_DIR`, which the image points at `/data`.
-- **Seeding the volume needs a `chown`.** `docker cp` writes as root, the app
-  runs as `node`; skip it and reads work while every write silently 403s. The
-  commands are in `docker-compose.yml`.
-- **The image needs Python** — `youtube-dl-exec` refuses to install without a
-  binary named exactly `python` (not `python3`), and yt-dlp needs it at runtime.
-  Both stages install `python-is-python3`. Debian slim, **not Alpine**:
-  `ffmpeg-static` ships glibc builds that install fine on musl and then fail to
-  exec.
-- `node_modules` is in `.dockerignore` for a reason beyond size — the vendored
-  `ffmpeg.exe` and `yt-dlp.exe` here are Windows binaries.
-
-## Letting someone else play it
-
-**Tailscale is the answer, and it is already installed and signed in** on this
-machine (`espired`, 100.82.104.20). The phone `avihays-s25-ultra` is already on
-the tailnet too — it just needs the app toggled on.
-
-```
-http://100.82.104.20:5173       # while `npm run dev` is running
-http://100.82.104.20:8787       # only under `npm run serve:public`
-```
-
-**Which port depends on which server is up**, and getting this wrong looks like
-a broken tailnet. `npm run dev` passes `--no-web`, so :8787 serves the API only
-and its root returns **404** — that is the flag working, not a connectivity
-problem. Use :5173 in dev; use :8787 when serving the production build. Both
-bind all interfaces already (`app.listen(PORT, '0.0.0.0')` and Vite's
-`host: true`); verified reachable on the tailnet IP.
-
-Vite's `allowedHosts` includes `.ts.net`, so the MagicDNS name works as well as
-the bare IP. Bare IPs pass Vite's host check without being listed; hostnames do
-not, so `https://espired.tail6485dc.ts.net` would otherwise render a blank
-"host not allowed" page.
-
-No firewall rule needed: Tailscale bypasses the inbound block that stopped LAN
-access, because the connection arrives on the Tailscale interface. For a friend,
-share the single machine from the admin console rather than adding them to the
-tailnet.
-
-For HTTPS — which **Wake Lock requires**, so the screen still sleeps without it —
-enable MagicDNS and HTTPS Certificates in the Tailscale admin console, then
-`tailscale serve --bg 8787` and use `https://espired.tail6485dc.ts.net`. The two
-console toggles are account settings and are a human step.
-
-### Public tunnels: only if Tailscale is not an option
-
-`scripts/share.sh` drives a pinggy tunnel and still works, but it is the fallback
-now. Measured here: pinggy ~29 Mbps / 60-minute sessions / one-click gate;
-localtunnel ~1 Mbps / ~4-minute sessions, and it silently reconnects onto a
-*random* subdomain, invalidating a link already sent. **Cloudflare quick tunnels
-never routed from this machine at all** — four attempts including
-`--edge-ip-version 4`; do not spend time on it again without a new hypothesis.
-Both working providers expose the host's public IP.
-
-Two rules if you do tunnel:
-
-- **Serve the production build** (`npm run serve:public`), never the dev server.
-  Vite dev ships hundreds of unbundled ES modules and a tunnel drops enough of
-  them that the page stays blank with no console error.
-- **Turn on read-only mode** (`--public` / `TAP_TAP_PUBLIC=1`). Ingest, rename,
-  delete and regenerate have **no auth at all**; the flag rejects every non-GET
-  before it reaches a route and makes the UI hide Admin. It fails closed. Verify
-  with `curl <url>/api/config` before sharing. Currently **off** — admin is
-  deliberately enabled for local use.
-
-**Song load time.** The whole m4a must download before play can start —
-`decodeAudioData` needs a complete buffer, and the sample-accurate clock depends
-on playing a decoded `AudioBuffer`. **If this feels slow, suspect the tunnel
-before the code**: the same 4.7MB file took 30s on localtunnel and 1.4s on
-pinggy (29 Mbps). Two mitigations exist, neither of which changes the
-architecture:
-
-- The menu calls `prefetchAudio` on hover and on selection, so the download runs
-  while the player picks a difficulty. The play screen then reads from the HTTP
-  cache (`transferSize: 0`) instead of the network.
-- `AudioClock.load` streams the body and reports progress, so the wait shows a
-  real percentage rather than an indefinite spinner.
-
-Streaming playback (`<audio>` + `MediaElementAudioSourceNode`) would cut
-time-to-first-note but is **not** a free win: it trades a predictable wait for
-mid-song stalls, and a stall desyncs every note from the audio until it is
-re-anchored. In a rhythm game that is a worse failure than waiting. Do not
-attempt it to save 20 seconds on a link that is already unreliable.
-
-Close the tunnel when done. It serves full copyrighted tracks from `/media` to
-anyone with the URL — see the ToS note above.
 
 ## Offline / PWA
 
