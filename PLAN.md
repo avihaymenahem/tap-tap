@@ -1097,6 +1097,180 @@ invalid; and the favorites-only filter stays hidden until something is starred,
 with `filterFavorites` acting as identity on an empty set — a filter whose only
 possible effect is emptying the list is worse than no filter.
 
+## 6h. Android app (Capacitor) — the serverless rewrite
+
+Wrap the whole game as an installable Android app with **no server of any kind**.
+Mobile-only from here: desktop support, the Express server, Docker, the tunnels
+and the `serve:public`/`--no-web` dance are all dropped. This is the biggest
+structural change since the initial split, so the reasoning is worth spelling out
+before any of the milestones below.
+
+### The one insight that makes it cheap
+
+The runtime is *already* serverless — a played song stays playable with the
+server off, because the PWA caches audio/beatmaps on use (§6, offline). The
+server's only irreplaceable job is **ingest**: download → transcode → analyse →
+generate. And of those four, three are already portable:
+
+- **`analyse` and `generate` are pure TypeScript** and import no Node built-ins —
+  that is invariant 1.3 (`web/src/game` and the analysis/charts modules touch no
+  DOM, no three, no `fs`). `analyze(pcm, sampleRate)` wants a `Float32Array`; it
+  does not care that today one comes from ffmpeg.
+- **`computeWaveform`** is the same shape and the same purity.
+- The **decode** step is the only thing that reaches for ffmpeg
+  (`decodeToMonoPcm`), and the browser has a native replacement: `decodeAudioData`
+  gives an `AudioBuffer`, downmix to mono and it is the same `Float32Array`.
+
+So the entire analysis pipeline moves into a **Web Worker inside the WebView**
+with no algorithmic change. The invariant that already forbids three/DOM/`fs` in
+`game/` is exactly what earns this for free. The DSP tests (synthetic click
+tracks, known BPM — §2.4 / testing conventions) keep passing in vitest wherever
+the code lives, so the port is verifiable without a device.
+
+The **only** piece that cannot become portable TypeScript is the YouTube
+download, which is also — not coincidentally — the only piece with a legal
+problem (§8). Removing the server and removing YouTube-over-the-network are the
+same decision, which is what keeps this clean.
+
+### The yt-dlp replacement: `youtubedl-android`, behind a Capacitor plugin
+
+Researched, not assumed. Two real Android options exist:
+
+- **`yausername/youtubedl-android`** (actively maintained; powers the Seal app) —
+  bundles the *actual yt-dlp*, a Python 3.8 runtime, and ffmpeg into the APK, and
+  exposes them to Kotlin/Java. This is a **drop-in for our pipeline**: it runs the
+  same yt-dlp that `youtube-dl-exec` shells out to today, so `fetchMetadata` /
+  `downloadAudio` / the m4a transcode all keep their exact behaviour, and it
+  carries its own ffmpeg so `encodeAac` survives too. yt-dlp self-updates at
+  runtime as YouTube changes.
+- **`TeamNewPipe/NewPipeExtractor`** (pure Java, no Python, smaller) — but it only
+  yields *stream URLs*; we would re-implement download + transcode ourselves, and
+  it chases YouTube breakage more often. Kept as the fallback, not the choice.
+
+**Decision: `youtubedl-android`, wrapped in a thin Capacitor plugin** exposing
+`fetchMetadata(url)` and `download(url, destDir) → { audioPath, thumbnailPath }`
+with progress. It is the smallest possible surface — it replaces exactly
+`ytdlp.ts` + the `encodeAac` half of `transcode.ts`, and nothing else. Cost: the
+Python+ffmpeg+yt-dlp bundle adds tens of MB to the APK and a first-run
+extraction. That is acceptable for a sideloaded personal app; it also means
+**this app can never go on the Play Store**, which the §8 note already required.
+
+### Where each server piece lands
+
+| Server module | Fate on device |
+|---|---|
+| `analysis/*`, `charts/*`, `waveform` | Move to a browser-importable home; run in a Worker, unchanged |
+| `ingest/pipeline.ts` (`ingestSong`) | Port to `web/src/ingest.ts` — same orchestration, same `customName`/`themeId` preservation |
+| `ingest/ytdlp.ts` + `encodeAac` | Become the `youtubedl-android` Capacitor plugin |
+| `transcode.ts` `decodeToMonoPcm` | Replaced by WebAudio `decodeAudioData` + mono downmix |
+| `storage.ts` (filesystem) | Capacitor Filesystem, same `media/<songId>/` layout, `convertFileSrc` for playable URLs |
+| `index.ts` (Express + routes) | Deleted — routes become in-app function calls |
+| Docker, tunnels, `serve:public` | Deleted |
+
+Keep the m4a transcode (via the plugin's ffmpeg): invariant 2.5 — *analyse the
+file you actually play* — still holds, because both the decode-for-analysis and
+playback read the same stored `audio.m4a`, priming delay and all.
+
+### Milestones (each independently committable, build + tests green)
+
+**Phase A — make the pipeline portable (no Capacitor yet)**
+- **MA1** — Lift `analysis/`, `charts/`, `sustain`, `computeWaveform` into a
+  home `web/` can import (a `core` workspace, or `shared/`). Pure TS; the only
+  Node touchpoint (`decodeToMonoPcm`) stays behind in the ingest half. All DSP
+  tests stay green.
+- **MA2** — `web/src/ingest/decodeAudio.ts` (WebAudio decode → mono `Float32Array`)
+  + `analyze.worker.ts` (runs `analyze` + `generateAllCharts` + `computeWaveform`
+  off the main thread, reports progress). The load-bearing test: a chart built
+  from a `decodeAudioData` buffer matches one built from ffmpeg PCM.
+
+**Phase B — Capacitor Android shell**
+- **MB1** — Add `@capacitor/core` + `@capacitor/android`; `capacitor.config.ts`
+  → `web/dist`; `cap add android`. Prove the existing web build runs in the
+  Android WebView: menu, `RetroBackdrop`, and crucially the **three.js highway at
+  60fps and the `AudioContext` master clock** (invariant 1.5) — if the WebView
+  cannot hold either, that is fundamental and must surface here, first.
+- **MB2** — `web/src/library/` data module (Capacitor Filesystem) replacing
+  `api/client.ts` reads: list, load/save beatmap+analysis+waveform, store/read
+  `audio.m4a`+`thumb.jpg`, resolve playable URLs. Port `deleteSong`'s whole-dir
+  nuke. Bundle one demo song so the shell is not empty.
+
+**Phase C — on-device ingest**
+- **MC1** — The `youtubedl-android` Capacitor plugin (`fetchMetadata` /
+  `download` + progress).
+- **MC2** — Port `ingestSong` into `web/src/ingest.ts`: plugin download → read
+  m4a → decode → worker analyse → save to library, reusing the existing
+  preservation rules verbatim. In-app ingest screen with the existing job/progress
+  UI, replacing the admin YouTube-URL flow.
+
+**Phase D — strip desktop, brand the app**
+- **MD1** — Delete the Express server, Docker, tunnels, `serve:public`/`--no-web`,
+  and simplify or drop the service worker (its `/media` offline caching is moot
+  once storage is local). Rework `npm` scripts to mobile-only. Update
+  CLAUDE.md/PLAN.md.
+- **MD2** — Splash screen + adaptive launcher icon in the game's vibe: the
+  metallic-gold "TapTap" note-tile brand mark on the `#07030f` background, gold
+  accent. Extend `scripts/make-icons.ts` for the Android adaptive foreground/
+  background layers and the themed splash (`@capacitor/splash-screen`).
+
+**Phase E — the three polish tasks (independent)**
+- **ME1** — Five new built-in themes (below).
+- **ME2** — Delete-a-track cascade (below).
+- **ME3** — Louder + reverbed results SFX (below).
+
+### ME1 — five more themes
+
+Add five `Theme` entries to `BUILTIN_THEMES`, each passing `validateTheme`: ≥5
+lanes, every pair ≥ `MIN_LANE_DISTANCE` (0.22) apart, every lane ≥ `MIN_LANE_LINEAR`
+(0.1), every sky channel < `MAX_SKY_LINEAR` (0.8, i.e. ≤ `0xE0`). Stage style, to
+match the current default look. `theme.test.ts` extends to assert the new ones —
+the count/uniqueness/brightness rules are machine-checked, but "distinguishable"
+still needs an eye (the theming invariants). Candidate moods: aurora
+(green/teal), vapor-sunset (peach/magenta), deep-sea (abyssal blue/cyan/lime),
+royal (violet/gold), molten (crimson/orange/gold).
+
+### ME2 — delete a track, delete *everything*
+
+The server already nukes the whole `media/<songId>/` directory, so on-disk files
+are covered — and the on-device port (MB2) keeps that. The real gaps are the two
+places a deleted song leaves residue:
+
+1. **Cached audio.** A song's `audio.m4a` can live in a WebView/service-worker
+   cache after its directory is gone. The delete must purge it (moot if MD1 drops
+   the SW, but the library store must still evict any in-memory/HTTP-cached blob).
+2. **Per-device `localStorage`**, which keys off `songId` and nothing clears it:
+   best scores (`${songId}:${difficulty}` for *every* difficulty), favorites,
+   `lastSong`. Add `forgetSong(songId)` to `web/src/storage.ts` — drop every
+   difficulty's score key, unstar, clear `lastSong` if it matches — and call it
+   from the delete flow. Unit-test that a deleted song leaves no trace in scores
+   or favorites.
+
+### ME3 — results SFX: louder, with reverb
+
+The game-end cues — `fanfare`, `tallyEnd`, `newBest` in `uisfx.ts` — read as too
+quiet. The "quiet on purpose, they sit under the music" rule (the file header) is
+correct for `tick`/`confirm` but **wrong for these three**: they play on the
+results screen *after* the song has ended, with nothing to compete against. So:
+
+1. Raise their level (per-sound gain, or a louder results bus), leaving the
+   in-play cues untouched.
+2. Add a **reverb send**: one shared `ConvolverNode` fed a *synthesized* decaying-
+   noise impulse — hand-rolled, no asset, consistent with the "nothing to license,
+   cache, or load" precedent that governs the whole SFX/cheer design. Route only
+   the results cues through it via a per-`UiNote` (or per-sound) `reverb` flag, so
+   taps and ticks stay dry. `uisfx.test.ts` extends to cover the flag and that dry
+   sounds never reach the convolver.
+
+### Risks to surface early
+
+- **The WebView is the whole bet.** three.js at 60fps and a non-drifting
+  `AudioContext` clock inside Android's Chromium WebView are assumptions, not
+  facts, until MB1 runs on the actual device. Everything else is portable work;
+  this is the one thing that could be fundamental.
+- **APK size / yt-dlp upkeep.** The bundled Python+ffmpeg+yt-dlp is tens of MB and
+  needs occasional yt-dlp updates (the library self-updates at runtime).
+- **Legal (§8) is unchanged and now load-bearing for distribution.** On-device
+  YouTube extraction keeps this a personal, sideloaded app. It cannot be published.
+
 ## 7. Known gaps
 
 - **Chart feel is untuned** (M3). Defaults are sane and tested, not play-tested.
@@ -1515,3 +1689,11 @@ the moment it is deployed publicly or shared. Do not deploy this.
   Bluetooth, which is the range this whole feature was built for. What is still
   unconfirmed is whether the game *feels* right with that offset applied; that
   is M3 territory and only a human can answer it.
+- **Android app / serverless rewrite (§6h) is designed and not built** — the next
+  major effort. Mobile-only via Capacitor; `youtubedl-android` replaces the
+  server's yt-dlp; `analysis`/`charts` move into a WebView worker unchanged. MA1
+  through ME3, each independently committable. The load-bearing unknown is MB1:
+  whether the Android WebView holds three.js at 60fps and a non-drifting audio
+  clock. Three tail tasks ride along: five new themes (ME1), a delete cascade
+  that also clears `localStorage` residue (ME2), and louder/reverbed results SFX
+  (ME3).
