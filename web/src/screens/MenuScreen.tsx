@@ -33,6 +33,12 @@ interface MenuScreenProps {
   onPlay: (songId: string, difficulty: DifficultyName) => void;
   onAdmin: () => void;
   onCalibrate: () => void;
+  /**
+   * Reports the selected song's theme accent so the shared backdrop (a sibling
+   * in App, outside this component) can follow it. Optional — the menu works
+   * unchanged without it.
+   */
+  onAccentChange?: (accent: number) => void;
 }
 
 /**
@@ -59,7 +65,12 @@ function nearestAvailable(
   );
 }
 
-export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): JSX.Element {
+export function MenuScreen({
+  onPlay,
+  onAdmin,
+  onCalibrate,
+  onAccentChange,
+}: MenuScreenProps): JSX.Element {
   const [songs, setSongs] = useState<SongSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Medium, not easy: easy is 3 lanes at ~1.2 notes/sec, which reads as a demo
@@ -221,6 +232,17 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
   const selectedAccent = selectedSong
     ? (themeFor(catalog, selectedSong.themeId).accent ?? DEFAULT_ACCENT)
     : DEFAULT_ACCENT;
+
+  // Push the selection's accent to the shared backdrop. An effect because the
+  // selection can change without a click — search can filter out the selected
+  // song, dropping the panel onto the first result — so there is no single
+  // event to hang it on; this is a genuine sync to a sibling outside React's
+  // tree for this component. Guarded on the value so it only fires on a change.
+  const reportAccentRef = useRef(onAccentChange);
+  reportAccentRef.current = onAccentChange;
+  useEffect(() => {
+    reportAccentRef.current?.(selectedAccent);
+  }, [selectedAccent]);
 
   // Grade badges for the list. Memoised because `getBestScore` re-parses the
   // whole stored score map per call — fine once, not thirty times per

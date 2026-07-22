@@ -1,4 +1,4 @@
-import { useRef, type JSX } from 'react';
+import { useRef, useState, type JSX } from 'react';
 import { RetroBackdrop } from './components/RetroBackdrop.js';
 import type { RunResult } from './game/run.js';
 import { loadRun, saveRun } from './lastRun.js';
@@ -19,6 +19,15 @@ export function App(): JSX.Element {
    * The URL carries only ids, and the results screen wants a human name.
    */
   const titleRef = useRef('');
+
+  /**
+   * Accent of the song selected in the menu, so the shared backdrop glow can
+   * follow it as the player browses — the same palette the detail panel already
+   * shows, extended to the light behind it. MenuScreen reports it up because the
+   * backdrop is a sibling it cannot reach, and the selection (which search can
+   * change without a click) lives inside the menu.
+   */
+  const [menuAccent, setMenuAccent] = useState<number | undefined>(undefined);
 
   const onFinish = (result: RunResult, accent: number): void => {
     if (route.name !== 'play') return;
@@ -100,6 +109,7 @@ export function App(): JSX.Element {
             onPlay={(songId, difficulty) => navigate({ name: 'play', songId, difficulty })}
             onAdmin={() => navigate({ name: 'admin' })}
             onCalibrate={() => navigate({ name: 'calibrate' })}
+            onAccentChange={setMenuAccent}
           />
         );
     }
@@ -114,12 +124,15 @@ export function App(): JSX.Element {
       {route.name !== 'play' && route.name !== 'edit' && route.name !== 'themes' && (
         <RetroBackdrop
           dim={route.name === 'admin'}
-          // On the results screen, tint the backdrop glow to the finished run's
-          // theme accent so the light behind the card matches the card.
+          // Tint the backdrop glow to the song in focus: the finished run's
+          // accent on results, the selected song's on the menu — so the light
+          // behind the content matches the content. Elsewhere the default gold.
           accent={
             route.name === 'results'
               ? loadRun(route.songId, route.difficulty)?.accent
-              : undefined
+              : route.name === 'menu'
+                ? menuAccent
+                : undefined
           }
         />
       )}

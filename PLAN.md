@@ -1450,6 +1450,25 @@ the moment it is deployed publicly or shared. Do not deploy this.
   interquartile mean of tracked gaps. `beatGrid` was already `number[]` on the
   wire, so charts, editor and admin consume the non-uniform grid unchanged.
 
+- **2026-07-22** — AAA UI polish pass across every player-facing screen (menu,
+  play flow, results, calibration; admin/themes/editor untouched). Four shipped
+  phases: (0) a display font (bundled Archivo Black, `--font-display`), a shared
+  four-verb motion layer (`.rise`/`.pop`/`ui-slam`/`ui-sheen` + `--i` stagger,
+  all behind `prefers-reduced-motion`), keyed route transitions, and a
+  hand-rolled WebAudio UI-sound layer (`uisfx.ts`, data-driven + unit tested,
+  with a cached mute toggle); (1) menu — staggered cards, accent-following
+  detail panel, ringed hero disc + blurred backdrop, a styled sort dropdown
+  replacing the native `<select>`, grade badges; (2) play — ready choreography +
+  chips, countdown beeps, combo-tier scaling, milestone banners, combo-break
+  vignette, judgement pop, all ref/CSS-driven from the render loop (no React
+  state); (3) results — a sequenced reveal (card → medal slam + fanfare → score
+  tally → staggered stats), accent-tinted backdrop, new-best confetti; (4)
+  calibration — metronome-synced pad pulse, tap ripple, progress ring, early/late
+  offset gauge, plus removal of the last hardcoded neon cyan. The accent now
+  carries continuously menu → ready → play → results, and the shared backdrop
+  glow follows it (see the §10 update below). Pure logic (`game/combo.ts`,
+  `uisfx.ts` palette) is unit-tested; 311 tests green.
+
 ## 10. Open
 
 - **Phone access is solved — via Tailscale, not the firewall.** The inbound block
@@ -1461,14 +1480,17 @@ the moment it is deployed publicly or shared. Do not deploy this.
 - **Per-song themes (§6d) are built**, plus a theme editor at `/admin/themes`.
   Five built-in palettes (Synthwave, Inferno, Arctic, Toxic, Black & White),
   read-only, with Duplicate to make editable copies persisted in
-  `media/themes.json`. Two things are still open:
-  - **The shell does not follow the theme.** `RetroBackdrop` keys off CSS custom
-    properties, so a theme could drive the menu and results screens by setting
-    them — but the menu shows *all* songs, so there is no one theme to apply.
-    The natural scope is the results screen and the play screen's own chrome.
-  - Whether a theme should change note **shape** as well as colour. Still
-    colour-only; shape interacts with the bloom tuning and the "close to round"
-    decision in `buildNotes`.
+  `media/themes.json`. One follow-up remains:
+  - **The shell now follows the theme** (AAA pass, 2026-07-22). `RetroBackdrop`
+    takes an optional `accent`; `App.tsx` feeds it the selected song's accent on
+    the menu and the finished run's on results, so the glow behind the content
+    matches it. The old "menu shows all songs, so there is no one theme" concern
+    is resolved by keying the tint to the selection (reported up from
+    `MenuScreen`, eased with a CSS transition). Play and results already
+    recoloured via `accentVars`; the accent is now continuous across the flow.
+  - Still open: whether a theme should change note **shape** as well as colour.
+    Still colour-only; shape interacts with the bloom tuning and the "close to
+    round" decision in `buildNotes`.
 - **Long notes** (§6f) are designed and **not built** — the next feature. L1–L5.
   Three design questions are open and are listed at the end of that section;
   they want answering before L2, because they decide the engine's shape.

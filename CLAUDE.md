@@ -209,16 +209,19 @@ server/src/
   storage.ts    beatmaps, cached analysis, waveforms, custom themes
   index.ts      Express API on :8787
 web/src/
-  game/         PURE TS — clock, judge, engine, calibration, run types (unit tested)
+  game/         PURE TS — clock, judge, engine, calibration, combo, run types (unit tested)
   editor/       PURE TS — timeline coordinate math (unit tested)
   render/       three.js highway + palette helpers
-  components/   RetroBackdrop (the shared 80s sunset), toggles, row menus,
-                ThemePicker, ThemePreview (a live Highway)
+  components/   RetroBackdrop (the shared stage backdrop), toggles (haptics +
+                UI sound), row menus, ThemePicker, ThemePreview (a live Highway)
   hooks/        useWakeLock, useOffline
   screens/      menu, play, results, calibration, admin, themes, editor
+  uisfx.ts      hand-rolled WebAudio UI sounds (data-driven, unit tested) + mute
+  accent.ts     accentVars — CSS var overrides that repaint a screen in a theme accent
   router.ts     hand-rolled typed router over the History API
   sw.ts         service worker — separate program, see the Offline section
   pwa.ts        registration + offline-cache queries
+public/fonts/   archivo-black.woff2 — the one bundled display face (--font-display)
 scripts/
   make-icons.ts hand-rolled PNG encoder for the PWA icons
   share.sh      pinggy tunnel (fallback; Tailscale is the answer)
@@ -704,6 +707,44 @@ scripts/
 - Match the surrounding code. Prefer deleting a dependency over adding one —
   the DSP, the router and the crowd cheer are all hand-rolled for that reason.
 
+## UI polish conventions (the AAA pass)
+
+The player-facing screens (all but admin/themes/editor) share one vocabulary.
+New screens and elements should reuse it rather than invent parallel systems:
+
+- **Motion is four verbs, defined once in `styles.css`.** `.rise` (fade + slide
+  for entrances), `.pop` (scale-in for small elements), `ui-slam` (the moment —
+  grades, milestones), `ui-sheen` (idle shine). Stagger comes from an inline
+  `--i` on the element (`animation-delay: calc(var(--i) * 55ms)`), so JSX owns
+  order without new CSS. **Every decorative animation has a
+  `prefers-reduced-motion` off-switch** — extend the existing blocks, do not
+  ship motion without one.
+- **Route changes animate via the keyed `.screen` wrapper in `App.tsx`.** Play
+  is deliberately unwrapped — its canvas manages its own phases and must never
+  fade.
+- **`--font-display` (Archivo Black) is for signage only** — logo, titles,
+  grades, the countdown, primary buttons. It ships **one weight**: always
+  `font-weight: 400`, never pair it with a bold (the browser fakes a smeared one
+  on an already-black face). It has **no tabular figures**, so numbers that tick
+  every frame (HUD score/accuracy) stay on `--font` or their width wobbles at
+  60fps. Body copy stays on the system stack.
+- **UI sound is `uisfx.ts`, hand-rolled WebAudio like the crowd cheer** — the
+  palette is data (`UI_SOUNDS`) so it is unit-tested without an AudioContext.
+  `playUiSound(name)` never throws and no-ops when muted; the mute flag is
+  cached exactly like `haptics.ts` caches its mode (no localStorage in a tap
+  path). Positive cues rise in pitch, negative ones fall — a test enforces it.
+- **New HUD feedback stays ref/CSS-driven from the render loop, never React
+  state** (the 60fps trap below). Milestones, the combo-tier scale, the
+  combo-break vignette and the judgement pop are all class toggles /`--var`
+  writes on ref'd elements; the combo maths lives in the pure, tested
+  `game/combo.ts`.
+- **`accentVars(accent)` (`accent.ts`) is how a screen repaints in a song's
+  theme colour.** The accent now carries continuously: menu detail panel →
+  ready → play → results, and the shared `RetroBackdrop` glow follows it too
+  (selected song on the menu, finished run on results). `TIER_COLORS` /
+  `TIMING_COLORS` are the one thing it must **not** touch — see the theming
+  invariants.
+
 ## Open items
 
 - **Long notes are the next feature** — designed in PLAN.md §6f, not built.
@@ -724,11 +765,12 @@ scripts/
   applied is still open.
 - **Per-song themes are built** (PLAN.md §6d, T1–T4): five built-in palettes
   plus an editor at `/admin/themes` for custom ones, picked per
-  song in admin. Two follow-ups remain — whether a theme should change note
-  *shape* as well as colour, and whether the shell (`RetroBackdrop`) should
-  follow it. The shell is awkward on purpose: the menu lists every song, so
-  there is no single theme to apply there; results and the play screen's own
-  chrome are the parts that could.
+  song in admin. **The shell now follows the theme** (AAA pass): `RetroBackdrop`
+  takes an optional `accent` and `App.tsx` feeds it the selected song's accent
+  on the menu and the finished run's on results, so the glow behind the content
+  matches it — the earlier "no single theme to apply on the menu" concern is
+  resolved by keying it to the selection. The remaining follow-up is whether a
+  theme should change note *shape* as well as colour.
 - **Editor:** E1 (read-only timeline) is built at `/edit/:songId/:difficulty`.
   E2 (global timing offset + save + `customChart`) and E3 (note editing with
   undo/redo) are designed in PLAN.md §6c but not built. E2 is the highest-value

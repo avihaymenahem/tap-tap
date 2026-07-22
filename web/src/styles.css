@@ -142,10 +142,13 @@ button {
     linear-gradient(to bottom, rgba(5, 3, 1, 0.05), rgba(5, 3, 1, 0.45));
 }
 
-/* Recoloured to a song's theme accent on the results screen, so the light
-   behind the card matches the card. Only the warm layers move to the accent;
-   the dark base of the stage stays put. */
+/* Recoloured to a song's theme accent — the finished run's on results, the
+   selected song's on the menu — so the light behind the content matches it.
+   Only the warm layers move to the accent; the dark base of the stage stays
+   put. The transition eases the colour as the menu selection changes rather
+   than snapping between songs. */
 .retro-bg--accent {
+  transition: background 0.4s ease;
   background:
     radial-gradient(130% 80% at 50% -14%, rgba(var(--accent-rgb), 0.3), transparent 55%),
     radial-gradient(80% 55% at 50% 4%, rgba(var(--accent-rgb), 0.18), transparent 60%),
@@ -153,6 +156,7 @@ button {
 }
 
 .retro-bg--accent .retro-bg__glow {
+  transition: background 0.4s ease;
   background: radial-gradient(
     closest-side,
     rgba(var(--accent-rgb), 0.34),
