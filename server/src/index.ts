@@ -1,7 +1,5 @@
-import { existsSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   type Beatmap,
   type Theme,
@@ -53,26 +51,17 @@ const PORT = Number(process.env['TAP_TAP_SERVER_PORT'] ?? 8787);
  * The `--public` flag is the same switch by another name: it survives being run
  * through npm scripts on any platform, where exporting an env var does not.
  */
-const PUBLIC_MODE =
-  process.argv.includes('--public') ||
-  !['', '0', 'false', undefined].includes(process.env['TAP_TAP_PUBLIC']);
-
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '32kb' }));
 
-// Ahead of every route, so a new endpoint is covered without being remembered.
-app.use((req, res, next) => {
-  if (!PUBLIC_MODE || req.method === 'GET' || req.method === 'HEAD') {
-    next();
-    return;
-  }
-  res.status(403).json({ error: 'This server is running in read-only mode.' });
-});
-
-/** Lets the UI hide what it cannot use, instead of showing buttons that 403. */
+/**
+ * This is now a **dev-only** backend (PLAN.md §6h, MD1): the shipped app is the
+ * Capacitor Android build, which is serverless. Kept for browser-based UI
+ * development and CLI content authoring, so it never runs read-only.
+ */
 app.get('/api/config', (_req, res) => {
-  res.json({ readOnly: PUBLIC_MODE });
+  res.json({ readOnly: false });
 });
 
 // Audio is served with range support so the browser can seek without
@@ -379,28 +368,8 @@ app.get('/api/jobs/:jobId', (req, res) => {
  *
  * Registered after the API routes so it can never shadow them.
  */
-const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
-
-/**
- * `--no-web` is passed by `npm run dev`, where Vite serves the frontend.
- *
- * Without it a stale `web/dist` keeps being served on this port alongside the
- * live Vite app on 5173 — two URLs for the same game, one of them frozen at
- * whenever it was last built. That is a genuinely confusing way to lose an hour
- * wondering why edits do not show up.
- */
-const SERVE_WEB = !process.argv.includes('--no-web');
-
-if (SERVE_WEB && existsSync(WEB_DIST)) {
-  // Hashed asset filenames make them safe to cache hard; index.html must not be.
-  app.use(express.static(WEB_DIST, { index: false, maxAge: '1y' }));
-
-  // The router is hand-rolled over the History API, so a deep link like
-  // /play/abc/hard is a real URL the server has to answer with the app shell.
-  app.get(/^(?!\/(api|media)\/).*/, (_req, res) => {
-    res.sendFile(path.join(WEB_DIST, 'index.html'));
-  });
-}
+// The frontend is no longer served here — Vite serves it in dev, and the
+// shipped app bundles it into the APK. This backend answers /api and /media only.
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -414,10 +383,7 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`                  http://${address}:${PORT}`);
   }
   console.log(`media: ${MEDIA_DIR}`);
-  console.log(
-    SERVE_WEB && existsSync(WEB_DIST) ? `web:   ${WEB_DIST}` : 'web:   served by Vite on :5173',
-  );
-  if (PUBLIC_MODE) console.log('READ-ONLY: ingest, rename, delete and regenerate are disabled.');
+  console.log('dev-only backend — the shipped app is the serverless Android build');
 });
 
 /** Non-internal IPv4 addresses, for connecting from another device. */

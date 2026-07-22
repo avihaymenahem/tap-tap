@@ -4,10 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts --no-web",
-    "dev:public": "tsx watch src/index.ts --public --no-web",
-    "start": "tsx src/index.ts",
-    "start:public": "tsx src/index.ts --public",
+    "dev": "tsx watch src/index.ts",
     "ingest": "tsx src/cli/ingest.ts"
   },
   "dependencies": {
