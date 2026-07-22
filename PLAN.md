@@ -1183,10 +1183,15 @@ playback read the same stored `audio.m4a`, priming delay and all.
   only external surface was two imports in `server` (`pipeline.ts`, `index.ts`),
   now `from '@tap-tap/core'`. The one Node touchpoint (`decodeToMonoPcm`) stayed
   behind in the ingest half. All 318 tests green; `tsc -b` clean.
-- **MA2** — `web/src/ingest/decodeAudio.ts` (WebAudio decode → mono `Float32Array`)
-  + `analyze.worker.ts` (runs `analyze` + `generateAllCharts` + `computeWaveform`
-  off the main thread, reports progress). The load-bearing test: a chart built
-  from a `decodeAudioData` buffer matches one built from ffmpeg PCM.
+- **MA2 (done)** — `web/src/ingest/`: `decodeAudio.ts` (WebAudio decode → mono
+  `Float32Array`, via an `OfflineAudioContext` at the analysis rate so
+  `decodeAudioData` resamples for free), `analyze.ts` (the pure `runAnalysis`
+  composing `analyze` + `computeWaveform` + `generateAllCharts`), the thin
+  `analyze.worker.ts`, and `analyzeInWorker` in `index.ts`. Tests cover the
+  channel downmix and that the worker core is a faithful pass-through of
+  `@tap-tap/core` (the guarantee that matters — the worker moves work off-thread
+  without altering it). The genuine "decodeAudioData PCM ≈ ffmpeg PCM" is a
+  device property left to MC2, since both need a real decoder. 323 tests green.
 
 **Phase B — Capacitor Android shell**
 - **MB1** — Add `@capacitor/core` + `@capacitor/android`; `capacitor.config.ts`
