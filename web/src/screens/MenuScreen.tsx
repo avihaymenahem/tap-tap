@@ -262,9 +262,14 @@ export function MenuScreen({
   return (
     <div className="menu">
       <header className="menu__header">
-        <h1 className="logo">
-          <span className="logo__tap">Tap</span>
-          <span className="logo__tap logo__tap--alt">Tap</span>
+        <h1 className="logo" aria-label="TapTap">
+          {/* A brand mark of two note-tiles — the game's own tap targets — that
+              flash on the beat, then the metallic wordmark. */}
+          <span className="logo__mark" aria-hidden="true">
+            <span className="logo__tile" />
+            <span className="logo__tile" />
+          </span>
+          <span className="logo__word">TapTap</span>
         </h1>
         <div className="menu__actions" ref={menuRef}>
           <button

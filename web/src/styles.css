@@ -565,55 +565,82 @@ kbd {
 
 .logo {
   margin: 0;
-  font-size: clamp(2rem, 5vw, 3.2rem);
-  /* Archivo Black ships one weight — 400 here or the browser synthesises a
-     smeared fake-bold on top of an already-black face. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: clamp(1.9rem, 5vw, 2.9rem);
+}
+
+/* --- the note-tile brand mark ---
+   Two of the game's own tap-tiles, tilted toward each other and pulsing on the
+   beat, so the wordmark carries a hint of what the game is. */
+.logo__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1em;
+  filter: drop-shadow(0 0 10px rgba(var(--accent-rgb), 0.6));
+}
+
+.logo__tile {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 0.17em;
+  /* The same warm metal as a note tile: a lit top edge over a deeper base. */
+  background: linear-gradient(150deg, #fff3cc 0%, #f6c94a 46%, #b9842a 100%);
+  box-shadow:
+    inset 0 0.06em 0.02em rgba(255, 255, 255, 0.65),
+    inset 0 -0.06em 0.05em rgba(90, 50, 0, 0.45),
+    0 0.04em 0.1em rgba(0, 0, 0, 0.4);
+  animation: logo-tile 2.4s ease-in-out infinite;
+}
+
+/* Tilted apart and beating a half-cycle out of phase — two taps, not one. */
+.logo__tile:first-child {
+  transform: rotate(-10deg) translateY(0.04em);
+}
+.logo__tile:last-child {
+  transform: rotate(10deg) translateY(-0.04em);
+  animation-delay: 1.2s;
+}
+
+@keyframes logo-tile {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.4);
+  }
+}
+
+/* --- the wordmark ---
+   One cohesive sheet of polished gold rather than two clashing halves. The
+   gradient is clipped to the glyphs, so the shine lives *in* it — a bright band
+   parked off to one side and swept across on a long, mostly-idle loop; a
+   pseudo-element cannot help, there is nothing to clip it to but the text. The
+   1px dark drop-shadow embosses the letters; the two soft ones are the glow. */
+.logo__word {
+  font-family: var(--font-display);
   font-weight: 400;
-  /* The gradient fills clip to the text, so the glow has to come from a
-     drop-shadow filter — text-shadow paints under transparent glyphs and would
-     show nothing at all here. */
-  letter-spacing: 0.02em;
-  filter: drop-shadow(0 0 14px rgba(var(--accent-rgb), 0.55))
-    drop-shadow(0 0 30px rgba(240, 182, 74, 0.28));
-}
-
-/* The gradient is clipped to the glyphs, so the shine has to live *in* the
-   gradient — a bright band parked off to one side, swept across on a long,
-   mostly-idle loop. A pseudo-element cannot help: there is nothing to clip it
-   to but the text itself. */
-.logo__tap {
+  letter-spacing: -0.01em;
   background: linear-gradient(
-    120deg,
-    var(--pink) 25%,
-    var(--gold-bright) 44%,
-    var(--yellow) 50%,
-    var(--pink) 72%
+    100deg,
+    #cf9c2c 0%,
+    #f6c94a 28%,
+    #fff4cc 46%,
+    #ffe487 52%,
+    #edbe42 68%,
+    #cf9c2c 100%
   );
-  background-size: 260% 100%;
+  background-size: 250% 100%;
   background-position: 120% 0;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(60, 28, 0, 0.5))
+    drop-shadow(0 0 16px rgba(var(--accent-rgb), 0.5))
+    drop-shadow(0 0 34px rgba(240, 182, 74, 0.26));
   animation: logo-sheen 9s ease-in-out infinite;
-}
-
-.logo__tap--alt {
-  background: linear-gradient(
-    120deg,
-    var(--cyan) 25%,
-    var(--gold-bright) 44%,
-    var(--mint) 50%,
-    var(--cyan) 72%
-  );
-  background-size: 260% 100%;
-  background-position: 120% 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  /* Offset from its sibling so the shine crosses the whole wordmark once,
-     left half then right, rather than both lighting at the same instant. */
-  animation: logo-sheen 9s ease-in-out infinite;
-  animation-delay: 0.4s;
 }
 
 /* The bright band spends most of the loop parked off the right edge; the pass
@@ -630,10 +657,12 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .logo__tap,
-  .logo__tap--alt {
+  .logo__word {
     animation: none;
     background-position: 50% 0;
+  }
+  .logo__tile {
+    animation: none;
   }
 }
 
