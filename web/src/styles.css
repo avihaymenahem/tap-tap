@@ -1212,31 +1212,34 @@ kbd {
   top: 26%;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 3.4rem;
+  font-size: 2.3rem;
   font-weight: 900;
   color: var(--yellow);
   text-shadow: 0 0 26px rgba(255, 214, 10, 0.6);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
   /* Grows and brightens with the streak. The transition smooths the jump
-     between tiers so the number swells rather than snapping. */
+     between tiers so the number swells rather than snapping. The spread across
+     tiers is deliberately gentle — this is a HUD counter, not a hero element;
+     the earlier ramp topped out at 5.6rem and dominated the whole board on a
+     phone (the mobile block only shrank the base, not these overrides). */
   transition: font-size 0.2s ease, text-shadow 0.2s ease, color 0.2s ease;
 }
 
 .play__combo[data-tier='1'] {
-  font-size: 3.8rem;
+  font-size: 2.5rem;
 }
 .play__combo[data-tier='2'] {
-  font-size: 4.3rem;
+  font-size: 2.7rem;
   color: var(--gold-bright);
 }
 .play__combo[data-tier='3'] {
-  font-size: 4.9rem;
+  font-size: 2.9rem;
   color: var(--gold-bright);
   text-shadow: 0 0 34px rgba(var(--accent-rgb), 0.75);
 }
 .play__combo[data-tier='4'] {
-  font-size: 5.6rem;
+  font-size: 3.2rem;
   color: #fff;
   text-shadow: 0 0 44px rgba(var(--accent-rgb), 0.9), 0 0 12px #fff;
 }
@@ -3262,9 +3265,25 @@ kbd {
     font-size: 1.3rem;
   }
 
+  /* Redeclare the tiers, not just the base: the [data-tier] rules are more
+     specific, so overriding only the base here let a 100+ combo balloon to
+     5.6rem on a phone and swallow the board. Each tier is nudged down from its
+     desktop size to stay a tidy counter. */
   .play__combo {
     top: 22%;
-    font-size: 2.4rem;
+    font-size: 1.9rem;
+  }
+  .play__combo[data-tier='1'] {
+    font-size: 2.1rem;
+  }
+  .play__combo[data-tier='2'] {
+    font-size: 2.3rem;
+  }
+  .play__combo[data-tier='3'] {
+    font-size: 2.5rem;
+  }
+  .play__combo[data-tier='4'] {
+    font-size: 2.8rem;
   }
 
   .play__judgement {
