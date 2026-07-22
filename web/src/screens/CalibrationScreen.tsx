@@ -1,5 +1,5 @@
 import { RotateCcw } from 'lucide-react';
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { MIN_STORED_SEC, foldTapDelta } from '../game/calibration.js';
 import { getStoredCalibration, setCalibration } from '../storage.js';
 
@@ -35,6 +35,8 @@ export function CalibrationScreen({ onDone }: CalibrationScreenProps): JSX.Eleme
   const ctxRef = useRef<AudioContext | null>(null);
   const nextBeatRef = useRef(0);
   const beatsRef = useRef<number[]>([]);
+  /** The tap pad, pulsed to the metronome and rippled on each tap via the DOM. */
+  const padRef = useRef<HTMLButtonElement>(null);
   /**
    * Held in a ref so the tap pad can call it without the effect depending on
    * anything that changes per tap — re-running the effect would tear down the
@@ -80,6 +82,27 @@ export function CalibrationScreen({ onDone }: CalibrationScreenProps): JSX.Eleme
     schedule();
     const timer = window.setInterval(schedule, 25);
 
+    // Pulse the pad on the click, driven by the same scheduled beat times the
+    // audio uses — so the flash is locked to the sound, not to a separate
+    // timer that would drift against it. Purely visual; never feeds a tap.
+    let raf = 0;
+    const pulse = (): void => {
+      const pad = padRef.current;
+      if (pad) {
+        const now = ctx.currentTime;
+        // Time since the most recent click that has actually sounded.
+        let sinceBeat = Number.POSITIVE_INFINITY;
+        for (const beat of beatsRef.current) {
+          if (beat <= now && now - beat < sinceBeat) sinceBeat = now - beat;
+        }
+        // A quick attack then a ~180ms decay reads as a beat, not a strobe.
+        const level = sinceBeat < 0.18 ? 1 - sinceBeat / 0.18 : 0;
+        pad.style.setProperty('--beat', level.toFixed(3));
+      }
+      raf = requestAnimationFrame(pulse);
+    };
+    raf = requestAnimationFrame(pulse);
+
     const recordTap = (): void => {
       const now = ctx.currentTime;
       const nearest = beatsRef.current.reduce(
@@ -105,6 +128,7 @@ export function CalibrationScreen({ onDone }: CalibrationScreenProps): JSX.Eleme
 
     return () => {
       window.clearInterval(timer);
+      cancelAnimationFrame(raf);
       window.removeEventListener('keydown', onKeyDown);
       recordTapRef.current = null;
       void ctx.close();
@@ -127,6 +151,25 @@ export function CalibrationScreen({ onDone }: CalibrationScreenProps): JSX.Eleme
           <div className="calibration__count">
             {Math.min(taps.length, TAPS_NEEDED)} / {TAPS_NEEDED}
           </div>
+          {/* Early ⟵ 0 ⟶ late, with a needle at the measured offset, so the
+              reading is a picture and not only a number. */}
+          {offset !== null && (
+            <div className="calibration__gauge" aria-hidden>
+              <span className="calibration__gauge-label">EARLY</span>
+              <div className="calibration__gauge-track">
+                <div className="calibration__gauge-center" />
+                <div
+                  className="calibration__gauge-needle"
+                  // ±0.25s spans the track; clamp so an outlier pins to the end
+                  // rather than escaping it.
+                  style={{
+                    left: `${Math.max(0, Math.min(100, 50 + (offset / 0.25) * 50))}%`,
+                  }}
+                />
+              </div>
+              <span className="calibration__gauge-label">LATE</span>
+            </div>
+          )}
           {offset !== null && (
             <div className="calibration__offset">
               {offset >= 0 ? '+' : ''}
@@ -142,23 +185,36 @@ export function CalibrationScreen({ onDone }: CalibrationScreenProps): JSX.Eleme
         )}
 
         {running && !done && (
-          <button
-            type="button"
-            className="calibration__pad"
-            // pointerdown, not click: click only fires after the finger lifts,
-            // and that gap is tens of milliseconds of pure error in the one
-            // measurement whose entire purpose is measuring milliseconds.
-            //
-            // It also avoids double-counting. A focused <button> fires `click`
-            // when SPACE is pressed, so a click handler would record the same
-            // keypress twice — once here and once in the global keydown.
-            onPointerDown={(event) => {
-              event.preventDefault();
-              recordTapRef.current?.();
-            }}
+          // A ring around the pad fills as taps land, so progress toward the 12
+          // needed reads without leaving the pad to check the counter.
+          <div
+            className="calibration__ring"
+            style={{ '--progress': `${(Math.min(taps.length, TAPS_NEEDED) / TAPS_NEEDED) * 100}%` } as CSSProperties}
           >
-            TAP
-          </button>
+            <button
+              ref={padRef}
+              type="button"
+              className="calibration__pad"
+              // pointerdown, not click: click only fires after the finger lifts,
+              // and that gap is tens of milliseconds of pure error in the one
+              // measurement whose entire purpose is measuring milliseconds.
+              //
+              // It also avoids double-counting. A focused <button> fires `click`
+              // when SPACE is pressed, so a click handler would record the same
+              // keypress twice — once here and once in the global keydown.
+              onPointerDown={(event) => {
+                event.preventDefault();
+                // Replay the ripple by clearing the class and forcing reflow.
+                const pad = event.currentTarget;
+                pad.classList.remove('calibration__pad--tap');
+                void pad.offsetWidth;
+                pad.classList.add('calibration__pad--tap');
+                recordTapRef.current?.();
+              }}
+            >
+              TAP
+            </button>
+          </div>
         )}
 
         {done && offset !== null && (

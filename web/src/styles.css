@@ -549,7 +549,7 @@ kbd {
   height: 100%;
   padding: 2rem clamp(1rem, 4vw, 3.5rem);
   overflow: hidden;
-  /* No background of its own any more — the shared sunset shows through. */
+  /* No background of its own any more — the shared stage backdrop shows through. */
 }
 
 .menu__header {
@@ -683,7 +683,7 @@ kbd {
   padding: 0.7rem 2.4rem 0.7rem 1.1rem;
   border: 2px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
-  /* Dark and opaque, not a white wash. A see-through field lets the sunset
+  /* Dark and opaque, not a white wash. A see-through field lets the stage glow
      through the text, which looks like a bug rather than a theme. */
   background: rgba(10, 4, 24, 0.66);
   backdrop-filter: blur(8px);
@@ -1000,10 +1000,6 @@ kbd {
   font-size: 2rem;
   font-weight: 400; /* display face — see the display-type note */
   line-height: 1;
-}
-
-.grade--large {
-  font-size: 5.5rem;
 }
 
 /* A good→bad ramp that still reads on the gold theme: S is the premium bright
@@ -2168,18 +2164,60 @@ kbd {
   letter-spacing: 0.05em;
 }
 
+/* A ring around the pad that fills as taps land, so progress toward the dozen
+   needed reads without leaving the pad. The arc is a conic gradient on a
+   pseudo-element, cut to a thin rounded-rectangle rim with the standard
+   padding-box mask-exclude trick (a radial mask can't follow rounded corners).
+   Kept on the pseudo so the translucent pad paints cleanly on top of it rather
+   than letting the conic bleed through its fill. `--progress` is set inline. */
+.calibration__ring {
+  position: relative;
+  width: 100%;
+  margin: 0.4rem 0 1rem;
+}
+
+.calibration__ring::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  padding: 6px;
+  border-radius: 26px;
+  background: conic-gradient(
+    rgb(var(--accent-rgb)) var(--progress, 0%),
+    rgba(255, 255, 255, 0.08) var(--progress, 0%)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  transition: background 0.3s ease;
+  pointer-events: none;
+}
+
 /*
  * Big on purpose. This is tapped a dozen times in rhythm, so it has to be
  * hittable without looking at it — the moment the player is aiming rather than
  * listening, they are measuring their aim instead of their latency.
+ *
+ * `--beat` (0..1) is written every frame from the metronome schedule, so the
+ * pad glows on each click; `scale` (independent of the `:active` transform)
+ * gives it a subtle physical throb.
  */
 .calibration__pad {
+  --beat: 0;
+  position: relative;
+  overflow: hidden;
   width: 100%;
   min-height: 190px;
-  margin: 0.4rem 0 1rem;
-  border: 2px solid rgba(255, 255, 255, 0.16);
+  border: 2px solid rgba(255, 255, 255, calc(0.16 + var(--beat) * 0.5));
   border-radius: 20px;
-  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.16), rgba(0, 224, 255, 0.14));
+  background: linear-gradient(
+    160deg,
+    rgba(var(--accent-rgb), calc(0.16 + var(--beat) * 0.22)),
+    rgba(var(--accent-rgb), calc(0.08 + var(--beat) * 0.16))
+  );
+  box-shadow: 0 0 calc(var(--beat) * 30px) rgba(var(--accent-rgb), calc(var(--beat) * 0.5));
+  scale: calc(1 + var(--beat) * 0.02);
   color: #fff;
   font: inherit;
   font-size: 1.5rem;
@@ -2197,8 +2235,39 @@ kbd {
 }
 
 .calibration__pad:active {
-  border-color: var(--cyan);
-  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.3), rgba(0, 224, 255, 0.26));
+  border-color: var(--gold-bright);
+  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.32), rgba(var(--accent-rgb), 0.2));
+}
+
+/* A ripple that blooms from the pad centre on each tap, so a press registers
+   visually even when the eye is on the beat. Replayed by toggling the class. */
+.calibration__pad::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%) scale(0);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.35), transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.calibration__pad--tap::after {
+  animation: calib-ripple 0.4s ease-out;
+}
+
+@keyframes calib-ripple {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(3);
+    opacity: 0;
+  }
 }
 
 .calibration__meter {
@@ -2206,6 +2275,7 @@ kbd {
   flex-direction: column;
   gap: 0.3rem;
   padding: 0.5rem 0;
+  align-items: center;
 }
 
 .calibration__count {
@@ -2215,15 +2285,69 @@ kbd {
 }
 
 .calibration__offset {
-  color: var(--cyan);
+  color: var(--gold-bright);
   font-size: 1.4rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
+/* Early ⟵ 0 ⟶ late gauge: a horizontal track with a centre mark and a needle
+   at the measured offset. Turns the signed-millisecond reading into a picture
+   the player can steer toward zero. */
+.calibration__gauge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 18rem;
+}
+
+.calibration__gauge-label {
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.calibration__gauge-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.calibration__gauge-center {
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.calibration__gauge-needle {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--gold-bright);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.9);
+  transition: left 0.2s ease;
+}
+
 .calibration__saved {
   color: var(--mint);
   font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calibration__pad--tap::after {
+    animation: none;
+  }
 }
 
 .calibration__actions {
@@ -3047,10 +3171,6 @@ kbd {
   .results__card,
   .calibration__card {
     padding: 1.5rem;
-  }
-
-  .grade--large {
-    font-size: 4rem;
   }
 
   /* The header is a single space-between row of an h1 plus two labelled ghost
