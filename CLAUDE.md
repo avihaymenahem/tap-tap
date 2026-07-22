@@ -202,10 +202,13 @@ scripts/make-icons.ts    generates the PNG icons; `npm run icons`
 
 ```
 shared/src/     wire contract: beatmap, difficulty params, keymaps, themes
-server/src/
+core/src/       PURE TS DSP — no Node/DOM/three. Imported by server AND web.
   analysis/     FFT, spectral-flux onsets, tempo, waveform  (+ synthetic-audio tests)
   charts/       lane assignment, difficulty filters, note selection
-  ingest/       yt-dlp, ffmpeg, pipeline
+  util/         seeded RNG
+  index.ts      barrel: analyze, computeWaveform, generateAllCharts, ANALYSIS_VERSION
+server/src/
+  ingest/       yt-dlp, ffmpeg, pipeline (decode is the only non-portable step)
   storage.ts    beatmaps, cached analysis, waveforms, custom themes
   index.ts      Express API on :8787
 web/src/

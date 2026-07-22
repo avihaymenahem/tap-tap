@@ -13,7 +13,7 @@ import {
 } from '@tap-tap/shared';
 import cors from 'cors';
 import express from 'express';
-import { computeWaveform } from './analysis/waveform.js';
+import { computeWaveform } from '@tap-tap/core';
 import { decodeToMonoPcm } from './ingest/transcode.js';
 import { ingestSong, regenerateCharts } from './ingest/pipeline.js';
 import { extractVideoId } from './ingest/ytdlp.js';

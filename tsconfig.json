@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./shared" },
+    { "path": "./core" },
     { "path": "./server" },
     { "path": "./web" },
     { "path": "./web/tsconfig.sw.json" }

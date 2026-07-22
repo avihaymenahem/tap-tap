@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": [
     "shared",
+    "core",
     "server",
     "web"
   ],

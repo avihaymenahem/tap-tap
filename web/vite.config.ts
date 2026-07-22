@@ -11,6 +11,8 @@ export default defineConfig({
       // Compile the shared workspace from source. Without this, Vite resolves
       // it through the node_modules symlink and refuses to transform the TS.
       '@tap-tap/shared': path.resolve(import.meta.dirname, '../shared/src/index.ts'),
+      // Same for the DSP core — the analysis worker (PLAN.md §6h) imports it.
+      '@tap-tap/core': path.resolve(import.meta.dirname, '../core/src/index.ts'),
     },
   },
   server: {

@@ -7,10 +7,16 @@ export default defineConfig({
       // Point at source rather than the workspace symlink so Vite transforms
       // the TypeScript instead of trying to load it from node_modules.
       '@tap-tap/shared': path.resolve(__dirname, 'shared/src/index.ts'),
+      '@tap-tap/core': path.resolve(__dirname, 'core/src/index.ts'),
     },
   },
   test: {
-    include: ['shared/src/**/*.test.ts', 'server/src/**/*.test.ts', 'web/src/**/*.test.ts'],
+    include: [
+      'shared/src/**/*.test.ts',
+      'core/src/**/*.test.ts',
+      'server/src/**/*.test.ts',
+      'web/src/**/*.test.ts',
+    ],
     environment: 'node',
   },
 });

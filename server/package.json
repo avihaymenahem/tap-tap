@@ -11,6 +11,7 @@
     "ingest": "tsx src/cli/ingest.ts"
   },
   "dependencies": {
+    "@tap-tap/core": "*",
     "@tap-tap/shared": "*",
     "cors": "^2.8.5",
     "express": "^4.21.2",

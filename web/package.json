@@ -10,6 +10,7 @@
     "build:sw": "vite build --config vite.sw.config.ts"
   },
   "dependencies": {
+    "@tap-tap/core": "*",
     "@tap-tap/shared": "*",
     "lucide-react": "^1.25.0",
     "react": "^19.0.0",

@@ -12,5 +12,5 @@
   // which cannot coexist with DOM in one program.
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["src/sw.ts"],
-  "references": [{ "path": "../shared" }]
+  "references": [{ "path": "../shared" }, { "path": "../core" }]
 }

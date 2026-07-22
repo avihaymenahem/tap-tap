@@ -2,9 +2,7 @@ import type { Beatmap, JobStatus } from '@tap-tap/shared';
 import { BEATMAP_VERSION } from '@tap-tap/shared';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ANALYSIS_VERSION, analyze } from '../analysis/index.js';
-import { computeWaveform } from '../analysis/waveform.js';
-import { generateAllCharts } from '../charts/generate.js';
+import { ANALYSIS_VERSION, analyze, computeWaveform, generateAllCharts } from '@tap-tap/core';
 import {
   AUDIO_FILE,
   THUMB_FILE,

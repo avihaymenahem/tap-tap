@@ -430,10 +430,13 @@ marks every one of them missed. Hence the `freezeDuringLeadIn` flag on
 ```
 tap-tap/
 ├─ shared/src/        beatmap + difficulty contract (single source of truth)
-├─ server/src/
-│  ├─ analysis/       fft, onsets, tempo  (+ synthetic-audio tests)
+├─ core/src/          PURE TS DSP (no Node/DOM/three) — server AND web import it
+│  ├─ analysis/       fft, onsets, tempo, waveform  (+ synthetic-audio tests)
 │  ├─ charts/         lane assignment, difficulty filters
-│  ├─ ingest/         yt-dlp, ffmpeg, pipeline
+│  ├─ util/           seeded RNG
+│  └─ index.ts        barrel: analyze, computeWaveform, generateAllCharts
+├─ server/src/
+│  ├─ ingest/         yt-dlp, ffmpeg, pipeline (decode is the only step core lacks)
 │  ├─ cli/ingest.ts   URL in, beatmap out
 │  └─ index.ts        Express API on :8787
 └─ web/src/
@@ -1174,10 +1177,12 @@ playback read the same stored `audio.m4a`, priming delay and all.
 ### Milestones (each independently committable, build + tests green)
 
 **Phase A — make the pipeline portable (no Capacitor yet)**
-- **MA1** — Lift `analysis/`, `charts/`, `sustain`, `computeWaveform` into a
-  home `web/` can import (a `core` workspace, or `shared/`). Pure TS; the only
-  Node touchpoint (`decodeToMonoPcm`) stays behind in the ingest half. All DSP
-  tests stay green.
+- **MA1 (done)** — Lifted `analysis/`, `charts/`, `util/` into a new
+  **`@tap-tap/core`** workspace (chosen over bloating `shared/`, which is the
+  wire contract). Pure TS, no Node/DOM; both `server` and `web` depend on it. The
+  only external surface was two imports in `server` (`pipeline.ts`, `index.ts`),
+  now `from '@tap-tap/core'`. The one Node touchpoint (`decodeToMonoPcm`) stayed
+  behind in the ingest half. All 318 tests green; `tsc -b` clean.
 - **MA2** — `web/src/ingest/decodeAudio.ts` (WebAudio decode → mono `Float32Array`)
   + `analyze.worker.ts` (runs `analyze` + `generateAllCharts` + `computeWaveform`
   off the main thread, reports progress). The load-bearing test: a chart built
