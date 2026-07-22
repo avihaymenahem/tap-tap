@@ -1,13 +1,16 @@
-/* The one bundled asset: a heavy display face for titles, grades, scores and
-   the countdown. Body copy stays on the system stack — a display face at
-   paragraph size is unreadable, and Archivo Black has no tabular figures, so
-   numbers that tick (HUD score/accuracy) must stay on --font. */
+/* The one bundled display face: Space Grotesk Bold, for titles, grades, scores
+   and the countdown. Body copy stays on the system stack — a display face at
+   paragraph size is heavier than it needs to be. Only the Bold (700) weight is
+   shipped, declared over the 400–700 range so every display rule maps to it
+   without the browser synthesising a faux weight; do not pair it with an even
+   heavier bold. Numbers that tick every frame (HUD score/accuracy) stay on
+   --font regardless — their width must not wobble at 60fps. */
 @font-face {
-  font-family: 'Archivo Black';
+  font-family: 'Space Grotesk';
   font-style: normal;
-  font-weight: 400;
+  font-weight: 400 700;
   font-display: swap;
-  src: url('/fonts/archivo-black.woff2') format('woff2');
+  src: url('/fonts/space-grotesk-700.woff2') format('woff2');
 }
 
 :root {
@@ -43,7 +46,7 @@
   --radius: 18px;
   --radius-sm: 12px;
   --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-display: 'Archivo Black', 'Arial Black', var(--font);
+  --font-display: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
 
   /* Panels float over the dark stage rather than hiding it, so their fill is a
      translucent warm tint. Named because a dozen surfaces need to agree. */
@@ -291,11 +294,12 @@ button {
 }
 
 /* --- display type ----------------------------------------------------------
-   The bundled Archivo Black carries everything that should feel like game
-   signage: the logo, titles, grades, the countdown, primary buttons. It ships
-   one weight, so never pair it with a bold — synthetic emboldening smears it.
-   It also has no tabular figures: numbers that tick every frame (HUD score,
-   accuracy) stay on --font or their width wobbles at 60fps. */
+   The bundled Space Grotesk carries everything that should feel like game
+   signage: the logo, titles, grades, the countdown, primary buttons. Only the
+   Bold weight ships (declared over the 400–700 range in the @font-face), so
+   the `font-weight: 400` below renders as that Bold with no synthesis — never
+   pair it with an even heavier bold, which would smear. Numbers that tick every
+   frame (HUD score, accuracy) stay on --font or their width wobbles at 60fps. */
 .logo,
 .menu__detail h2,
 .results__card h1,

@@ -221,7 +221,7 @@ web/src/
   router.ts     hand-rolled typed router over the History API
   sw.ts         service worker — separate program, see the Offline section
   pwa.ts        registration + offline-cache queries
-public/fonts/   archivo-black.woff2 — the one bundled display face (--font-display)
+public/fonts/   space-grotesk-700.woff2 — the one bundled display face (--font-display)
 scripts/
   make-icons.ts hand-rolled PNG encoder for the PWA icons
   share.sh      pinggy tunnel (fallback; Tailscale is the answer)
@@ -722,12 +722,13 @@ New screens and elements should reuse it rather than invent parallel systems:
 - **Route changes animate via the keyed `.screen` wrapper in `App.tsx`.** Play
   is deliberately unwrapped — its canvas manages its own phases and must never
   fade.
-- **`--font-display` (Archivo Black) is for signage only** — logo, titles,
-  grades, the countdown, primary buttons. It ships **one weight**: always
-  `font-weight: 400`, never pair it with a bold (the browser fakes a smeared one
-  on an already-black face). It has **no tabular figures**, so numbers that tick
-  every frame (HUD score/accuracy) stay on `--font` or their width wobbles at
-  60fps. Body copy stays on the system stack.
+- **`--font-display` (Space Grotesk Bold) is for signage only** — logo, titles,
+  grades, the countdown, primary buttons. Only the **Bold** weight ships,
+  declared over the `400 700` range in the `@font-face` so display rules can say
+  `font-weight: 400` and still render it with no synthesis; never pair it with an
+  even heavier bold. Numbers that tick every frame (HUD score/accuracy) stay on
+  `--font` regardless, so their width does not wobble at 60fps. Body copy stays
+  on the system stack.
 - **UI sound is `uisfx.ts`, hand-rolled WebAudio like the crowd cheer** — the
   palette is data (`UI_SOUNDS`) so it is unit-tested without an AudioContext.
   `playUiSound(name)` never throws and no-ops when muted; the mute flag is

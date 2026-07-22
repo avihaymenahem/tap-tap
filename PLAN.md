@@ -1467,7 +1467,13 @@ the moment it is deployed publicly or shared. Do not deploy this.
   offset gauge, plus removal of the last hardcoded neon cyan. The accent now
   carries continuously menu → ready → play → results, and the shared backdrop
   glow follows it (see the §10 update below). Pure logic (`game/combo.ts`,
-  `uisfx.ts` palette) is unit-tested; 311 tests green.
+  `uisfx.ts` palette) is unit-tested; 311 tests green. Follow-ups the same day:
+  the logo became a metallic wordmark with a note-tile brand mark; the menu
+  backdrop tint was reverted (mixed badly with the gold stage) while results
+  kept it; the menu Play button gained a livelier accent gradient, icon and
+  sheen; and the display font was swapped from Archivo Black (too heavy/blocky)
+  to **Space Grotesk Bold** — sleeker, modern, with a subtle techy edge; one
+  bundled weight mapped over the 400–700 range so no display CSS changed.
 
 ## 10. Open
 
