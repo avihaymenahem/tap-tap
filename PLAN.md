@@ -1194,22 +1194,23 @@ playback read the same stored `audio.m4a`, priming delay and all.
   device property left to MC2, since both need a real decoder. 323 tests green.
 
 **Phase B — Capacitor Android shell**
-- **MB1 (scaffolded; on-device verification pending)** — `@capacitor/core` +
-  `@capacitor/android` + CLI installed (v8.4.2); `capacitor.config.ts` →
-  `web/dist`, `appId com.taptap.game`; `cap add android` generated the native
-  project; `npm run build:android` bundles the web build into it. The debug build
-  runs the **Gradle wrapper (8.14.3) all the way through configuration and into
-  `:app:compileDebugJavaWithJavac`** before failing on one thing only: **the
-  Android SDK is not fully installed on this machine** (`android-sdk` has just
-  `platforms/android-34`; the project needs platform 36 + `build-tools` +
-  `platform-tools`, and there is no `sdkmanager`). That failure is environmental,
-  not a defect — it is positive evidence the Capacitor/Gradle config is valid.
-  **Still needs the user:** install the SDK components via Android Studio's SDK
-  Manager, then `./gradlew assembleDebug`, then run on the S25 Ultra to answer the
-  real question — **three.js highway at 60fps and a non-drifting `AudioContext`
-  clock** (invariant 1.5) inside the WebView. That is the load-bearing unknown and
-  only a device answers it. Note the app cannot fetch songs in the APK until MB2
-  (local storage) lands — MB1 proves the shell loads and the renderer runs.
+- **MB1 (done — renderer + audio verified on Android; definitive 60fps still wants
+  the device)** — `@capacitor/core` + `@capacitor/android` + CLI (v8.4.2);
+  `capacitor.config.ts` → `web/dist`, `appId com.taptap.game`; `cap add android`;
+  `npm run build:android`. **`./gradlew assembleDebug` builds a working
+  `app-debug.apk`** (4.3MB). Installed and ran on an `android-35` x86_64 emulator:
+  the app launches, the WebView loads, and — the load-bearing part — the **full
+  three.js highway renders and animates** (curved tapered track, themed rails,
+  descending tap-tiles, receptors, cover-art halo, HUD, MISS judgements) with
+  **audio playing** through `AudioTrack`. So the core risk is retired: WebGL and
+  the `AudioContext` clock both work inside an Android WebView. Two caveats: (1) an
+  emulator with host-GPU passthrough is **not a valid 60fps reading** — that
+  number still wants the physical S25 (invariant 1.5); (2) the smoke test loaded
+  the library from the host dev server (`server.url = http://10.0.2.2:5173`,
+  cleartext) because the bundled APK has no songs until **MB2** (local storage).
+  Two Windows build traps solved en route — the SDK install itself, and
+  `local.properties` needing **forward slashes** (`\U \A \L \S` are properties
+  escapes); both in CLAUDE.md → "Building the Android app".
 - **MB2** — `web/src/library/` data module (Capacitor Filesystem) replacing
   `api/client.ts` reads: list, load/save beatmap+analysis+waveform, store/read
   `audio.m4a`+`thumb.jpg`, resolve playable URLs. Port `deleteSong`'s whole-dir

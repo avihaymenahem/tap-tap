@@ -16,6 +16,12 @@ const config: CapacitorConfig = {
     // reads as a bug on a phone.
     backgroundColor: '#07030f',
   },
+  // For an emulator/device smoke test before MB2's local storage exists, point at
+  // the host dev server so the WebView has a real library:
+  //   server: { url: 'http://10.0.2.2:5173', cleartext: true }
+  // (10.0.2.2 is the emulator's host alias). Verified working this way — the full
+  // highway renders and audio plays on an Android WebView. Kept OUT of the
+  // committed config so a real build stays bundled.
 };
 
 export default config;
