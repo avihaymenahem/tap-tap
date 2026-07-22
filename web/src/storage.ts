@@ -1,4 +1,4 @@
-import type { DifficultyName } from '@tap-tap/shared';
+import { type DifficultyName, DIFFICULTY_NAMES } from '@tap-tap/shared';
 
 /** Local persistence: calibration offset and per-chart best scores. */
 
@@ -132,4 +132,40 @@ export function toggleFavorite(songId: string): boolean {
   else favorites.delete(songId);
   write(FAVORITES_KEY, [...favorites]);
   return next;
+}
+
+// --- deletion --------------------------------------------------------------
+
+/**
+ * Erase every per-device trace of a song when it is deleted.
+ *
+ * Deleting a track removes its files server-side, but its `localStorage` residue
+ * is keyed by `songId` and nothing else clears it: a best score for every
+ * difficulty, a favorite star, and the last-selected pointer. Left behind, a
+ * re-ingested id would inherit a stale high score, and the menu would try to
+ * restore a song that no longer exists. This is the client half of the delete
+ * cascade — call it whenever a song is removed.
+ */
+export function forgetSong(songId: string): void {
+  const scores = read<Record<string, BestScore>>(SCORES_KEY, {});
+  let scoresChanged = false;
+  for (const difficulty of DIFFICULTY_NAMES) {
+    const key = scoreKey(songId, difficulty);
+    if (key in scores) {
+      delete scores[key];
+      scoresChanged = true;
+    }
+  }
+  if (scoresChanged) write(SCORES_KEY, scores);
+
+  const favorites = getFavorites();
+  if (favorites.delete(songId)) write(FAVORITES_KEY, [...favorites]);
+
+  if (getLastSong() === songId) {
+    try {
+      localStorage.removeItem(LAST_SONG_KEY);
+    } catch {
+      // Private mode — nothing was persisted to remove.
+    }
+  }
 }

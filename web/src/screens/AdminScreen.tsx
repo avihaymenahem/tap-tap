@@ -36,6 +36,8 @@ import {
   paginate,
   sortSongs,
 } from '../songSearch.js';
+import { evictSongMedia } from '../pwa.js';
+import { forgetSong } from '../storage.js';
 
 interface Draft {
   songId: string;
@@ -441,7 +443,14 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
                   }}
                   onDelete={() => {
                     void apiDeleteSong(song.songId)
-                      .then(() => refreshRef.current())
+                      .then(() => {
+                        // Server removed the files; clear this device's residue
+                        // too — scores/favorite/last-selected, and the cached
+                        // audio — so nothing survives the song it belonged to.
+                        forgetSong(song.songId);
+                        void evictSongMedia(song.songId);
+                        refreshRef.current();
+                      })
                       .catch((err: unknown) =>
                         setError(err instanceof Error ? err.message : String(err)),
                       );

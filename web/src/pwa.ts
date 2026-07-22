@@ -75,6 +75,30 @@ export async function cachedAudioUrls(): Promise<Set<string>> {
   }
 }
 
+/**
+ * Evicts one song's cached media so a delete leaves nothing behind on-device.
+ *
+ * The song directory is gone server-side, but its `audio.m4a` (and thumbnail)
+ * may still sit in the offline cache under `/media/<songId>/…` — a dead file the
+ * player has no way to clear. Matches on the path segment rather than a full URL
+ * because entries are stored absolute. No-ops without the Cache API.
+ */
+export async function evictSongMedia(songId: string): Promise<void> {
+  if (!canUseCaches()) return;
+  try {
+    const cache = await caches.open(MEDIA_CACHE);
+    const prefix = `/media/${songId}/`;
+    const requests = await cache.keys();
+    await Promise.all(
+      requests
+        .filter((request) => new URL(request.url).pathname.startsWith(prefix))
+        .map((request) => cache.delete(request)),
+    );
+  } catch {
+    // Best-effort: a failed eviction is a stale cached file, not a broken app.
+  }
+}
+
 /** Drops every cached track. Returns false when there is no worker to ask. */
 export async function clearOfflineTracks(): Promise<boolean> {
   if (!canUseCaches()) return false;
