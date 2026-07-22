@@ -1,10 +1,12 @@
 import type { Beatmap, Chart, DifficultyName, Note } from '@tap-tap/shared';
 import { DEFAULT_ACCENT, DIFFICULTIES, keymapFor, themeCatalog, themeFor } from '@tap-tap/shared';
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { getBeatmap, listCustomThemes } from '../api/client.js';
 import { AudioClock, bandLevel } from '../game/clock.js';
+import { comboMilestone, comboTier } from '../game/combo.js';
 import { GameEngine } from '../game/engine.js';
 import { gradeFor, type Tier, type Timing } from '../game/judge.js';
+import { playUiSound } from '../uisfx.js';
 import type { RunResult } from '../game/run.js';
 import { cancelHaptics, vibrateMiss, vibrateTap } from '../haptics.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
@@ -172,6 +174,10 @@ export function PlayScreen({
   const timingRef = useRef<HTMLDivElement>(null);
   const countdownRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  /** Combo-milestone banner ("50 COMBO"), flashed and animated imperatively. */
+  const milestoneRef = useRef<HTMLDivElement>(null);
+  /** Red edge flash on a broken combo. A class toggle replays the animation. */
+  const vignetteRef = useRef<HTMLDivElement>(null);
 
   // Mutable game objects live in refs: they change every frame and must never
   // trigger a React render.
@@ -342,6 +348,18 @@ export function PlayScreen({
     let judgementAlpha = 0;
     let lastFrame = performance.now();
     let outroStarted = false;
+    // Combo from the previous frame, so the loop can spot a milestone crossing
+    // or a break without the engine having to emit an event for it.
+    let prevCombo = 0;
+    let prevTier = 0;
+
+    /** Replay a one-shot CSS animation by clearing the class and forcing reflow. */
+    const restartAnim = (el: HTMLElement | null, cls: string): void => {
+      if (!el) return;
+      el.classList.remove(cls);
+      void el.offsetWidth; // reflow so the re-added class counts as a fresh start
+      el.classList.add(cls);
+    };
     const spectrum = new Uint8Array(new ArrayBuffer(512));
     const lastNoteAt = chartRef.current?.notes.at(-1)?.t ?? 0;
     const introOffset = introOffsetRef.current;
@@ -358,6 +376,8 @@ export function PlayScreen({
         tag.textContent = timing ? TIMING_LABELS[timing] : '';
         tag.style.color = timing ? TIMING_COLORS[timing] : '#fff';
       }
+      // A quick pop on each new judgement, on top of the alpha decay below.
+      restartAnim(el, 'play__judgement--pop');
       judgementAlpha = 1;
     };
 
@@ -404,6 +424,9 @@ export function PlayScreen({
     // code covers the opening countdown and every resume.
     let counting = false;
     let goUntil = 0;
+    // The last digit a beep was fired for, so each number beeps once as it
+    // appears rather than every frame it is on screen.
+    let lastBeepDigit = 0;
 
     const paintCountdown = (nowSec: number): void => {
       const el = countdownRef.current;
@@ -414,16 +437,24 @@ export function PlayScreen({
 
       if (remaining > 0) {
         counting = true;
-        el.textContent = String(Math.max(1, Math.ceil(remaining)));
+        const digit = Math.max(1, Math.ceil(remaining));
+        el.textContent = String(digit);
         el.style.opacity = '1';
         // Each digit swells as it lands.
         el.style.transform = `translate(-50%, -50%) scale(${1 + (1 - (remaining % 1)) * 0.35})`;
+        // One beep per digit, on the frame it first shows.
+        if (digit !== lastBeepDigit) {
+          lastBeepDigit = digit;
+          playUiSound('count');
+        }
         return;
       }
 
       if (counting) {
         counting = false;
         goUntil = nowSec + 0.7;
+        lastBeepDigit = 0;
+        playUiSound('go');
       }
 
       const goLeft = goUntil - nowSec;
@@ -494,10 +525,38 @@ export function PlayScreen({
       // cost more than the entire render loop.
       const snap = engine.snapshot;
       if (scoreRef.current) scoreRef.current.textContent = snap.score.toLocaleString();
-      if (comboRef.current) comboRef.current.textContent = snap.combo > 2 ? `${snap.combo}x` : '';
+      if (comboRef.current) {
+        const combo = snap.combo;
+        comboRef.current.textContent = combo > 2 ? `${combo}x` : '';
+        // Tier drives the readout's size and glow; only touch the DOM when it
+        // actually changes, since this runs every frame.
+        const tier = comboTier(combo);
+        if (tier !== prevTier) {
+          comboRef.current.dataset.tier = String(tier);
+          prevTier = tier;
+        }
+      }
       if (accuracyRef.current) {
         accuracyRef.current.textContent = `${(snap.accuracy * 100).toFixed(1)}%`;
       }
+
+      // Milestone banner on the way up; red flash + soft sound on a break.
+      const combo = snap.combo;
+      const milestone = comboMilestone(prevCombo, combo);
+      if (milestone !== null) {
+        const banner = milestoneRef.current;
+        if (banner) {
+          banner.textContent = `${milestone} COMBO`;
+          restartAnim(banner, 'play__milestone--show');
+        }
+        playUiSound('milestone');
+      } else if (combo === 0 && prevCombo >= 10) {
+        // Only a streak worth noticing "breaks" — dropping a 3-combo is not a
+        // moment. Both the flash and the sound respect their mute settings.
+        restartAnim(vignetteRef.current, 'play__vignette--flash');
+        playUiSound('comboBreak');
+      }
+      prevCombo = combo;
       if (progressRef.current && clock.duration > 0) {
         const played = Math.max(0, songTime);
         progressRef.current.style.width = `${Math.min(100, (played / clock.duration) * 100)}%`;
@@ -557,6 +616,8 @@ export function PlayScreen({
       if (!clock || clock.isPlaying || phaseRef.current !== 'ready') return;
       // Called from the start tap — the gesture fullscreen needs.
       enterFullscreen();
+      prevCombo = 0;
+      prevTier = 0;
       void clock.start(introOffset, LEAD_IN_SEC);
       applyPhase('playing');
       lastFrame = performance.now();
@@ -587,6 +648,7 @@ export function PlayScreen({
     const resume = (): void => {
       const clock = clockRef.current;
       if (!clock || phaseRef.current !== 'paused') return;
+      playUiSound('back');
       // Re-hide the URL bar if leaving fullscreen (e.g. Escape) dropped it.
       enterFullscreen();
       void clock.resume(RESUME_COUNTDOWN_SEC);
@@ -606,6 +668,8 @@ export function PlayScreen({
       autoDeltasRef.current = [];
       autoDriftRef.current = 0;
       outroStarted = false;
+      prevCombo = 0;
+      prevTier = 0;
       void clock.start(introOffset, LEAD_IN_SEC);
       applyPhase('playing');
       lastFrame = performance.now();
@@ -899,7 +963,12 @@ export function PlayScreen({
         </div>
       </div>
 
-      <div ref={comboRef} className="play__combo" />
+      {/* Red edge flash on a broken combo. Sits above the canvas, below the
+          HUD; the animation class is toggled from the render loop. */}
+      <div ref={vignetteRef} className="play__vignette" aria-hidden />
+
+      <div ref={comboRef} className="play__combo" data-tier="0" />
+      <div ref={milestoneRef} className="play__milestone" aria-hidden />
       <div ref={judgementRef} className="play__judgement" style={{ opacity: 0 }} />
       <div ref={timingRef} className="play__timing" style={{ opacity: 0 }} />
       <div ref={countdownRef} className="play__countdown" style={{ opacity: 0 }} />
@@ -919,10 +988,14 @@ export function PlayScreen({
       )}
 
       {phase === 'paused' && pauseView === 'menu' && (
-        <div className="play__overlay">
-          <h2>Paused</h2>
-          {beatmap && <p className="muted">{beatmap.title}</p>}
-          <div className="pause-actions">
+        <div className="play__overlay play__overlay--pause">
+          <h2 className="rise" style={{ '--i': 0 } as CSSProperties}>Paused</h2>
+          {beatmap && (
+            <p className="muted rise" style={{ '--i': 1 } as CSSProperties}>
+              {beatmap.title}
+            </p>
+          )}
+          <div className="pause-actions rise" style={{ '--i': 2 } as CSSProperties}>
             <button
               type="button"
               className="btn btn--primary"
@@ -1000,8 +1073,10 @@ export function PlayScreen({
           </button>
           {/* The song's cover, ringed and haloed like the CD on the highway.
               The thumbnail is a rectangle in a circle, so a blurred copy fills
-              behind it instead of leaving black corners. */}
-          <div className="ready-cover">
+              behind it instead of leaving black corners. The whole ready stack
+              staggers in via `.rise` + `--i`, so it assembles rather than
+              appearing all at once. */}
+          <div className="ready-cover pop">
             <div className="ready-cover__burst" aria-hidden />
             <div className="ready-cover__disc">
               <img
@@ -1023,25 +1098,29 @@ export function PlayScreen({
               />
             </div>
           </div>
-          <h2>{beatmap.title}</h2>
-          <p className="muted">
-            {difficulty} · {Math.round(beatmap.bpm)} BPM
-          </p>
+          <h2 className="rise" style={{ '--i': 1 } as CSSProperties}>{beatmap.title}</h2>
+          <div className="ready-meta rise" style={{ '--i': 2 } as CSSProperties}>
+            <span className={`ready-chip ready-chip--${difficulty}`}>{difficulty}</span>
+            <span className="ready-chip">{Math.round(beatmap.bpm)} BPM</span>
+          </div>
           {/* Keyboard keys are desktop-only; on a phone you tap the lanes. */}
-          <div className="keycaps only-desktop">
+          <div className="keycaps only-desktop rise" style={{ '--i': 3 } as CSSProperties}>
             {keys.map((key) => (
               <kbd key={key}>{key.toUpperCase()}</kbd>
             ))}
           </div>
           <button
             type="button"
-            className="btn btn--primary btn--start"
+            className="btn btn--primary btn--start rise"
+            style={{ '--i': 4 } as CSSProperties}
             onClick={() => controlsRef.current?.start()}
           >
             <span className="only-desktop">Press SPACE to start</span>
             <span className="only-mobile">Tap to start</span>
           </button>
-          <p className="muted small only-desktop">ESC to pause</p>
+          <p className="muted small only-desktop rise" style={{ '--i': 5 } as CSSProperties}>
+            ESC to pause
+          </p>
         </div>
       )}
     </div>

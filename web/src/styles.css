@@ -1022,9 +1022,25 @@ kbd {
 }
 
 .play__progress-bar {
+  position: relative;
   height: 100%;
   width: 0;
   background: linear-gradient(90deg, var(--pink), var(--cyan));
+}
+
+/* A glowing head riding the leading edge, so the bar reads as a moving point
+   of light rather than a filling tube. */
+.play__progress-bar::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: var(--gold-bright);
+  box-shadow: 0 0 10px 2px rgba(var(--accent-rgb), 0.9);
 }
 
 .play__hud {
@@ -1074,6 +1090,94 @@ kbd {
   text-shadow: 0 0 26px rgba(255, 214, 10, 0.6);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
+  /* Grows and brightens with the streak. The transition smooths the jump
+     between tiers so the number swells rather than snapping. */
+  transition: font-size 0.2s ease, text-shadow 0.2s ease, color 0.2s ease;
+}
+
+.play__combo[data-tier='1'] {
+  font-size: 3.8rem;
+}
+.play__combo[data-tier='2'] {
+  font-size: 4.3rem;
+  color: var(--gold-bright);
+}
+.play__combo[data-tier='3'] {
+  font-size: 4.9rem;
+  color: var(--gold-bright);
+  text-shadow: 0 0 34px rgba(var(--accent-rgb), 0.75);
+}
+.play__combo[data-tier='4'] {
+  font-size: 5.6rem;
+  color: #fff;
+  text-shadow: 0 0 44px rgba(var(--accent-rgb), 0.9), 0 0 12px #fff;
+}
+
+/* Combo milestone banner: a big label that slams in and fades. Above the combo
+   number, centred. Class is toggled from the render loop to replay it. */
+.play__milestone {
+  position: absolute;
+  top: 15%;
+  left: 50%;
+  transform: translateX(-50%) scale(0.6);
+  font-family: var(--font-display);
+  font-size: 2.4rem;
+  letter-spacing: 0.1em;
+  color: var(--gold-bright);
+  text-shadow: 0 0 30px rgba(var(--accent-rgb), 0.85);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.play__milestone--show {
+  animation: combo-milestone 1.1s ease-out;
+}
+
+@keyframes combo-milestone {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(1.7);
+  }
+  20% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  75% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) scale(1.05);
+  }
+}
+
+/* A full-screen red edge flash when a real streak breaks. Behind the HUD, over
+   the canvas. Transparent by default; the class replays the pulse. */
+.play__vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(255, 60, 60, 0.5) 100%);
+}
+
+.play__vignette--flash {
+  animation: combo-break 0.5s ease-out;
+}
+
+@keyframes combo-break {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 .play__judgement {
@@ -1086,6 +1190,32 @@ kbd {
   letter-spacing: 0.16em;
   text-shadow: 0 0 22px currentColor;
   pointer-events: none;
+}
+
+/* A quick scale pop layered on top of the opacity decay the loop drives, so
+   each new judgement punches in. Replayed by toggling the class. */
+.play__judgement--pop {
+  animation: judgement-pop 0.22s ease-out;
+}
+
+@keyframes judgement-pop {
+  0% {
+    transform: translateX(-50%) scale(1.5);
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No entrance animations. The milestone and vignette have opacity: 0 at
+     rest, so with the animation suppressed they simply stay hidden — the
+     right outcome, since their whole purpose is the motion. */
+  .play__milestone--show,
+  .play__vignette--flash,
+  .play__judgement--pop {
+    animation: none;
+  }
 }
 
 .play__timing {
@@ -1153,6 +1283,27 @@ kbd {
 .play__pause-btn:hover {
   background: rgba(255, 255, 255, 0.16);
   transform: translateX(-50%) scale(1.08);
+}
+
+/* The backdrop blur eases in rather than snapping over the scene. Its children
+   carry `.rise` for the staggered entrance. */
+.play__overlay--pause {
+  animation: overlay-fade 0.22s ease-out;
+}
+
+@keyframes overlay-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play__overlay--pause {
+    animation: none;
+  }
 }
 
 .pause-actions {
@@ -1238,10 +1389,69 @@ kbd {
   background: rgba(255, 255, 255, 0.12);
 }
 
-/* A big, thumb-friendly start button on the ready screen. */
+/* A big, thumb-friendly start button on the ready screen. It breathes slowly
+   so the eye is drawn to it as the thing to do next. The delay lets the
+   staggered entrance finish first. */
 .btn--start {
   padding: 0.9rem 2.2rem;
   font-size: 1.1rem;
+  animation: start-pulse 1.8s ease-in-out 0.6s infinite;
+}
+
+@keyframes start-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.5), 0 10px 34px rgba(var(--accent-rgb), 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(var(--accent-rgb), 0.75), 0 10px 44px rgba(var(--accent-rgb), 0.45);
+  }
+}
+
+/* Difficulty + BPM as chips under the title, so the ready screen reads like a
+   game's pre-song card rather than a line of metadata. */
+.ready-meta {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.ready-chip {
+  padding: 0.3rem 0.85rem;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: capitalize;
+}
+
+/* The difficulty chip borrows the picker's per-level colour, so the label a
+   player set carries the same meaning it has in the menu. */
+.ready-chip--easy {
+  border-color: var(--mint);
+  color: var(--mint);
+}
+.ready-chip--medium {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+.ready-chip--hard {
+  border-color: var(--pink);
+  color: var(--gold-bright);
+}
+.ready-chip--extreme {
+  border-color: var(--violet);
+  color: var(--gold-bright);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn--start {
+    animation: none;
+  }
 }
 
 /* The ready-screen cover art: a ringed, haloed disc over a slow firework burst,
