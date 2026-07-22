@@ -1194,11 +1194,22 @@ playback read the same stored `audio.m4a`, priming delay and all.
   device property left to MC2, since both need a real decoder. 323 tests green.
 
 **Phase B — Capacitor Android shell**
-- **MB1** — Add `@capacitor/core` + `@capacitor/android`; `capacitor.config.ts`
-  → `web/dist`; `cap add android`. Prove the existing web build runs in the
-  Android WebView: menu, `RetroBackdrop`, and crucially the **three.js highway at
-  60fps and the `AudioContext` master clock** (invariant 1.5) — if the WebView
-  cannot hold either, that is fundamental and must surface here, first.
+- **MB1 (scaffolded; on-device verification pending)** — `@capacitor/core` +
+  `@capacitor/android` + CLI installed (v8.4.2); `capacitor.config.ts` →
+  `web/dist`, `appId com.taptap.game`; `cap add android` generated the native
+  project; `npm run build:android` bundles the web build into it. The debug build
+  runs the **Gradle wrapper (8.14.3) all the way through configuration and into
+  `:app:compileDebugJavaWithJavac`** before failing on one thing only: **the
+  Android SDK is not fully installed on this machine** (`android-sdk` has just
+  `platforms/android-34`; the project needs platform 36 + `build-tools` +
+  `platform-tools`, and there is no `sdkmanager`). That failure is environmental,
+  not a defect — it is positive evidence the Capacitor/Gradle config is valid.
+  **Still needs the user:** install the SDK components via Android Studio's SDK
+  Manager, then `./gradlew assembleDebug`, then run on the S25 Ultra to answer the
+  real question — **three.js highway at 60fps and a non-drifting `AudioContext`
+  clock** (invariant 1.5) inside the WebView. That is the load-bearing unknown and
+  only a device answers it. Note the app cannot fetch songs in the APK until MB2
+  (local storage) lands — MB1 proves the shell loads and the renderer runs.
 - **MB2** — `web/src/library/` data module (Capacitor Filesystem) replacing
   `api/client.ts` reads: list, load/save beatmap+analysis+waveform, store/read
   `audio.m4a`+`thumb.jpg`, resolve playable URLs. Port `deleteSong`'s whole-dir

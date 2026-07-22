@@ -19,12 +19,20 @@
     "build:sw": "npm run build:sw -w web",
     "icons": "tsx scripts/make-icons.ts",
     "serve:public": "npm run build && npm run start:public -w server",
+    "cap:sync": "cap sync android",
+    "build:android": "npm run build && cap sync android",
+    "android": "npm run build:android && cap open android",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.2",
     "concurrently": "^9.1.2",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/core": "^8.4.2"
   }
 }
