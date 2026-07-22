@@ -940,7 +940,13 @@ kbd {
   background: var(--panel-solid);
   box-shadow: 0 0 40px rgba(216, 169, 74, 0.18);
   backdrop-filter: blur(14px);
-  overflow-y: auto;
+  /* `hidden`, not `auto`: the blurred art backdrop (`.menu__detail-bg`) is
+     `inset: 0` scaled 1.5x, so it overflows the panel on every side *by design*
+     — the panel is meant to clip it, which is what hides the blur's soft edges.
+     With `overflow-y: auto` the spec forces `overflow-x` to `auto` as well, so
+     instead of clipping the scaled backdrop the panel grew scrollbars on both
+     axes over content that otherwise fits. Clipping is the intended behaviour. */
+  overflow: hidden;
 }
 
 /* Everything in the panel paints over the art backdrop. The backdrop and
