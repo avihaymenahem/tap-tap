@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { UI_SOUNDS, UI_SFX_MASTER_GAIN, type UiSoundName } from './uisfx.js';
+import {
+  RESULTS_GAIN_BOOST,
+  RESULTS_SOUNDS,
+  UI_SOUNDS,
+  UI_SFX_MASTER_GAIN,
+  type UiSoundName,
+} from './uisfx.js';
 
 /**
  * The sound palette is data, so its design rules are testable without an
@@ -67,6 +73,31 @@ describe('UI_SOUNDS palette', () => {
     const go = UI_SOUNDS.go[0]!;
     expect(go.freq).toBeGreaterThan(count.freq);
     expect(go.dur).toBeGreaterThan(count.dur);
+  });
+});
+
+describe('results cues (boost + reverb)', () => {
+  it('boosts and wets exactly the three game-end cues', () => {
+    // These play after the song ends, so nothing competes and they can be loud
+    // and reverbed. The tap cues sit under music and must stay dry and quiet.
+    expect([...RESULTS_SOUNDS].sort()).toEqual(['fanfare', 'newBest', 'tallyEnd']);
+    for (const dry of ['tick', 'confirm', 'back', 'count', 'go', 'tallyTick'] as UiSoundName[]) {
+      expect(RESULTS_SOUNDS.has(dry), dry).toBe(false);
+    }
+  });
+
+  it('actually makes them louder', () => {
+    expect(RESULTS_GAIN_BOOST).toBeGreaterThan(1);
+  });
+
+  it('keeps the boosted peak under full scale', () => {
+    // The boost lives at playback, not in the data, so the base headroom rule
+    // still passes — but the boosted result must not clip either.
+    for (const name of RESULTS_SOUNDS) {
+      for (const note of UI_SOUNDS[name]) {
+        expect(note.gain * UI_SFX_MASTER_GAIN * RESULTS_GAIN_BOOST, name).toBeLessThan(1);
+      }
+    }
   });
 });
 

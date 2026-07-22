@@ -16,7 +16,12 @@
  *   `play` is called from latency-sensitive paths and a localStorage read is a
  *   synchronous disk hit.
  * - Quiet on purpose. UI sounds sit under music on the results screen and
- *   under the metronome in calibration; they must never compete.
+ *   under the metronome in calibration; they must never compete. The one
+ *   exception is the game-end trio (`fanfare`/`tallyEnd`/`newBest`): they play
+ *   on the results screen *after* the song has stopped, so nothing competes
+ *   with them. Those get boosted (`RESULTS_GAIN_BOOST`) and routed through a
+ *   synthesized reverb (`RESULTS_SOUNDS`), which is why they land as a moment
+ *   rather than a polite blip.
  */
 
 export type UiSoundName =
@@ -119,6 +124,29 @@ export const UI_SOUNDS: Record<UiSoundName, readonly UiNote[]> = {
 /** Master level for all UI sounds. One knob so the whole layer mixes at once. */
 export const UI_SFX_MASTER_GAIN = 0.6;
 
+/**
+ * The game-end cues. They fire on the results screen after the song has ended,
+ * so unlike every other sound here they have nothing to sit under — they are
+ * boosted and reverbed to feel like a celebration rather than another UI blip.
+ *
+ * Kept as data (a name set + a scalar) rather than baked into `UI_SOUNDS` so the
+ * headroom rule in `uisfx.test.ts` still holds for the base palette: the boost
+ * lives at playback, not in the note gains.
+ */
+export const RESULTS_SOUNDS: ReadonlySet<UiSoundName> = new Set<UiSoundName>([
+  'fanfare',
+  'tallyEnd',
+  'newBest',
+]);
+
+/** How much louder the results trio plays than its authored gain. */
+export const RESULTS_GAIN_BOOST = 1.7;
+
+/** Synthesized reverb, shared by the results cues. Seconds, decay curve, wet mix. */
+const REVERB_SECONDS = 1.7;
+const REVERB_DECAY = 3.4;
+const REVERB_WET = 0.55;
+
 const STORAGE_KEY = 'tap-tap.uiSound';
 
 /*
@@ -159,6 +187,53 @@ function context(): AudioContext | null {
 }
 
 /**
+ * A short hall as a decaying-noise impulse — hand-rolled, no asset.
+ *
+ * Two independent channels give the tail a little stereo width. The exponential
+ * `(1 - i/length) ** decay` envelope is the whole character: higher `decay`
+ * means a tighter room, lower means a longer wash.
+ */
+function makeImpulse(audio: AudioContext, seconds: number, decay: number): AudioBuffer {
+  const length = Math.max(1, Math.floor(seconds * audio.sampleRate));
+  const impulse = audio.createBuffer(2, length, audio.sampleRate);
+  for (let channel = 0; channel < 2; channel++) {
+    const data = impulse.getChannelData(channel);
+    for (let i = 0; i < length; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** decay;
+    }
+  }
+  return impulse;
+}
+
+let reverbInput: GainNode | null = null;
+
+/**
+ * The wet send for the results cues, built once.
+ *
+ * Returns the node to connect a source's gain into; the convolver and wet-level
+ * gain behind it are shared, so the reverb tail rings on past the note that fed
+ * it. Built lazily like the context, and null-safe: a failure here must not stop
+ * the dry sound from playing.
+ */
+function reverbBus(audio: AudioContext): GainNode | null {
+  if (reverbInput) return reverbInput;
+  try {
+    const convolver = audio.createConvolver();
+    convolver.buffer = makeImpulse(audio, REVERB_SECONDS, REVERB_DECAY);
+    const wet = audio.createGain();
+    wet.gain.value = REVERB_WET;
+    const input = audio.createGain();
+    input.connect(convolver);
+    convolver.connect(wet);
+    wet.connect(audio.destination);
+    reverbInput = input;
+  } catch {
+    return null;
+  }
+  return reverbInput;
+}
+
+/**
  * Play one named sound now.
  *
  * Safe to call from anywhere: it no-ops when muted, when WebAudio is missing,
@@ -175,6 +250,11 @@ export function playUiSound(name: UiSoundName): void {
     // within this same gesture and the sound starts a frame late at worst.
     if (audio.state === 'suspended') void audio.resume();
 
+    // The results trio is louder and wet; everything else is dry at base level.
+    const isResults = RESULTS_SOUNDS.has(name);
+    const boost = isResults ? RESULTS_GAIN_BOOST : 1;
+    const wetSend = isResults ? reverbBus(audio) : null;
+
     const now = audio.currentTime;
     for (const note of UI_SOUNDS[name]) {
       const osc = audio.createOscillator();
@@ -188,13 +268,16 @@ export function playUiSound(name: UiSoundName): void {
       }
 
       // 3ms attack: fast enough to feel instant, slow enough not to click.
-      const peak = note.gain * UI_SFX_MASTER_GAIN;
+      const peak = note.gain * UI_SFX_MASTER_GAIN * boost;
       gain.gain.setValueAtTime(0.0001, at);
       gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, peak), at + 0.003);
       gain.gain.exponentialRampToValueAtTime(0.0001, at + note.dur);
 
       osc.connect(gain);
       gain.connect(audio.destination);
+      // Feed the shared reverb in parallel with the dry path; its tail rings on
+      // past the note. Only the results cues send, so taps and ticks stay dry.
+      if (wetSend) gain.connect(wetSend);
       osc.start(at);
       osc.stop(at + note.dur + 0.02);
     }
