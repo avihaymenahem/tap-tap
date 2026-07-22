@@ -16,15 +16,24 @@
 
 import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
+import { generateAllCharts } from '@tap-tap/core';
 import type {
   AnalysisResult,
   Beatmap,
   DifficultyName,
+  Job,
   SongSummary,
   Theme,
   Waveform,
 } from '@tap-tap/shared';
-import { DIFFICULTY_NAMES } from '@tap-tap/shared';
+import {
+  DIFFICULTY_NAMES,
+  isBuiltinTheme,
+  isThemeId,
+  themeCatalog,
+  themeErrors,
+  validateTheme,
+} from '@tap-tap/shared';
 
 const MEDIA = 'media';
 const AUDIO_FILE = 'audio.m4a';
@@ -146,4 +155,131 @@ export async function deleteSong(songId: string): Promise<{ removed: boolean }> 
 /** No server on device, so nothing is ever read-only. */
 export function getConfig(): Promise<{ readOnly: boolean }> {
   return Promise.resolve({ readOnly: false });
+}
+
+// --- writes: the admin operations, on-device (MC2 follow-up) ----------------
+
+async function writeSongJson(songId: string, file: string, value: unknown): Promise<void> {
+  await Filesystem.writeFile({
+    directory: DIR,
+    path: songPath(songId, file),
+    data: JSON.stringify(value),
+    encoding: Encoding.UTF8,
+    recursive: true,
+  });
+}
+
+async function loadBeatmap(songId: string): Promise<Beatmap> {
+  const map = await readJson<Beatmap>(songPath(songId, 'beatmap.json'));
+  if (!map) throw new Error(`No beatmap for ${songId}`);
+  return map;
+}
+
+export async function renameSong(
+  songId: string,
+  title: string,
+  artist: string,
+): Promise<SongSummary> {
+  const map = await loadBeatmap(songId);
+  // customName freezes the title against the next re-ingest — same rule the
+  // server's PATCH route follows when a title/artist is actually sent.
+  const updated: Beatmap = { ...map, title, artist, customName: true };
+  await writeSongJson(songId, 'beatmap.json', updated);
+  return toSummary(await withResolvedUrls(updated));
+}
+
+export async function setSongTheme(songId: string, themeId: string): Promise<SongSummary> {
+  const map = await loadBeatmap(songId);
+  const catalog = themeCatalog(await listCustomThemes());
+  if (!isThemeId(catalog, themeId)) throw new Error(`Unknown theme: ${themeId}`);
+  const updated: Beatmap = { ...map, themeId };
+  await writeSongJson(songId, 'beatmap.json', updated);
+  return toSummary(await withResolvedUrls(updated));
+}
+
+/** Rebuild charts from the cached analysis — no re-download, no re-decode. */
+export async function regenerateCharts(songId: string): Promise<SongSummary> {
+  const [analysis, existing, waveform] = await Promise.all([
+    readJson<AnalysisResult>(songPath(songId, 'analysis.json')),
+    loadBeatmap(songId),
+    readJson<Waveform>(songPath(songId, 'waveform.json')),
+  ]);
+  if (!analysis) throw new Error(`No cached analysis for ${songId}`);
+  const updated: Beatmap = {
+    ...existing,
+    bpm: analysis.bpm,
+    bpmConfidence: analysis.bpmConfidence,
+    beatGrid: analysis.beatGrid,
+    charts: generateAllCharts(analysis, songId, waveform),
+  };
+  await writeSongJson(songId, 'beatmap.json', updated);
+  return toSummary(await withResolvedUrls(updated));
+}
+
+// --- custom themes ---------------------------------------------------------
+
+async function saveCustomThemes(themes: readonly Theme[]): Promise<void> {
+  await Filesystem.writeFile({
+    directory: DIR,
+    path: `${MEDIA}/themes.json`,
+    data: JSON.stringify(themes),
+    encoding: Encoding.UTF8,
+    recursive: true,
+  });
+}
+
+export async function createTheme(theme: Theme): Promise<Theme> {
+  const custom = await listCustomThemes();
+  const problems = themeErrors(validateTheme(theme, themeCatalog(custom)));
+  if (problems.length) throw new Error(problems[0]!.message);
+  await saveCustomThemes([...custom, theme]);
+  return theme;
+}
+
+export async function updateTheme(theme: Theme): Promise<Theme> {
+  if (isBuiltinTheme(theme.id)) throw new Error(`“${theme.id}” is a built-in theme.`);
+  const custom = await listCustomThemes();
+  if (!custom.some((t) => t.id === theme.id)) throw new Error(`No theme with id “${theme.id}”.`);
+  // Validate against the catalogue minus this theme, so its own id is not
+  // flagged as "already exists".
+  const others = custom.filter((t) => t.id !== theme.id);
+  const problems = themeErrors(validateTheme(theme, themeCatalog(others)));
+  if (problems.length) throw new Error(problems[0]!.message);
+  await saveCustomThemes(custom.map((t) => (t.id === theme.id ? theme : t)));
+  return theme;
+}
+
+export async function deleteTheme(
+  themeId: string,
+): Promise<{ removed: boolean; songsAffected: number }> {
+  if (isBuiltinTheme(themeId)) {
+    throw new Error(`“${themeId}” is a built-in theme and cannot be deleted.`);
+  }
+  const custom = await listCustomThemes();
+  await saveCustomThemes(custom.filter((t) => t.id !== themeId));
+  // Songs keep the dead id and fall back to the default — not a cascade. Report
+  // how many so the UI can say so.
+  let songsAffected = 0;
+  for (const id of await songIds()) {
+    const map = await readJson<Beatmap>(songPath(id, 'beatmap.json'));
+    if (map?.themeId === themeId) songsAffected++;
+  }
+  return { removed: true, songsAffected };
+}
+
+// --- jobs: no async job queue on device; ingest is synchronous (the FAB) ----
+
+export function listJobs(): Promise<Job[]> {
+  return Promise.resolve([]);
+}
+
+export function clearFinishedJobs(): Promise<{ removed: number }> {
+  return Promise.resolve({ removed: 0 });
+}
+
+export function startIngest(_url: string): Promise<Job> {
+  // Never reached on device — the admin ingest form is hidden there in favour
+  // of the synchronous FAB flow — but the signature matches the HTTP client so
+  // the data dispatch stays callable.
+  return Promise.reject(new Error('Use the + button to add a song on device.'));
 }

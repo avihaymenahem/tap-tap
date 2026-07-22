@@ -10,7 +10,7 @@ import {
 } from '@tap-tap/shared';
 import { ArrowLeft, Copy, Lock, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState, type JSX } from 'react';
-import { createTheme, deleteTheme, listCustomThemes, updateTheme } from '../api/client.js';
+import { createTheme, deleteTheme, listCustomThemes, updateTheme } from '../data/index.js';
 import { ThemePreview } from '../components/ThemePreview.js';
 
 interface ThemesScreenProps {

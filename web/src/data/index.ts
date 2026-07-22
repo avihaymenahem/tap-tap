@@ -24,9 +24,25 @@ export function isNativePlatform(): boolean {
 
 const source = isNativePlatform() ? native : http;
 
+// Reads
 export const getConfig = source.getConfig;
 export const listSongs = source.listSongs;
 export const getBeatmap = source.getBeatmap;
 export const getAnalysis = source.getAnalysis;
 export const getWaveform = source.getWaveform;
 export const listCustomThemes = source.listCustomThemes;
+
+// Library management (admin). On device these write the Filesystem; in the
+// browser they hit the dev server.
+export const renameSong = source.renameSong;
+export const setSongTheme = source.setSongTheme;
+export const deleteSong = source.deleteSong;
+export const regenerateCharts = source.regenerateCharts;
+export const createTheme = source.createTheme;
+export const updateTheme = source.updateTheme;
+export const deleteTheme = source.deleteTheme;
+
+// Ingest jobs — a no-op queue on device (ingest is the synchronous FAB flow).
+export const listJobs = source.listJobs;
+export const clearFinishedJobs = source.clearFinishedJobs;
+export const startIngest = source.startIngest;

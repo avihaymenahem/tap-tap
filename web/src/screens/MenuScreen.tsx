@@ -327,6 +327,24 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                 </button>
               )}
 
+              {/* On device, "Add songs" opens the quick ingest; library
+                  management (rename, theme, delete, regenerate, themes editor)
+                  is its own entry into the now-native-capable admin screen. On
+                  the web it is already reachable via "Add songs" → admin. */}
+              {native && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="dropdown__item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onAdmin();
+                  }}
+                >
+                  <span>Manage library</span>
+                </button>
+              )}
+
               {/* Offline tracks accumulate silently — a full library is well
                   over 100MB — so there has to be a way to see and drop them
                   that is not "clear site data" in browser settings. Hidden

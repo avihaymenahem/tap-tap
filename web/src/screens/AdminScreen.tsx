@@ -25,7 +25,8 @@ import {
   renameSong,
   setSongTheme,
   startIngest,
-} from '../api/client.js';
+} from '../data/index.js';
+import { isNativePlatform } from '../data/index.js';
 import { SongActions } from '../components/SongActions.js';
 import { ThemePicker } from '../components/ThemePicker.js';
 import {
@@ -211,23 +212,28 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
         </div>
       </header>
 
-      <form className="admin__form" onSubmit={(e) => void submit(e)}>
-        <input
-          className="admin__input"
-          type="text"
-          placeholder="Paste a YouTube link…"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-        />
-        <button type="submit" className="btn btn--primary" disabled={busy || !url.trim()}>
-          {busy ? (
-            <Loader2 size={16} className="spin" aria-hidden />
-          ) : (
-            <Download size={16} aria-hidden />
-          )}
-          {busy ? 'Starting…' : 'Analyze'}
-        </button>
-      </form>
+      {/* On device, ingest is the synchronous + button on the menu (the native
+          plugin, not a server job queue), so the URL form is hidden here and
+          this screen is purely library management. */}
+      {!isNativePlatform() && (
+        <form className="admin__form" onSubmit={(e) => void submit(e)}>
+          <input
+            className="admin__input"
+            type="text"
+            placeholder="Paste a YouTube link…"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+          <button type="submit" className="btn btn--primary" disabled={busy || !url.trim()}>
+            {busy ? (
+              <Loader2 size={16} className="spin" aria-hidden />
+            ) : (
+              <Download size={16} aria-hidden />
+            )}
+            {busy ? 'Starting…' : 'Analyze'}
+          </button>
+        </form>
+      )}
 
       {error && <p className="error-text">{error}</p>}
 
