@@ -1,4 +1,5 @@
-import type { JSX } from 'react';
+import type { CSSProperties, JSX } from 'react';
+import { accentVars } from '../accent.js';
 
 /**
  * The dark "stage" backdrop behind every non-gameplay screen: a warm gold glow
@@ -21,11 +22,22 @@ interface RetroBackdropProps {
    * library is rows of small text and icon buttons stacked edge to edge.
    */
   dim?: boolean;
+  /**
+   * Recolour the glow to a song's theme accent. The results screen passes the
+   * finished run's accent so the light behind the card matches the card — the
+   * same palette continuity the card itself already keeps. Omitted elsewhere,
+   * where the default gold is right.
+   */
+  accent?: number;
 }
 
-export function RetroBackdrop({ dim = false }: RetroBackdropProps): JSX.Element {
+export function RetroBackdrop({ dim = false, accent }: RetroBackdropProps): JSX.Element {
+  const style = accent !== undefined ? (accentVars(accent) as CSSProperties) : undefined;
+  const cls = ['retro-bg', dim ? 'retro-bg--dim' : '', accent !== undefined ? 'retro-bg--accent' : '']
+    .filter(Boolean)
+    .join(' ');
   return (
-    <div className={`retro-bg ${dim ? 'retro-bg--dim' : ''}`} aria-hidden="true">
+    <div className={cls} aria-hidden="true" style={style}>
       <div className="retro-bg__glow" />
       <div className="retro-bg__sparks" />
       <div className="retro-bg__scrim" />

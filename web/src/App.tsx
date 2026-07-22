@@ -1,7 +1,7 @@
 import { useRef, type JSX } from 'react';
 import { RetroBackdrop } from './components/RetroBackdrop.js';
 import type { RunResult } from './game/run.js';
-import { saveRun } from './lastRun.js';
+import { loadRun, saveRun } from './lastRun.js';
 import { useRouter } from './router.js';
 import { AdminScreen } from './screens/AdminScreen.js';
 import { ThemesScreen } from './screens/ThemesScreen.js';
@@ -112,7 +112,16 @@ export function App(): JSX.Element {
           The themes screen is excluded for the first reason: its preview canvas
           is a live highway, and two suns on screen read as a rendering fault. */}
       {route.name !== 'play' && route.name !== 'edit' && route.name !== 'themes' && (
-        <RetroBackdrop dim={route.name === 'admin'} />
+        <RetroBackdrop
+          dim={route.name === 'admin'}
+          // On the results screen, tint the backdrop glow to the finished run's
+          // theme accent so the light behind the card matches the card.
+          accent={
+            route.name === 'results'
+              ? loadRun(route.songId, route.difficulty)?.accent
+              : undefined
+          }
+        />
       )}
       {/* Keyed by route so every navigation replays the entrance. Play is
           unwrapped: its canvas manages its own phases and must never fade. */}
