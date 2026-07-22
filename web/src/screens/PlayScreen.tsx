@@ -11,6 +11,7 @@ import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
 import { HapticToggle } from '../components/HapticToggle.js';
+import { SoundToggle } from '../components/SoundToggle.js';
 import { CalibrationScreen } from './CalibrationScreen.js';
 import { accentVars } from '../accent.js';
 import { getStoredCalibration, setCalibration } from '../storage.js';
@@ -948,6 +949,7 @@ export function PlayScreen({
               than the state of the run, and must not sit next to Quit where a
               mistap costs a whole song. */}
           <HapticToggle className="pause-setting" />
+          <SoundToggle className="pause-setting" />
           <button
             type="button"
             className="pause-setting"

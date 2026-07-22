@@ -1,3 +1,15 @@
+/* The one bundled asset: a heavy display face for titles, grades, scores and
+   the countdown. Body copy stays on the system stack — a display face at
+   paragraph size is unreadable, and Archivo Black has no tabular figures, so
+   numbers that tick (HUD score/accuracy) must stay on --font. */
+@font-face {
+  font-family: 'Archivo Black';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/archivo-black.woff2') format('woff2');
+}
+
 :root {
   /*
    * Redesign: the whole shell now matches the game's "stage" look — a dark,
@@ -31,6 +43,7 @@
   --radius: 18px;
   --radius-sm: 12px;
   --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-display: 'Archivo Black', 'Arial Black', var(--font);
 
   /* Panels float over the dark stage rather than hiding it, so their fill is a
      translucent warm tint. Named because a dozen surfaces need to agree. */
@@ -174,6 +187,107 @@ button {
   z-index: 1;
 }
 
+/* --- motion layer ----------------------------------------------------------
+   The shared vocabulary every screen choreographs with. Four verbs is the
+   whole language on purpose: rise for entrances, pop for small elements, slam
+   for moments (grades, milestones), sheen for idle shine. Stagger comes from
+   an inline `--i` on the element, so JSX controls order without new CSS. */
+
+@keyframes ui-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-slam {
+  0% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-sheen {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+/* Route transitions: App keys this wrapper by route name, so every navigation
+   replays the rise. The play screen is deliberately unwrapped — its canvas
+   phases manage themselves and must never fade. Transforms only exist while
+   the animation runs (the final frame is `none`), so `position: fixed`
+   children — the menu's bottom sheet — are only ever re-anchored to a wrapper
+   that is itself full-viewport, which is visually identical. */
+.screen {
+  height: 100%;
+  animation: ui-rise 0.26s ease-out both;
+}
+
+.rise {
+  animation: ui-rise 0.4s ease-out both;
+  animation-delay: calc(var(--i, 0) * 55ms);
+}
+
+.pop {
+  animation: ui-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: calc(var(--i, 0) * 55ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen,
+  .rise,
+  .pop {
+    animation: none;
+  }
+}
+
+/* --- display type ----------------------------------------------------------
+   The bundled Archivo Black carries everything that should feel like game
+   signage: the logo, titles, grades, the countdown, primary buttons. It ships
+   one weight, so never pair it with a bold — synthetic emboldening smears it.
+   It also has no tabular figures: numbers that tick every frame (HUD score,
+   accuracy) stay on --font or their width wobbles at 60fps. */
+.logo,
+.menu__detail h2,
+.results__card h1,
+.calibration__card h1,
+.play__overlay--ready h2,
+.play__countdown,
+.results__grade,
+.grade,
+.results__score,
+.btn--primary {
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
 /* --- neon type -------------------------------------------------------------
    Screen titles read as signage: uppercase, tracked out, lit from behind.
    Body copy is deliberately left alone — a glow on a paragraph is unreadable,
@@ -266,6 +380,7 @@ kbd {
   box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.5), 0 10px 34px rgba(var(--accent-rgb), 0.3);
   text-transform: uppercase;
   letter-spacing: 0.1em;
+  font-weight: 400; /* display face */
 }
 
 .btn--primary:hover:not(:disabled) {
@@ -428,7 +543,9 @@ kbd {
 .logo {
   margin: 0;
   font-size: clamp(2rem, 5vw, 3.2rem);
-  font-weight: 900;
+  /* Archivo Black ships one weight — 400 here or the browser synthesises a
+     smeared fake-bold on top of an already-black face. */
+  font-weight: 400;
   /* Wide and italic instead of tight: the era's logotypes lean forward and
      breathe. The gradient fills clip to the text, so the glow has to come from
      a drop-shadow filter — text-shadow paints under transparent glyphs and
@@ -440,18 +557,64 @@ kbd {
     drop-shadow(0 0 30px rgba(240, 182, 74, 0.28));
 }
 
+/* The gradient is clipped to the glyphs, so the shine has to live *in* the
+   gradient — a bright band parked off to one side, swept across on a long,
+   mostly-idle loop. A pseudo-element cannot help: there is nothing to clip it
+   to but the text itself. */
 .logo__tap {
-  background: linear-gradient(120deg, var(--pink), var(--yellow));
+  background: linear-gradient(
+    120deg,
+    var(--pink) 25%,
+    var(--gold-bright) 44%,
+    var(--yellow) 50%,
+    var(--pink) 72%
+  );
+  background-size: 260% 100%;
+  background-position: 120% 0;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  animation: logo-sheen 9s ease-in-out infinite;
 }
 
 .logo__tap--alt {
-  background: linear-gradient(120deg, var(--cyan), var(--mint));
+  background: linear-gradient(
+    120deg,
+    var(--cyan) 25%,
+    var(--gold-bright) 44%,
+    var(--mint) 50%,
+    var(--cyan) 72%
+  );
+  background-size: 260% 100%;
+  background-position: 120% 0;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  /* Offset from its sibling so the shine crosses the whole wordmark once,
+     left half then right, rather than both lighting at the same instant. */
+  animation: logo-sheen 9s ease-in-out infinite;
+  animation-delay: 0.4s;
+}
+
+/* The bright band spends most of the loop parked off the right edge; the pass
+   itself is the brief window near the end. */
+@keyframes logo-sheen {
+  0%,
+  72% {
+    background-position: 120% 0;
+  }
+  92%,
+  100% {
+    background-position: -60% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo__tap,
+  .logo__tap--alt {
+    animation: none;
+    background-position: 50% 0;
+  }
 }
 
 .logo__dot {
@@ -611,11 +774,31 @@ kbd {
 }
 
 .song-card__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
   color: var(--muted);
   font-size: 0.85rem;
 }
 
+/* Best grade at the current difficulty, in the grade ramp's own colour. */
+.song-card__grade {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  line-height: 1;
+  text-shadow: 0 0 10px currentColor;
+}
+
+/* Pressing a card should feel like pressing a button on a pad. */
+.song-card:active {
+  transform: scale(0.985);
+}
+
 .menu__detail {
+  /* Anchors the blurred-art backdrop, which fills the panel behind content. */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -626,6 +809,98 @@ kbd {
   box-shadow: 0 0 40px rgba(216, 169, 74, 0.18);
   backdrop-filter: blur(14px);
   overflow-y: auto;
+}
+
+/* Everything in the panel paints over the art backdrop. The backdrop and
+   scrim opt back out below — they *are* the background. */
+.menu__detail > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* The selected song's art, blurred to a wash of its own colours. Absolute in
+   the panel's scroll container: on the rare over-tall panel it scrolls away
+   with the header, which reads fine — it belongs to the title. */
+.menu__detail-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.5);
+  filter: blur(28px) saturate(1.1) brightness(0.55);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Dark gradient over the art so text keeps its contrast on any artwork. */
+.menu__detail-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(to bottom, rgba(14, 10, 5, 0.4), rgba(14, 10, 5, 0.88) 70%);
+  pointer-events: none;
+}
+
+/* --- detail hero: the ringed disc over a slow burst -----------------------
+   The same language as the ready screen's cover and the in-game CD, so
+   picking a song already looks like the run it starts. Hidden on the mobile
+   sheet, which must stay compact — the blurred backdrop carries the art
+   there. */
+.menu__detail-hero {
+  width: 8.5rem;
+  height: 8.5rem;
+  margin: 0.2rem auto 0.1rem;
+  display: grid;
+  place-items: center;
+}
+
+.menu__detail-burst {
+  position: absolute;
+  inset: -22%;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(var(--accent-rgb), 0.2) 0deg 5deg,
+    transparent 5deg 13deg
+  );
+  -webkit-mask: radial-gradient(closest-side, transparent 45%, #000 55%, transparent 82%);
+  mask: radial-gradient(closest-side, transparent 45%, #000 55%, transparent 82%);
+  animation: results-spin 22s linear infinite;
+}
+
+.menu__detail-disc {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(var(--accent-rgb), 0.6);
+  background: linear-gradient(135deg, var(--amber), var(--gold));
+  box-shadow: 0 0 30px rgba(var(--accent-rgb), 0.35);
+}
+
+/* Zoomed past the letterbox bars a 16:9 frame leaves in a 4:3 thumbnail,
+   exactly as .ready-cover__art does. */
+.menu__detail-disc-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.34);
+}
+
+/* The hero container is inside the `> *` lift above; the burst positions
+   against it. */
+.menu__detail-hero {
+  position: relative;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu__detail-burst {
+    animation: none;
+  }
 }
 
 /* The artist sits directly under the title as one header block. Its default
@@ -704,7 +979,7 @@ kbd {
 
 .grade {
   font-size: 2rem;
-  font-weight: 900;
+  font-weight: 400; /* display face — see the display-type note */
   line-height: 1;
 }
 
@@ -850,7 +1125,7 @@ kbd {
   left: 50%;
   transform: translate(-50%, -50%);
   font-size: 7rem;
-  font-weight: 900;
+  font-weight: 400; /* display face */
   color: #fff;
   text-shadow: 0 0 60px rgba(216, 169, 74, 0.9);
   font-variant-numeric: tabular-nums;
@@ -1100,7 +1375,7 @@ kbd {
 .results__card h1 {
   margin: 0.15rem 0 0;
   font-size: 1.25rem;
-  font-weight: 800;
+  font-weight: 400; /* display face */
 }
 
 /* --- grade medal: the hero, a glowing disc over a spinning firework burst --- */
@@ -1141,7 +1416,7 @@ kbd {
 
 .results__grade {
   font-size: 4.8rem;
-  font-weight: 900;
+  font-weight: 400; /* display face */
   line-height: 1;
   text-shadow: 0 0 26px currentColor;
 }
@@ -1163,7 +1438,7 @@ kbd {
 .results__score {
   margin-top: 0.7rem;
   font-size: 3rem;
-  font-weight: 900;
+  font-weight: 400; /* display face; the tally wobble reads as energy here */
   font-variant-numeric: tabular-nums;
   color: var(--gold-bright);
   text-shadow: 0 0 24px rgba(var(--accent-rgb), 0.35);
@@ -1423,15 +1698,46 @@ kbd {
   margin: 0.6rem 0 0.5rem;
 }
 
+/* Anchor for its dropdown, which opens under the button like the hamburger's
+   does — but hangs left, since this control sits at the screen's left edge. */
 .song-tools__sort {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
 
-.song-tools .admin__select {
-  padding: 0.35rem 0.55rem;
+.song-tools__sortbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.38rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
   font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.song-tools__sortbtn:hover,
+.song-tools__sortbtn[aria-expanded='true'] {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
+.dropdown--sort {
+  left: 0;
+  right: auto;
+  min-width: 11rem;
+}
+
+.dropdown__item--active {
+  color: var(--gold-bright);
+  background: rgba(var(--accent-rgb), 0.1);
 }
 
 .song-tools__only {
@@ -1489,6 +1795,28 @@ kbd {
 
 .song-row__star--on svg {
   fill: currentColor;
+  /* Replays whenever the star gains `--on` — a small pop the moment a song is
+     favorited. It also fires once as favorited rows enter, which reads as part
+     of the list settling in rather than as noise. */
+  animation: star-pop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes star-pop {
+  0% {
+    transform: scale(0.4) rotate(-25deg);
+  }
+  60% {
+    transform: scale(1.35) rotate(8deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .song-row__star--on svg {
+    animation: none;
+  }
 }
 
 /* Keep the title clear of the star. */
@@ -2379,6 +2707,12 @@ kbd {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* The hero disc costs too much of the sheet's tight vertical budget; the
+     blurred art backdrop carries the song's identity here instead. */
+  .menu__detail-hero {
+    display: none;
   }
 
   /* Difficulties become three side-by-side chips to save vertical space. */

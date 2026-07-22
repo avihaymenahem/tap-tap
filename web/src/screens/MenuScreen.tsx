@@ -1,11 +1,14 @@
-import type { DifficultyName, SongSummary } from '@tap-tap/shared';
-import { DIFFICULTY_NAMES } from '@tap-tap/shared';
+import type { DifficultyName, SongSummary, Theme } from '@tap-tap/shared';
+import { DEFAULT_ACCENT, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-tap/shared';
 import { ChevronDown, Download, Star, WifiOff } from 'lucide-react';
-import { useEffect, useRef, useState, type JSX } from 'react';
-import { listSongs } from '../api/client.js';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
+import { accentVars } from '../accent.js';
+import { listCustomThemes, listSongs } from '../api/client.js';
+import { playUiSound } from '../uisfx.js';
 import { prefetchAudio } from '../api/prefetch.js';
 import { isReadOnly } from '../api/serverConfig.js';
 import { HapticToggle } from '../components/HapticToggle.js';
+import { SoundToggle } from '../components/SoundToggle.js';
 import { useCachedAudio, useOffline } from '../hooks/useOffline.js';
 import { clearOfflineTracks, offlineUsageBytes } from '../pwa.js';
 import {
@@ -84,6 +87,16 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
    * Ignored entirely on desktop, where the panel is a column beside the list.
    */
   const [sheetOpen, setSheetOpen] = useState(true);
+  /** Sort picker dropdown — a styled menu, not a native select. */
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
+  /**
+   * Custom themes, fetched once so the detail panel can recolour to the
+   * selected song's accent — the palette continuity that carries through
+   * ready, play and results starts here. Best-effort: without them, built-in
+   * themes still resolve and custom ones fall back to the default accent.
+   */
+  const [customThemes, setCustomThemes] = useState<readonly Theme[]>([]);
 
   const offline = useOffline();
   /** Storage the origin is using. Read when the menu opens, so it stays current. */
@@ -116,8 +129,32 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
     };
   }, [menuOpen]);
 
+  // The sort menu dismisses like the hamburger: any outside click, or Escape.
+  useEffect(() => {
+    if (!sortOpen) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!sortRef.current?.contains(event.target as Node)) setSortOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setSortOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [sortOpen]);
+
   useEffect(() => {
     let cancelled = false;
+    listCustomThemes()
+      .then((themes) => {
+        if (!cancelled) setCustomThemes(themes);
+      })
+      .catch(() => {
+        // Best-effort — built-in themes still resolve without the fetch.
+      });
     listSongs()
       .then((list) => {
         if (cancelled) return;
@@ -178,6 +215,28 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
   const best =
     selectedSong && effectiveDifficulty ? getBestScore(selectedSong.songId, effectiveDifficulty) : null;
 
+  // The selected song's theme accent, painting the detail panel so the palette
+  // already matches before the ready screen ever shows.
+  const catalog = useMemo(() => themeCatalog(customThemes), [customThemes]);
+  const selectedAccent = selectedSong
+    ? (themeFor(catalog, selectedSong.themeId).accent ?? DEFAULT_ACCENT)
+    : DEFAULT_ACCENT;
+
+  // Grade badges for the list. Memoised because `getBestScore` re-parses the
+  // whole stored score map per call — fine once, not thirty times per
+  // keystroke of search. Scores only change on the results screen, so songs +
+  // difficulty are the only real inputs.
+  const gradeBySong = useMemo(() => {
+    const grades = new Map<string, string>();
+    for (const song of songs ?? []) {
+      const has = DIFFICULTY_NAMES.filter((name) => (song.noteCounts[name] ?? 0) > 0);
+      const resolved = nearestAvailable(difficulty, has);
+      const grade = resolved ? getBestScore(song.songId, resolved)?.grade : undefined;
+      if (grade) grades.set(song.songId, grade);
+    }
+    return grades;
+  }, [songs, difficulty]);
+
   return (
     <div className="menu">
       <header className="menu__header">
@@ -201,6 +260,7 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
           {menuOpen && (
             <div className="dropdown" role="menu">
               <HapticToggle className="dropdown__item" />
+              <SoundToggle className="dropdown__item" />
 
               <button
                 type="button"
@@ -320,24 +380,44 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
             </div>
 
             <div className="song-tools">
-              <label className="song-tools__sort">
-                <span className="muted small">Sort</span>
-                <select
-                  className="admin__select"
-                  value={sort}
-                  onChange={(e) => {
-                    const next = e.target.value as SongSort;
-                    setSort(next);
-                    setStoredSort(next);
-                  }}
+              {/* A styled menu, not a native <select> — the one control the OS
+                  would otherwise draw in its own widget style, which reads as
+                  "web form" in the middle of a game UI. Same dismiss rules as
+                  the hamburger: outside click or Escape. */}
+              <div className="song-tools__sort" ref={sortRef}>
+                <button
+                  type="button"
+                  className="song-tools__sortbtn"
+                  aria-haspopup="menu"
+                  aria-expanded={sortOpen}
+                  onClick={() => setSortOpen((open) => !open)}
                 >
-                  {MENU_SORTS.map((option) => (
-                    <option key={option} value={option}>
-                      {SONG_SORT_LABELS[option]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <span className="muted small">Sort</span>
+                  {SONG_SORT_LABELS[sort]}
+                  <ChevronDown size={14} aria-hidden />
+                </button>
+                {sortOpen && (
+                  <div className="dropdown dropdown--sort" role="menu">
+                    {MENU_SORTS.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={option === sort}
+                        className={`dropdown__item ${option === sort ? 'dropdown__item--active' : ''}`}
+                        onClick={() => {
+                          setSort(option);
+                          setStoredSort(option);
+                          setSortOpen(false);
+                          playUiSound('tick');
+                        }}
+                      >
+                        <span>{SONG_SORT_LABELS[option]}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Hidden until something is starred — a filter that can only
                   ever empty the list is worse than no filter. */}
@@ -362,11 +442,17 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
               </p>
             ) : (
               <ul className="song-list">
-                {filtered.map((song) => (
+                {filtered.map((song, index) => (
                   // `position: relative` so the star can sit over the card.
                   // It cannot go *inside* the card: that is a <button>, and a
                   // button inside a button is invalid and breaks activation.
-                  <li key={song.songId} className="song-row">
+                  // The stagger index is capped: past the fold the entrance
+                  // should be done, not still trickling in.
+                  <li
+                    key={song.songId}
+                    className="song-row rise"
+                    style={{ '--i': Math.min(index, 10) } as CSSProperties}
+                  >
                     <button
                       type="button"
                       className={`song-row__star ${
@@ -382,7 +468,10 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                         toggleFavorite(song.songId);
                         // Re-read rather than mutating the set in place, so the
                         // new object identity actually triggers a re-render.
-                        setFavorites(getFavorites());
+                        const next = getFavorites();
+                        setFavorites(next);
+                        // A rising tick on adding, a falling one on removing.
+                        playUiSound(next.has(song.songId) ? 'confirm' : 'back');
                       }}
                     >
                       <Star size={16} aria-hidden />
@@ -401,6 +490,7 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                         .filter(Boolean)
                         .join(' ')}
                       onClick={() => {
+                        playUiSound('tick');
                         setSelected(song.songId);
                         setLastSong(song.songId);
                         // Picking a track is the way back to a dismissed sheet
@@ -434,8 +524,19 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                           )}
                         </div>
                         <div className="song-card__meta">
-                          {song.artist || 'Unknown'} · {formatDuration(song.duration)} ·{' '}
-                          {Math.round(song.bpm)} BPM
+                          <span>
+                            {song.artist || 'Unknown'} · {formatDuration(song.duration)} ·{' '}
+                            {Math.round(song.bpm)} BPM
+                          </span>
+                          {/* Best grade at the current difficulty — cleared
+                              songs read as conquered territory at a glance. */}
+                          {gradeBySong.has(song.songId) && (
+                            <span
+                              className={`song-card__grade grade--${gradeBySong.get(song.songId)}`}
+                            >
+                              {gradeBySong.get(song.songId)}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -445,9 +546,25 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
             )}
           </div>
 
-          <aside className={`menu__detail ${sheetOpen ? '' : 'menu__detail--hidden'}`}>
+          <aside
+            className={`menu__detail ${sheetOpen ? '' : 'menu__detail--hidden'}`}
+            style={accentVars(selectedAccent)}
+          >
             {selectedSong && (
               <>
+                {/* The song's art, blurred and dimmed, fills the panel behind
+                    everything — the same treatment the ready screen gives its
+                    cover, so selecting a song already looks like its run. */}
+                {selectedSong.thumbnailUrl && (
+                  <img
+                    className="menu__detail-bg"
+                    src={selectedSong.thumbnailUrl}
+                    alt=""
+                    aria-hidden
+                  />
+                )}
+                <div className="menu__detail-scrim" aria-hidden />
+
                 {/* Mobile only — on desktop this is a column, not a sheet, and
                     there is nothing to dismiss. Hidden by CSS above 860px
                     rather than conditionally rendered, so the markup does not
@@ -456,10 +573,31 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                   type="button"
                   className="menu__detail-close"
                   aria-label="Hide song details"
-                  onClick={() => setSheetOpen(false)}
+                  onClick={() => {
+                    playUiSound('back');
+                    setSheetOpen(false);
+                  }}
                 >
                   <ChevronDown size={20} aria-hidden />
                 </button>
+
+                {/* Desktop hero: the ringed disc over a slow burst, echoing the
+                    ready screen and the in-game CD. Hidden on mobile, where the
+                    sheet must stay compact — the blurred backdrop carries the
+                    art there instead. */}
+                {selectedSong.thumbnailUrl && (
+                  <div className="menu__detail-hero" aria-hidden>
+                    <div className="menu__detail-burst" />
+                    {/* Keyed by song so switching tracks replays the pop. */}
+                    <div className="menu__detail-disc pop" key={selectedSong.songId}>
+                      <img
+                        className="menu__detail-disc-art"
+                        src={selectedSong.thumbnailUrl}
+                        alt=""
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <h2>{selectedSong.title}</h2>
                 <p className="muted">{selectedSong.artist || 'Unknown artist'}</p>
@@ -470,7 +608,10 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                       key={name}
                       type="button"
                       className={`difficulty ${effectiveDifficulty === name ? 'difficulty--active' : ''} difficulty--${name}`}
-                      onClick={() => setDifficulty(name)}
+                      onClick={() => {
+                        playUiSound('tick');
+                        setDifficulty(name);
+                      }}
                     >
                       <span className="difficulty__name">{name}</span>
                     </button>
@@ -493,7 +634,11 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                   type="button"
                   className="btn btn--primary btn--large"
                   disabled={!effectiveDifficulty}
-                  onClick={() => effectiveDifficulty && onPlay(selectedSong.songId, effectiveDifficulty)}
+                  onClick={() => {
+                    if (!effectiveDifficulty) return;
+                    playUiSound('confirm');
+                    onPlay(selectedSong.songId, effectiveDifficulty);
+                  }}
                 >
                   {effectiveDifficulty ? 'Play' : 'No chart for this song'}
                 </button>

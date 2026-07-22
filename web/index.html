@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Tap-Tap</title>
 
+    <!-- The display face paints titles on first render; preloading it avoids a
+         flash of the system font on the logo. -->
+    <link rel="preload" href="/fonts/archivo-black.woff2" as="font" type="font/woff2" crossorigin />
+
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- Matches --bg, so the status bar blends into the app rather than
          bracketing it with a strip of browser chrome. -->

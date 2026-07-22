@@ -114,7 +114,15 @@ export function App(): JSX.Element {
       {route.name !== 'play' && route.name !== 'edit' && route.name !== 'themes' && (
         <RetroBackdrop dim={route.name === 'admin'} />
       )}
-      {screen()}
+      {/* Keyed by route so every navigation replays the entrance. Play is
+          unwrapped: its canvas manages its own phases and must never fade. */}
+      {route.name === 'play' ? (
+        screen()
+      ) : (
+        <div className="screen" key={route.name}>
+          {screen()}
+        </div>
+      )}
     </>
   );
 }
