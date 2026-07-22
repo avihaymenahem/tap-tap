@@ -1130,7 +1130,15 @@ kbd {
   position: relative;
   width: 100%;
   height: 100%;
-  background: #05010f;
+  /* The same warm stage gradient as RetroBackdrop, not a flat near-black.
+     The three.js canvas is only built AFTER the audio downloads, so for the
+     couple of seconds a cold song is loading the canvas is transparent and
+     this is what shows — a themed backdrop instead of a black void. Once the
+     highway renders, its opaque frame covers this entirely. */
+  background:
+    radial-gradient(130% 80% at 50% -14%, rgba(245, 190, 92, 0.3), transparent 55%),
+    radial-gradient(80% 55% at 50% 4%, rgba(255, 214, 128, 0.18), transparent 60%),
+    linear-gradient(to bottom, #14100a 0%, #0b0805 52%, #060402 100%);
 }
 
 .play__canvas {
@@ -1488,6 +1496,14 @@ kbd {
   backdrop-filter: blur(6px);
   /* Long unbreakable song titles wrap instead of overflowing (inherited). */
   overflow-wrap: anywhere;
+}
+
+/* Loading sits over the themed .play gradient, not the highway, so it wants only
+   a whisper of scrim to seat the spinner — a full dark plate would hide the
+   sunset and put the black screen back. */
+.play__overlay--loading {
+  background: radial-gradient(60% 40% at 50% 50%, rgba(5, 1, 15, 0.5), rgba(5, 1, 15, 0.15));
+  backdrop-filter: none;
 }
 
 .play__overlay h2 {

@@ -1043,7 +1043,7 @@ export function PlayScreen({
       )}
 
       {phase === 'loading' && (
-        <div className="play__overlay">
+        <div className="play__overlay play__overlay--loading">
           <div className="spinner" />
           <p>Loading song…</p>
           {/* Only once the download is actually moving — a bar sitting at 0%
