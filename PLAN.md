@@ -1211,10 +1211,23 @@ playback read the same stored `audio.m4a`, priming delay and all.
   Two Windows build traps solved en route — the SDK install itself, and
   `local.properties` needing **forward slashes** (`\U \A \L \S` are properties
   escapes); both in CLAUDE.md → "Building the Android app".
-- **MB2** — `web/src/library/` data module (Capacitor Filesystem) replacing
-  `api/client.ts` reads: list, load/save beatmap+analysis+waveform, store/read
-  `audio.m4a`+`thumb.jpg`, resolve playable URLs. Port `deleteSong`'s whole-dir
-  nuke. Bundle one demo song so the shell is not empty.
+- **MB2 (done — self-contained APK verified; bundled demo is the one follow-up)**
+  — `web/src/data/`: `native.ts` (Capacitor Filesystem library — list, beatmap,
+  analysis, waveform, custom themes, `deleteSong`'s whole-dir nuke), `seed.ts`
+  (first-run copy of bundled assets into the Data dir), `base64.ts` (+ test), and
+  `index.ts` — the one seam that dispatches the read surface to Filesystem on
+  native and the HTTP client in the browser. Media URLs are resolved to
+  `convertFileSrc` file URLs **at the source**, so `AudioClock.load`, `<img>` and
+  prefetch work unchanged; `PlayScreen`'s hardcoded `/media/…/thumb.jpg` was
+  switched to the beatmap's resolved `thumbnailUrl`. `main.tsx` seeds on native
+  and skips the service worker there. **Verified end to end in the emulator with
+  no server**: a seeded song shows in the menu (thumbnail via `convertFileSrc`)
+  and plays — beatmap + audio decoded straight from the on-device Filesystem.
+  Trap solved: Filesystem `writeFile` treats data as base64 unless
+  `encoding: UTF8` is passed, so JSON writes silently landed empty (an empty
+  menu) until fixed. **Remaining:** bundle a *non-copyrighted synthetic* demo
+  under `web/public/seed/` so a fresh install is not empty — the mechanism is
+  proven (tested with a real song), only the shippable demo asset is missing.
 
 **Phase C — on-device ingest**
 - **MC1** — The `youtubedl-android` Capacitor plugin (`fetchMetadata` /

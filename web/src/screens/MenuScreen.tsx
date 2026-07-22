@@ -3,7 +3,7 @@ import { DEFAULT_ACCENT, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-t
 import { ChevronDown, Download, Play, Star, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { accentVars } from '../accent.js';
-import { listCustomThemes, listSongs } from '../api/client.js';
+import { listCustomThemes, listSongs } from '../data/index.js';
 import { playUiSound } from '../uisfx.js';
 import { prefetchAudio } from '../api/prefetch.js';
 import { isReadOnly } from '../api/serverConfig.js';

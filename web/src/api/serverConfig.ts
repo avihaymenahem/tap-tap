@@ -7,7 +7,7 @@
  * state, no flash of an Admin button that turns out to be dead.
  */
 
-import { getConfig } from './client.js';
+import { getConfig } from '../data/index.js';
 
 let readOnly = false;
 

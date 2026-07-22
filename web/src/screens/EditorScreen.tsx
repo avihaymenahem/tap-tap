@@ -1,7 +1,7 @@
 import type { AnalysisResult, Beatmap, DifficultyName, Theme, Waveform } from '@tap-tap/shared';
 import { BUILTIN_THEMES, DIFFICULTIES, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-tap/shared';
 import { useEffect, useRef, useState, type JSX } from 'react';
-import { getAnalysis, getBeatmap, getWaveform, listCustomThemes } from '../api/client.js';
+import { getAnalysis, getBeatmap, getWaveform, listCustomThemes } from '../data/index.js';
 import { drawTimeline, formatTime } from '../editor/timeline.js';
 import {
   DEFAULT_VIEWPORT,

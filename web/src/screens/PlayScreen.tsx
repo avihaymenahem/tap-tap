@@ -1,7 +1,7 @@
 import type { Beatmap, Chart, DifficultyName, Note } from '@tap-tap/shared';
 import { DEFAULT_ACCENT, DIFFICULTIES, keymapFor, themeCatalog, themeFor } from '@tap-tap/shared';
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
-import { getBeatmap, listCustomThemes } from '../api/client.js';
+import { getBeatmap, listCustomThemes } from '../data/index.js';
 import { AudioClock, bandLevel } from '../game/clock.js';
 import { comboMilestone, comboTier } from '../game/combo.js';
 import { GameEngine } from '../game/engine.js';
@@ -289,7 +289,10 @@ export function PlayScreen({
           approachSec: params.approachSec,
           theme,
           beatGrid: map.beatGrid,
-          coverUrl: `/media/${songId}/thumb.jpg`,
+          // The beatmap carries a platform-resolved thumbnail URL (an HTTP path
+          // on the server, a convertFileSrc file URL on device); hardcoding
+          // `/media/…` here would not resolve in the bundled Android app.
+          coverUrl: map.thumbnailUrl ?? undefined,
         });
         highwayRef.current.resize(canvas.clientWidth, canvas.clientHeight);
 
@@ -1081,7 +1084,7 @@ export function PlayScreen({
             <div className="ready-cover__disc">
               <img
                 className="ready-cover__blur"
-                src={`/media/${songId}/thumb.jpg`}
+                src={beatmap.thumbnailUrl ?? undefined}
                 alt=""
                 aria-hidden
                 onError={(e) => {
@@ -1090,7 +1093,7 @@ export function PlayScreen({
               />
               <img
                 className="ready-cover__art"
-                src={`/media/${songId}/thumb.jpg`}
+                src={beatmap.thumbnailUrl ?? undefined}
                 alt=""
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
