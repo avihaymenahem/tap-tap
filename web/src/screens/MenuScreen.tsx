@@ -1,6 +1,6 @@
 import type { DifficultyName, SongSummary, Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-tap/shared';
-import { ChevronDown, Download, Star, WifiOff } from 'lucide-react';
+import { ChevronDown, Download, Play, Star, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { accentVars } from '../accent.js';
 import { listCustomThemes, listSongs } from '../api/client.js';
@@ -639,7 +639,7 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
 
                 <button
                   type="button"
-                  className="btn btn--primary btn--large"
+                  className="btn btn--primary btn--large menu__play"
                   disabled={!effectiveDifficulty}
                   onClick={() => {
                     if (!effectiveDifficulty) return;
@@ -647,7 +647,14 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                     onPlay(selectedSong.songId, effectiveDifficulty);
                   }}
                 >
-                  {effectiveDifficulty ? 'Play' : 'No chart for this song'}
+                  {effectiveDifficulty ? (
+                    <>
+                      <Play className="menu__play-icon" size={20} aria-hidden />
+                      Play
+                    </>
+                  ) : (
+                    'No chart for this song'
+                  )}
                 </button>
               </>
             )}

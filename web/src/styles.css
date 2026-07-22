@@ -506,6 +506,90 @@ kbd {
   font-size: 1.2rem;
 }
 
+/* The menu's Play button — the one action the whole screen leads to, so it is
+   dressed to be pressed. A livelier accent gradient (dark → accent → bright,
+   not the flat accent → dark of the base primary), a play glyph, a slow glow
+   pulse and a sheen that sweeps across on an idle loop. It still recolours to
+   the selected song via the panel's accentVars. */
+.menu__play {
+  position: relative;
+  overflow: hidden;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+  padding: 1.05rem;
+  font-size: 1.3rem;
+  background: linear-gradient(120deg, var(--violet), var(--pink) 52%, var(--gold-bright));
+  box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.55), 0 12px 32px rgba(var(--accent-rgb), 0.32);
+  animation: play-pulse 2.4s ease-in-out infinite;
+}
+
+.menu__play:hover:not(:disabled) {
+  /* Brighten and lift rather than change hue — the base primary's hover swung
+     toward an un-themed gold, which fought the song colour. */
+  background: linear-gradient(120deg, var(--pink), var(--gold-bright));
+  box-shadow: 0 0 32px rgba(var(--accent-rgb), 0.7), 0 16px 40px rgba(var(--accent-rgb), 0.42);
+}
+
+.menu__play:disabled {
+  animation: none;
+}
+
+/* The filled play glyph, above the sheen. */
+.menu__play-icon {
+  position: relative;
+  z-index: 1;
+  fill: currentColor;
+}
+
+/* A bright band that sweeps across on a long, mostly-idle loop — the button
+   catching the light. Clipped by the button's overflow; parked off-screen for
+   most of the cycle so the pass is an occasional glint, not a strobe. */
+.menu__play::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 34%,
+    rgba(255, 255, 255, 0.5) 48%,
+    transparent 62%
+  );
+  transform: translateX(-130%);
+  animation: play-sheen 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes play-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.55), 0 12px 32px rgba(var(--accent-rgb), 0.32);
+  }
+  50% {
+    box-shadow: 0 0 36px rgba(var(--accent-rgb), 0.8), 0 12px 40px rgba(var(--accent-rgb), 0.46);
+  }
+}
+
+@keyframes play-sheen {
+  0%,
+  62% {
+    transform: translateX(-130%);
+  }
+  85%,
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu__play {
+    animation: none;
+  }
+  .menu__play::before {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 .btn--small {
   padding: 0.4rem 0.9rem;
   font-size: 0.85rem;
