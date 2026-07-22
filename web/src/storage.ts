@@ -5,6 +5,8 @@ import type { DifficultyName } from '@tap-tap/shared';
 const CALIBRATION_KEY = 'tap-tap.calibration';
 const SCORES_KEY = 'tap-tap.scores';
 const FAVORITES_KEY = 'tap-tap.favorites';
+const SORT_KEY = 'tap-tap.sort';
+const LAST_SONG_KEY = 'tap-tap.lastSong';
 
 export interface BestScore {
   score: number;
@@ -75,6 +77,28 @@ export function recordScore(
   all[key] = result;
   write(SCORES_KEY, all);
   return true;
+}
+
+// --- menu state ------------------------------------------------------------
+
+/** The list sort the player last chose, so it survives leaving and returning. */
+export function getStoredSort(): string | null {
+  const value = read<string | null>(SORT_KEY, null);
+  return typeof value === 'string' ? value : null;
+}
+
+export function setStoredSort(sort: string): void {
+  write(SORT_KEY, sort);
+}
+
+/** The song the player last selected or played, restored and highlighted on return. */
+export function getLastSong(): string | null {
+  const value = read<string | null>(LAST_SONG_KEY, null);
+  return typeof value === 'string' ? value : null;
+}
+
+export function setLastSong(songId: string): void {
+  write(LAST_SONG_KEY, songId);
 }
 
 // --- favorites -------------------------------------------------------------

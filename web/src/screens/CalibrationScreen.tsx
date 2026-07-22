@@ -118,12 +118,9 @@ export function CalibrationScreen({ onDone }: CalibrationScreenProps): JSX.Eleme
     <div className="calibration">
       <div className="calibration__card">
         <h1>Calibration</h1>
-        <p className="muted">
-          Hit the pad — or <kbd>SPACE</kbd> — on every click. {TAPS_NEEDED} taps is enough.
-        </p>
         <p className="muted small">
-          Use the same headphones or speaker you play with; Bluetooth latency is
-          the whole reason this screen exists.
+          Tap on every click — {TAPS_NEEDED} is enough. Use the headphones or
+          speaker you play with.
         </p>
 
         <div className="calibration__meter">

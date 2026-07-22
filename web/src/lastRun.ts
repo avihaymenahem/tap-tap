@@ -15,6 +15,8 @@ export interface StoredRun extends RunResult {
   songId: string;
   difficulty: DifficultyName;
   title: string;
+  /** The song theme's accent colour, so the results screen keeps its palette. */
+  accent?: number;
 }
 
 const KEY = 'tap-tap.lastRun';

@@ -16,7 +16,15 @@ import {
   filterSongs,
   sortSongs,
 } from '../songSearch.js';
-import { getBestScore, getFavorites, toggleFavorite } from '../storage.js';
+import {
+  getBestScore,
+  getFavorites,
+  getLastSong,
+  getStoredSort,
+  setLastSong,
+  setStoredSort,
+  toggleFavorite,
+} from '../storage.js';
 
 interface MenuScreenProps {
   onPlay: (songId: string, difficulty: DifficultyName) => void;
@@ -61,7 +69,11 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
   const menuRef = useRef<HTMLDivElement>(null);
 
   const [favorites, setFavorites] = useState<ReadonlySet<string>>(getFavorites);
-  const [sort, setSort] = useState<SongSort>('favorite');
+  // Restore the last chosen sort, so it survives leaving and coming back.
+  const [sort, setSort] = useState<SongSort>(() => {
+    const stored = getStoredSort();
+    return MENU_SORTS.includes(stored as SongSort) ? (stored as SongSort) : 'favorite';
+  });
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   /**
    * Mobile only: the detail panel is a fixed bottom sheet there, permanently
@@ -110,7 +122,14 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
       .then((list) => {
         if (cancelled) return;
         setSongs(list);
-        setSelected((current) => current ?? list[0]?.songId ?? null);
+        // Restore the last-played song (highlighted on return), falling back to
+        // the top of the list if it is gone or nothing was played yet.
+        setSelected((current) => {
+          if (current) return current;
+          const last = getLastSong();
+          if (last && list.some((s) => s.songId === last)) return last;
+          return list[0]?.songId ?? null;
+        });
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -119,6 +138,15 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
       cancelled = true;
     };
   }, []);
+
+  // Bring the restored (last-played) song into view once the list is up — it
+  // may be far down, where the highlight alone would be off-screen.
+  const scrolledRef = useRef(false);
+  useEffect(() => {
+    if (!songs || scrolledRef.current) return;
+    scrolledRef.current = true;
+    document.querySelector('.song-card--active')?.scrollIntoView({ block: 'nearest' });
+  }, [songs]);
 
   // All derived, not stored: no effect needed to keep any of it in sync.
 
@@ -297,7 +325,11 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                 <select
                   className="admin__select"
                   value={sort}
-                  onChange={(e) => setSort(e.target.value as SongSort)}
+                  onChange={(e) => {
+                    const next = e.target.value as SongSort;
+                    setSort(next);
+                    setStoredSort(next);
+                  }}
                 >
                   {MENU_SORTS.map((option) => (
                     <option key={option} value={option}>
@@ -370,6 +402,7 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                         .join(' ')}
                       onClick={() => {
                         setSelected(song.songId);
+                        setLastSong(song.songId);
                         // Picking a track is the way back to a dismissed sheet
                         // on mobile — the only one, deliberately, since it is
                         // also the reason you would want it back.
@@ -402,7 +435,7 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                         </div>
                         <div className="song-card__meta">
                           {song.artist || 'Unknown'} · {formatDuration(song.duration)} ·{' '}
-                          {song.bpm} BPM
+                          {Math.round(song.bpm)} BPM
                         </div>
                       </div>
                     </button>

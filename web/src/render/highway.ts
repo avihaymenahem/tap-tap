@@ -645,6 +645,41 @@ export class Highway {
    * black until it arrives. Loaded through the same origin the menu thumbnails
    * use, so there is no CORS taint on the canvas.
    */
+  /**
+   * The cover art as a square texture with no black bars. YouTube thumbnails are
+   * 4:3 files with the 16:9 frame letterboxed inside, so drawing them straight
+   * onto the disc showed black bands top and bottom. This draws the image
+   * cover-filled and zoomed just past those bars into a square canvas, so the
+   * circle shows clean artwork. Loads async: the texture is blank until the
+   * image arrives, then repaints.
+   */
+  private static makeCoverTexture(url: string): THREE.Texture {
+    const texture = new THREE.Texture();
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = (): void => {
+      const size = 512;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Cover the square, then zoom 1.34 to crop the ~12.5% black bars a 16:9
+        // frame leaves in a 4:3 thumbnail.
+        const scale = Math.max(size / img.width, size / img.height) * 1.34;
+        const w = img.width * scale;
+        const h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+      }
+      texture.image = canvas;
+      texture.needsUpdate = true;
+    };
+    img.src = url;
+    return texture;
+  }
+
   private buildAlbumRing(coverUrl: string): void {
     const RADIUS = 2.5;
     // Standing just past the track's far end, on the horizon glow. Lowered and
@@ -653,8 +688,7 @@ export class Highway {
     const center = new THREE.Vector3(0, 2.9, -HIGHWAY_LENGTH - 4);
     const tilt = -0.15;
 
-    const texture = new THREE.TextureLoader().load(coverUrl);
-    texture.colorSpace = THREE.SRGBColorSpace;
+    const texture = Highway.makeCoverTexture(coverUrl);
 
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(RADIUS, 64),

@@ -1,5 +1,6 @@
-import type { DifficultyName } from '@tap-tap/shared';
+import { DEFAULT_ACCENT, type DifficultyName } from '@tap-tap/shared';
 import { useEffect, useRef, useState, type JSX } from 'react';
+import { accentVars } from '../accent.js';
 import { TIERS, TIMINGS, biasAdvice, type Tier, type Timing } from '../game/judge.js';
 import { loadRun } from '../lastRun.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS } from '../render/palette.js';
@@ -42,6 +43,25 @@ export function ResultsScreen({
       : false,
   );
 
+  // Count the score up on arrival — the one bit of motion that makes the card
+  // feel like a reward rather than a receipt.
+  const [shownScore, setShownScore] = useState(0);
+  useEffect(() => {
+    if (!result) return;
+    const target = result.score;
+    const start = performance.now();
+    const duration = 900;
+    let raf = 0;
+    const tick = (now: number): void => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      setShownScore(Math.round(target * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [result]);
+
   // Someone deep-linked or reloaded into a results URL with nothing to show —
   // typically a new session. Bounce to the menu rather than render an empty
   // scorecard. Held in a ref so a new callback identity cannot re-fire it.
@@ -59,30 +79,49 @@ export function ResultsScreen({
 
   return (
     <div className="results">
-      <div className="results__card">
-        <p className="muted">{difficulty}</p>
+      <div className="results__card" style={accentVars(result.accent ?? DEFAULT_ACCENT)}>
+        <p className="results__diff">{difficulty}</p>
         <h1>{result.title}</h1>
 
-        <div className={`grade grade--large grade--${result.grade}`}>{result.grade}</div>
-        {isBest && <p className="results__best">New best!</p>}
+        {/* The grade is the hero: a glowing medal with a firework burst behind
+            it, the same gold-on-dark language as the game. */}
+        <div className="results__medal">
+          <div className="results__burst" aria-hidden />
+          <div className={`results__disc grade--${result.grade}`}>
+            <span className="results__grade">{result.grade}</span>
+          </div>
+        </div>
 
-        <div className="results__score">{result.score.toLocaleString()}</div>
-        <p className="muted">
-          {(result.accuracy * 100).toFixed(2)}% accuracy · {result.maxCombo}x max combo
-        </p>
+        {isBest && <div className="results__best">★ New best</div>}
 
-        <ul className="results__breakdown">
+        <div className="results__score">{shownScore.toLocaleString()}</div>
+
+        <div className="results__stats">
+          <div className="stat">
+            <div className="stat__value">
+              {(result.accuracy * 100).toFixed(1)}
+              <span className="stat__unit">%</span>
+            </div>
+            <div className="stat__label">Accuracy</div>
+          </div>
+          <div className="stat">
+            <div className="stat__value">
+              {result.maxCombo}
+              <span className="stat__unit">x</span>
+            </div>
+            <div className="stat__label">Max combo</div>
+          </div>
+        </div>
+
+        <div className="results__tiers">
           {TIERS.map((tier: Tier) => (
-            <li key={tier}>
-              <span className="results__label" style={{ color: TIER_COLORS[tier] }}>
-                {TIER_LABELS[tier]}
-              </span>
-              <span className="results__count">{result.counts[tier]}</span>
-            </li>
+            <div key={tier} className="tier-chip" style={{ color: TIER_COLORS[tier] }}>
+              <span className="tier-chip__count">{result.counts[tier]}</span>
+              <span className="tier-chip__label">{TIER_LABELS[tier]}</span>
+            </div>
           ))}
-        </ul>
+        </div>
 
-        <h3 className="results__subhead">Timing</h3>
         <div className="timing-bars">
           {TIMINGS.map((timing) => {
             const count = result.timingCounts[timing];

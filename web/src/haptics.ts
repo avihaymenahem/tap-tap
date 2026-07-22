@@ -54,8 +54,21 @@ const MISS_THROTTLE_MS = 320;
  */
 let lastMissAt = Number.NEGATIVE_INFINITY;
 
+/*
+ * Both of these are cached, because `vibrateTap` runs on the *tap* — the most
+ * latency-sensitive path in the app — and a `localStorage.getItem` there is a
+ * synchronous disk-backed read that measurably delays the buzz. The setting
+ * changes rarely (only via `setHapticMode`, which refreshes the cache), and
+ * support never changes, so reading them once is safe.
+ */
+let cachedSupported: boolean | null = null;
+let cachedMode: HapticMode | null = null;
+
 export function hapticsSupported(): boolean {
-  return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+  if (cachedSupported === null) {
+    cachedSupported = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+  }
+  return cachedSupported;
 }
 
 function isMode(value: string | null): value is HapticMode {
@@ -63,15 +76,18 @@ function isMode(value: string | null): value is HapticMode {
 }
 
 export function getHapticMode(): HapticMode {
+  if (cachedMode !== null) return cachedMode;
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return isMode(stored) ? stored : 'hits';
+    cachedMode = isMode(stored) ? stored : 'hits';
   } catch {
-    return 'hits';
+    cachedMode = 'hits';
   }
+  return cachedMode;
 }
 
 export function setHapticMode(mode: HapticMode): void {
+  cachedMode = mode;
   try {
     localStorage.setItem(STORAGE_KEY, mode);
   } catch {

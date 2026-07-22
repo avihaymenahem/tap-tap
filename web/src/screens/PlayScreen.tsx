@@ -1,5 +1,5 @@
 import type { Beatmap, Chart, DifficultyName, Note } from '@tap-tap/shared';
-import { DIFFICULTIES, keymapFor, themeCatalog, themeFor } from '@tap-tap/shared';
+import { DEFAULT_ACCENT, DIFFICULTIES, keymapFor, themeCatalog, themeFor } from '@tap-tap/shared';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { getBeatmap, listCustomThemes } from '../api/client.js';
 import { AudioClock, bandLevel } from '../game/clock.js';
@@ -11,6 +11,8 @@ import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
 import { HapticToggle } from '../components/HapticToggle.js';
+import { CalibrationScreen } from './CalibrationScreen.js';
+import { accentVars } from '../accent.js';
 import { getStoredCalibration, setCalibration } from '../storage.js';
 import { MIN_STORED_SEC, autoCalibrationStep, resolveCalibration } from '../game/calibration.js';
 
@@ -73,6 +75,32 @@ function effectiveCalibration(clock: AudioClock): number {
   return resolveCalibration(getStoredCalibration(), clock.outputLatency);
 }
 
+/**
+ * Best-effort fullscreen, so the mobile browser's URL bar gets out of the way
+ * during a run. Must be called from a user gesture (the start/resume tap is one).
+ *
+ * Android Chrome honours it and drops all browser chrome. iOS Safari has no
+ * Fullscreen API for a page, so this is a silent no-op there — the only way to
+ * lose the URL bar on iOS is to install the app to the home screen (the PWA runs
+ * in standalone mode with no chrome, which needs a secure HTTPS origin).
+ */
+function enterFullscreen(): void {
+  if (document.fullscreenElement) return;
+  const el = document.documentElement as HTMLElement & {
+    webkitRequestFullscreen?: () => unknown;
+  };
+  const req = el.requestFullscreen?.bind(el) ?? el.webkitRequestFullscreen?.bind(el);
+  if (!req) return;
+  try {
+    const result = req();
+    if (result && typeof (result as Promise<unknown>).catch === 'function') {
+      (result as Promise<unknown>).catch(() => {});
+    }
+  } catch {
+    // No gesture, unsupported, or the user declined — nothing to do.
+  }
+}
+
 function startOffsetFor(notes: readonly Note[]): number {
   if (notes.length === 0) return 0;
 
@@ -95,7 +123,7 @@ interface PlayScreenProps {
   /** Reports the loaded chart's title — the URL carries only ids. */
   onTitle: (title: string) => void;
   onExit: () => void;
-  onFinish: (result: RunResult) => void;
+  onFinish: (result: RunResult, accent: number) => void;
 }
 
 type Phase = 'loading' | 'ready' | 'playing' | 'paused' | 'error';
@@ -105,6 +133,8 @@ interface Controls {
   pause: () => void;
   resume: () => void;
   restart: () => void;
+  /** Ends the run and keeps the score — quitting from the pause menu is a game-over. */
+  quit: () => void;
 }
 
 export function PlayScreen({
@@ -125,6 +155,13 @@ export function PlayScreen({
    * nothing is rendering yet while it moves.
    */
   const [loadProgress, setLoadProgress] = useState(0);
+  /** The playing song's theme accent, so ready/results keep the track's palette. */
+  const [themeAccent, setThemeAccent] = useState<number>(DEFAULT_ACCENT);
+  const accentRef = useRef<number>(DEFAULT_ACCENT);
+  /** The pause menu is two steps: the main actions, or the calibration sub-view. */
+  const [pauseView, setPauseView] = useState<'menu' | 'calibrate'>('menu');
+  const pauseViewRef = useRef<'menu' | 'calibrate'>('menu');
+  pauseViewRef.current = pauseView;
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scoreRef = useRef<HTMLDivElement>(null);
@@ -168,6 +205,7 @@ export function PlayScreen({
     phaseRef.current = next;
     setPhase(next);
   };
+
 
   // Callbacks arrive as fresh closures each render; hold them in refs so the
   // input effect never re-runs on the parent's account.
@@ -236,17 +274,20 @@ export function PlayScreen({
         });
         autoDeltasRef.current = [];
         autoDriftRef.current = 0;
+        const theme = themeFor(themeCatalog(customThemes), map.themeId);
+        accentRef.current = theme.accent ?? DEFAULT_ACCENT;
         highwayRef.current = new Highway({
           canvas,
           laneCount: chart.laneCount,
           approachSec: params.approachSec,
-          theme: themeFor(themeCatalog(customThemes), map.themeId),
+          theme,
           beatGrid: map.beatGrid,
           coverUrl: `/media/${songId}/thumb.jpg`,
         });
         highwayRef.current.resize(canvas.clientWidth, canvas.clientHeight);
 
         setBeatmap(map);
+        setThemeAccent(theme.accent ?? DEFAULT_ACCENT);
         onTitleRef.current(map.title);
         applyPhase('ready');
         setEngineReady(true);
@@ -346,7 +387,7 @@ export function PlayScreen({
       // since unmounting disposes the AudioContext playing it.
       finishTimerRef.current = window.setTimeout(() => {
         finishTimerRef.current = null;
-        onFinishRef.current(result);
+        onFinishRef.current(result, accentRef.current);
       }, CHEER_HOLD_MS);
     };
 
@@ -513,6 +554,8 @@ export function PlayScreen({
     const start = (): void => {
       const clock = clockRef.current;
       if (!clock || clock.isPlaying || phaseRef.current !== 'ready') return;
+      // Called from the start tap — the gesture fullscreen needs.
+      enterFullscreen();
       void clock.start(introOffset, LEAD_IN_SEC);
       applyPhase('playing');
       lastFrame = performance.now();
@@ -533,6 +576,8 @@ export function PlayScreen({
       releaseAllHeld();
 
       clock.pause();
+      // Every pause opens on the main actions, never mid-calibration.
+      setPauseView('menu');
       applyPhase('paused');
       // The loop keeps running so the scene stays alive behind the menu. Song
       // time is frozen, so the engine judges nothing while paused.
@@ -541,6 +586,8 @@ export function PlayScreen({
     const resume = (): void => {
       const clock = clockRef.current;
       if (!clock || phaseRef.current !== 'paused') return;
+      // Re-hide the URL bar if leaving fullscreen (e.g. Escape) dropped it.
+      enterFullscreen();
       void clock.resume(RESUME_COUNTDOWN_SEC);
       applyPhase('playing');
     };
@@ -564,17 +611,53 @@ export function PlayScreen({
       if (rafRef.current === null) rafRef.current = requestAnimationFrame(frame);
     };
 
-    controlsRef.current = { start, pause, resume, restart };
+    const quit = (): void => {
+      const engine = engineRef.current;
+      // No run to score (shouldn't happen from pause, but stay safe): just leave.
+      if (!engine) {
+        onExitRef.current();
+        return;
+      }
+      // Quitting from the pause menu is a deliberate game-over — keep the score.
+      // Cancel any pending natural-finish hand-off so it can't double-navigate.
+      if (finishTimerRef.current !== null) {
+        window.clearTimeout(finishTimerRef.current);
+        finishTimerRef.current = null;
+      }
+      phaseRef.current = 'loading';
+      clockRef.current?.stop();
+      const snap = engine.snapshot;
+      onFinishRef.current(
+        {
+          score: snap.score,
+          accuracy: snap.accuracy,
+          maxCombo: snap.maxCombo,
+          grade: gradeFor(snap.accuracy),
+          counts: snap.counts,
+          timingCounts: snap.timingCounts,
+          meanDelta: snap.meanDelta,
+          totalNotes: snap.totalNotes,
+        },
+        accentRef.current,
+      );
+    };
+
+    controlsRef.current = { start, pause, resume, restart, quit };
 
     const hit = (lane: number): void => {
-      // First statement in the path: the buzz acknowledges the tap, so nothing
-      // — not even reading the clock — sits between the press and the feedback.
-      vibrateTap();
-
       const engine = engineRef.current;
       const clock = clockRef.current;
       const highway = highwayRef.current;
       if (!engine || !clock || !highway) return;
+
+      // Ignore taps during the 3-2-1 lead-in: the board is not live yet, so a
+      // tap has nothing to hit, and letting it flash and buzz makes the
+      // countdown feel interactive when it is not.
+      if (clock.leadInRemaining > 0) return;
+
+      // The buzz acknowledges the tap first, before any scoring work, so nothing
+      // sits between the press and the feedback.
+      vibrateTap();
 
       highway.flashLane(lane);
       const result = engine.hitLane(lane, clock.currentTime);
@@ -659,8 +742,12 @@ export function PlayScreen({
       if (event.key === 'Escape') {
         event.preventDefault();
         if (phaseRef.current === 'playing') pause();
-        else if (phaseRef.current === 'paused') resume();
-        else onExitRef.current();
+        else if (phaseRef.current === 'paused') {
+          // In the calibration sub-view, Escape steps back to the pause menu
+          // rather than resuming the run out from under it.
+          if (pauseViewRef.current === 'calibrate') setPauseView('menu');
+          else resume();
+        } else onExitRef.current();
         return;
       }
 
@@ -672,6 +759,9 @@ export function PlayScreen({
           return;
         }
         if (phaseRef.current === 'paused') {
+          // While calibrating, SPACE is the metronome tap — leave it for the
+          // calibration screen's own handler rather than resuming.
+          if (pauseViewRef.current === 'calibrate') return;
           event.preventDefault();
           resume();
           return;
@@ -785,7 +875,12 @@ export function PlayScreen({
   const keys = keymapFor(params.laneCount);
 
   return (
-    <div className="play" data-phase={phase} data-engine-ready={String(engineReady)}>
+    <div
+      className="play"
+      data-phase={phase}
+      data-engine-ready={String(engineReady)}
+      style={accentVars(themeAccent)}
+    >
       <canvas ref={canvasRef} className="play__canvas" />
 
       <div className="play__progress">
@@ -822,7 +917,7 @@ export function PlayScreen({
         </button>
       )}
 
-      {phase === 'paused' && (
+      {phase === 'paused' && pauseView === 'menu' && (
         <div className="play__overlay">
           <h2>Paused</h2>
           {beatmap && <p className="muted">{beatmap.title}</p>}
@@ -841,15 +936,34 @@ export function PlayScreen({
             >
               Restart
             </button>
-            <button type="button" className="btn btn--ghost" onClick={onExit}>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => controlsRef.current?.quit()}
+            >
               Quit
             </button>
           </div>
-          {/* Below the actions, not among them: this changes a setting rather
-              than the state of the run, and it must not sit next to Quit where
-              a mistap costs a whole song. */}
+          {/* Below the actions, not among them: these change settings rather
+              than the state of the run, and must not sit next to Quit where a
+              mistap costs a whole song. */}
           <HapticToggle className="pause-setting" />
+          <button
+            type="button"
+            className="pause-setting"
+            onClick={() => setPauseView('calibrate')}
+          >
+            Calibrate timing
+          </button>
           <p className="muted small">ESC or SPACE to resume</p>
+        </div>
+      )}
+
+      {/* Step two of the pause menu: the real calibration screen, with its own
+          Back button (and Escape) returning to the menu. The run stays paused. */}
+      {phase === 'paused' && pauseView === 'calibrate' && (
+        <div className="play__overlay play__overlay--calibrate">
+          <CalibrationScreen onDone={() => setPauseView('menu')} />
         </div>
       )}
 
@@ -879,23 +993,53 @@ export function PlayScreen({
 
       {phase === 'ready' && beatmap && (
         <div className="play__overlay play__overlay--ready">
+          <button type="button" className="play__back" onClick={onExit}>
+            ‹ Back
+          </button>
+          {/* The song's cover, ringed and haloed like the CD on the highway.
+              The thumbnail is a rectangle in a circle, so a blurred copy fills
+              behind it instead of leaving black corners. */}
+          <div className="ready-cover">
+            <div className="ready-cover__burst" aria-hidden />
+            <div className="ready-cover__disc">
+              <img
+                className="ready-cover__blur"
+                src={`/media/${songId}/thumb.jpg`}
+                alt=""
+                aria-hidden
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+              <img
+                className="ready-cover__art"
+                src={`/media/${songId}/thumb.jpg`}
+                alt=""
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            </div>
+          </div>
           <h2>{beatmap.title}</h2>
           <p className="muted">
-            {difficulty} · {beatmap.bpm} BPM
+            {difficulty} · {Math.round(beatmap.bpm)} BPM
           </p>
-          <div className="keycaps">
+          {/* Keyboard keys are desktop-only; on a phone you tap the lanes. */}
+          <div className="keycaps only-desktop">
             {keys.map((key) => (
               <kbd key={key}>{key.toUpperCase()}</kbd>
             ))}
           </div>
           <button
             type="button"
-            className="btn btn--primary"
+            className="btn btn--primary btn--start"
             onClick={() => controlsRef.current?.start()}
           >
-            Press SPACE to start
+            <span className="only-desktop">Press SPACE to start</span>
+            <span className="only-mobile">Tap to start</span>
           </button>
-          <p className="muted small">ESC to pause</p>
+          <p className="muted small only-desktop">ESC to pause</p>
         </div>
       )}
     </div>

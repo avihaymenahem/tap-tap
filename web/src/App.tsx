@@ -20,13 +20,14 @@ export function App(): JSX.Element {
    */
   const titleRef = useRef('');
 
-  const onFinish = (result: RunResult): void => {
+  const onFinish = (result: RunResult, accent: number): void => {
     if (route.name !== 'play') return;
     saveRun({
       ...result,
       songId: route.songId,
       difficulty: route.difficulty,
       title: titleRef.current,
+      accent,
     });
     // Replace, not push: pressing Back from the results screen should return to
     // the song list, not drop the player into another run of the same chart.

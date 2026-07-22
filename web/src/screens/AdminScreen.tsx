@@ -400,7 +400,7 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
                 <div className="admin-song__main">
                   <div className="admin-song__title">{song.title}</div>
                   <div className="muted small">
-                    {song.artist || 'Unknown'} · {song.bpm} BPM · confidence{' '}
+                    {song.artist || 'Unknown'} · {Math.round(song.bpm)} BPM · confidence{' '}
                     {song.bpmConfidence.toFixed(2)} ·{' '}
                     {DIFFICULTY_NAMES.map((d) => `${d} ${song.noteCounts[d] ?? 0}`).join(' · ')}
                   </div>

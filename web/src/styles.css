@@ -1,38 +1,42 @@
 :root {
-  --bg: #07030f;
-  --bg-raised: #150a26;
-  --bg-card: #1d0f33;
-  --text: #f4ecff;
-  --muted: #a99bc4;
-  --pink: #ff2e88;
-  --cyan: #00e5ff;
+  /*
+   * Redesign: the whole shell now matches the game's "stage" look — a dark,
+   * warm scene lit by a gold glow, with the same premium metal/firework vibe as
+   * the play screen. The old neon palette names are repointed to warm golds so
+   * every `var()` recolours at once; new work should prefer the semantic
+   * `--gold` / `--amber` names.
+   */
+  --bg: #0a0805;
+  --bg-raised: #191207;
+  --bg-card: #1f1709;
+  --text: #f6efe0;
+  --muted: #b8a883;
+
+  --gold: #f5d152;
+  --gold-bright: #ffe487;
+  --amber: #e0972c;
+
+  /* The accent, as an "r, g, b" triple for rgba(). Defaults to gold; the ready
+     and results screens override it (and the golds above) with the playing
+     song's theme colour, so the whole flow keeps one palette. */
+  --accent-rgb: 245, 209, 82;
+
+  --pink: #f5d152; /* → gold (primary accent) */
+  --cyan: #f0b64a; /* → warm amber (secondary accent) */
   --yellow: #ffd60a;
-  --violet: #9d4edd;
-  --mint: #00ff9d;
-  --danger: #ff4d6d;
+  --violet: #d8a94a; /* → warm */
+  --mint: #f2dc94; /* → warm cream (success) */
+  --danger: #ff5a4d;
 
   --radius: 18px;
   --radius-sm: 12px;
   --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
 
-  /*
-   * Where the sunset's horizon sits, measured up from the bottom. The grid, the
-   * sun, the horizon line and the sky gradient all key off this one number —
-   * moving it moves the whole scene together instead of leaving the sun
-   * floating over the floor.
-   *
-   * High on purpose. At a poster-like 50% the sun lands squarely behind the
-   * song list and reads as a smudge; up here the sky occupies the header strip,
-   * where nothing competes with it, and the grid gets the rest. The scene is
-   * legible exactly where the UI is empty.
-   */
-  --horizon: 78%;
-
-  /* Panels float over the sunset rather than hiding it, so their fill is a
-     translucent tint. Named because a dozen surfaces need to agree. */
-  --panel: rgba(29, 15, 51, 0.72);
-  --panel-solid: rgba(23, 12, 41, 0.94);
-  --edge: rgba(255, 46, 136, 0.16);
+  /* Panels float over the dark stage rather than hiding it, so their fill is a
+     translucent warm tint. Named because a dozen surfaces need to agree. */
+  --panel: rgba(28, 21, 10, 0.68);
+  --panel-solid: rgba(20, 15, 8, 0.95);
+  --edge: rgba(var(--accent-rgb), 0.18);
 }
 
 * {
@@ -58,10 +62,11 @@ button {
   font-family: inherit;
 }
 
-/* --- retro backdrop -------------------------------------------------------
-   The 80s sunset behind every screen except play and edit. One fixed layer,
-   pure CSS, no assets. Everything here is decoration: it never takes pointer
-   events, and the scrim on top keeps it from competing with the content. */
+/* --- stage backdrop -------------------------------------------------------
+   The dark, gold-lit stage behind every screen except play and edit — the same
+   vibe as the in-game highway. One fixed layer, pure CSS, no assets. Everything
+   here is decoration: it never takes pointer events, and the scrim on top keeps
+   it from competing with the content. */
 
 .retro-bg {
   position: fixed;
@@ -69,184 +74,93 @@ button {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    #08021a 0%,
-    #1c0536 45%,
-    #4d0c4e calc(100% - var(--horizon)),
-    #170634 calc(100% - var(--horizon) + 1%),
-    #07030f 100%
-  );
+  /* Dark warm stage lit by a gold glow pooled overhead — the same light the
+     play screen pools behind the vanishing point. */
+  background:
+    radial-gradient(130% 80% at 50% -14%, rgba(245, 190, 92, 0.3), transparent 55%),
+    radial-gradient(80% 55% at 50% 4%, rgba(255, 214, 128, 0.18), transparent 60%),
+    linear-gradient(to bottom, #14100a 0%, #0b0805 52%, #060402 100%);
 }
 
-.retro-bg__stars {
-  position: absolute;
-  inset: 0 0 var(--horizon);
-  /* One tile of scattered dots, repeated. Cheaper than a hundred elements and
-     it never lands on a regular lattice at this tile size. */
-  background-image:
-    radial-gradient(1.4px 1.4px at 24px 38px, rgba(255, 255, 255, 0.9), transparent),
-    radial-gradient(1.2px 1.2px at 142px 96px, rgba(255, 255, 255, 0.75), transparent),
-    radial-gradient(1.6px 1.6px at 76px 168px, rgba(255, 255, 255, 0.85), transparent),
-    radial-gradient(1px 1px at 196px 22px, rgba(255, 255, 255, 0.6), transparent),
-    radial-gradient(1.3px 1.3px at 108px 128px, rgba(255, 214, 250, 0.8), transparent),
-    radial-gradient(1px 1px at 178px 190px, rgba(255, 255, 255, 0.55), transparent);
-  background-size: 230px 230px;
-  opacity: 0.55;
-  animation: retro-twinkle 5.5s ease-in-out infinite;
-}
-
-.retro-bg__sun {
+.retro-bg__glow {
   position: absolute;
   left: 50%;
-  bottom: var(--horizon);
-  width: min(30vw, 18rem);
-  aspect-ratio: 1;
-  /* Half-sunk: the disc's centre sits a little above the horizon, so what shows
-     is the classic setting sun rather than a circle resting on a line. */
-  transform: translate(-50%, 32%);
-  border-radius: 50%;
-  /*
-   * Pink the whole way up rather than the poster's yellow core. Behind a
-   * translucent song card the warm yellows turn beige and read as a rendering
-   * smudge; pink stays recognisably a sun through the panel.
-   */
-  background: linear-gradient(
-    to bottom,
-    #ffd9e8 0%,
-    #ff8cc4 24%,
-    #ff5fa8 52%,
-    #ff2e88 76%,
-    #a3155a 100%
+  top: -16%;
+  transform: translateX(-50%);
+  width: min(130vw, 64rem);
+  aspect-ratio: 2 / 1;
+  /* The overhead stage lamp: a warm gold pool that breathes with a slow pulse. */
+  background: radial-gradient(
+    closest-side,
+    rgba(255, 224, 140, 0.34),
+    rgba(245, 182, 74, 0.14) 46%,
+    transparent 72%
   );
-  /* Two mask layers that union: the first keeps the top solid, the second cuts
-     the slit bands. Compositing them additively means the bands in the upper
-     region fall on already-solid pixels and change nothing. */
-  -webkit-mask-image:
-    linear-gradient(to bottom, #000 0 46%, transparent 46%),
-    repeating-linear-gradient(to bottom, #000 0 9px, transparent 9px 15px);
-  mask-image:
-    linear-gradient(to bottom, #000 0 46%, transparent 46%),
-    repeating-linear-gradient(to bottom, #000 0 9px, transparent 9px 15px);
-  filter: drop-shadow(0 0 90px rgba(255, 46, 136, 0.7));
-  opacity: 1;
+  filter: blur(14px);
+  animation: stage-glow 7s ease-in-out infinite;
 }
 
-/*
- * The lit horizon line. This, more than the sun, is what makes the scene read
- * as a sunset once panels are covering most of the screen — a hard bright line
- * survives being seen through a translucent card, where a soft disc does not.
- */
-.retro-bg__horizon {
+.retro-bg__sparks {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: var(--horizon);
-  height: 2px;
-  background: linear-gradient(
-    to right,
-    transparent,
-    rgba(255, 143, 200, 0.9) 22%,
-    #fff 50%,
-    rgba(255, 143, 200, 0.9) 78%,
-    transparent
-  );
-  box-shadow: 0 0 30px 8px rgba(255, 46, 136, 0.55), 0 0 90px 30px rgba(255, 46, 136, 0.25);
-}
-
-.retro-bg__grid {
-  position: absolute;
-  /* Overhangs both edges: the perspective transform fans the far end outward,
-     and a grid that stopped at the viewport would show two hard vertical cuts. */
-  left: -60%;
-  right: -60%;
-  /*
-   * Pushed below the viewport, and made taller, so the floor actually reaches
-   * the bottom edge. `transform-origin: center top` + `rotateX` foreshortens the
-   * plane and lifts its near edge ~10% of the height short of the bottom,
-   * leaving a dead strip. Measured across viewports: a ~12% downward offset
-   * closes it with a small safe overshoot (the excess falls off-screen), and the
-   * 1.15 height keeps the far edge up near the horizon rather than sliding down
-   * with the offset. Height alone cannot fix it — past a point the projected
-   * near edge asymptotes to a false horizon and stops descending.
-   */
-  bottom: -12%;
-  height: calc((100% - var(--horizon)) * 1.15);
+  inset: 0;
+  /* Gold embers drifting up from the stage — the firework vibe, one repeated
+     tile so it costs almost nothing. */
   background-image:
-    repeating-linear-gradient(to right, rgba(255, 46, 136, 0.85) 0 2px, transparent 2px 60px),
-    repeating-linear-gradient(to bottom, rgba(0, 229, 255, 0.6) 0 2px, transparent 2px 84px);
-  /* A shallower tilt and a longer focal length. The obvious extreme values
-     (perspective 240px / rotateX 66deg) crush the whole floor into a band at
-     the very bottom and leave a dead gap under the horizon. */
-  transform: perspective(520px) rotateX(68deg);
-  transform-origin: center top;
-  /* Fades the lines into the horizon so the floor recedes instead of ending. */
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 20%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 20%);
-  animation: retro-grid-scroll 5s linear infinite;
+    radial-gradient(2px 2px at 18% 82%, rgba(255, 224, 150, 0.9), transparent),
+    radial-gradient(1.5px 1.5px at 68% 66%, rgba(245, 205, 120, 0.7), transparent),
+    radial-gradient(1.6px 1.6px at 42% 40%, rgba(255, 214, 130, 0.75), transparent),
+    radial-gradient(1.2px 1.2px at 86% 30%, rgba(245, 190, 100, 0.6), transparent),
+    radial-gradient(2px 2px at 30% 18%, rgba(255, 230, 160, 0.7), transparent),
+    radial-gradient(1.3px 1.3px at 60% 90%, rgba(245, 200, 110, 0.55), transparent);
+  background-size: 340px 340px;
+  opacity: 0.5;
+  animation: stage-sparks 22s linear infinite;
 }
 
 /*
- * Sits over the whole scene and darkens it. Without this the grid lines read
- * straight through the song list and the sun competes with the Play button —
- * the backdrop is meant to set a mood, not to be looked at.
+ * A soft vignette that darkens the edges and floor so panels read cleanly over
+ * the stage — the backdrop sets a mood, it is not meant to be stared at.
  */
 .retro-bg__scrim {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(130% 90% at 50% 45%, transparent 0%, rgba(7, 3, 15, 0.45) 100%),
-    linear-gradient(to bottom, rgba(7, 3, 15, 0.12), rgba(7, 3, 15, 0.42));
+    radial-gradient(140% 100% at 50% 22%, transparent 0%, rgba(5, 3, 1, 0.5) 100%),
+    linear-gradient(to bottom, rgba(5, 3, 1, 0.05), rgba(5, 3, 1, 0.45));
 }
 
-.retro-bg--dim .retro-bg__sun {
-  opacity: 0.4;
-  filter: none;
+.retro-bg--dim .retro-bg__glow {
+  opacity: 0.5;
 }
 
-.retro-bg--dim .retro-bg__horizon,
-.retro-bg--dim .retro-bg__grid {
-  opacity: 0.45;
+.retro-bg--dim .retro-bg__sparks {
+  opacity: 0.3;
 }
 
-/*
- * On a phone the content fills the viewport edge to edge, and the sun has
- * nowhere to be legible — it comes out as a small pink nub poking above the
- * first song card, which reads as a glitch. The sky, the lit horizon and the
- * grid still carry the theme, so drop the disc rather than shrink it further.
- */
-@media (max-width: 560px) {
-  .retro-bg__sun {
-    display: none;
-  }
-
-  .retro-bg {
-    --horizon: 70%;
-  }
-}
-
-@keyframes retro-twinkle {
+@keyframes stage-glow {
   0%,
   100% {
-    opacity: 0.45;
+    opacity: 0.85;
+    transform: translateX(-50%) scale(1);
   }
   50% {
-    opacity: 0.7;
+    opacity: 1;
+    transform: translateX(-50%) scale(1.05);
   }
 }
 
-@keyframes retro-grid-scroll {
+@keyframes stage-sparks {
   to {
-    /* One tile of the horizontal lines. Any other distance visibly jumps when
-       the animation loops. */
-    background-position: 0 0, 0 84px;
+    /* Drift the ember tile up and slightly across, one full tile, so the loop
+       is seamless. */
+    background-position: 60px -340px;
   }
 }
 
 /* Motion here is pure decoration, so it is the first thing to go. */
 @media (prefers-reduced-motion: reduce) {
-  .retro-bg__stars,
-  .retro-bg__grid {
+  .retro-bg__glow,
+  .retro-bg__sparks {
     animation: none;
   }
 }
@@ -271,7 +185,7 @@ button {
 .menu__detail h2 {
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  text-shadow: 0 0 18px rgba(0, 229, 255, 0.45);
+  text-shadow: 0 0 18px rgba(240, 182, 74, 0.45);
 }
 
 /* The song title is the exception: it is data, not a label, so it keeps its
@@ -349,25 +263,25 @@ kbd {
   background: linear-gradient(120deg, var(--pink), var(--violet));
   /* Two shadows: a tight one that reads as the tube's own light, and a wide
      soft one for the haze around it. A single blur gives neither. */
-  box-shadow: 0 0 18px rgba(255, 46, 136, 0.5), 0 10px 34px rgba(255, 46, 136, 0.3);
+  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.5), 0 10px 34px rgba(var(--accent-rgb), 0.3);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
 
 .btn--primary:hover:not(:disabled) {
   background: linear-gradient(120deg, var(--pink), var(--cyan));
-  box-shadow: 0 0 26px rgba(0, 229, 255, 0.55), 0 14px 40px rgba(255, 46, 136, 0.4);
+  box-shadow: 0 0 26px rgba(240, 182, 74, 0.55), 0 14px 40px rgba(var(--accent-rgb), 0.4);
 }
 
 .btn--ghost {
   background: transparent;
-  border: 2px solid rgba(0, 229, 255, 0.35);
+  border: 2px solid rgba(240, 182, 74, 0.35);
 }
 
 .btn--ghost:hover:not(:disabled) {
   border-color: var(--cyan);
-  background: rgba(0, 229, 255, 0.1);
-  box-shadow: 0 0 18px rgba(0, 229, 255, 0.25);
+  background: rgba(240, 182, 74, 0.1);
+  box-shadow: 0 0 18px rgba(240, 182, 74, 0.25);
 }
 
 .btn--danger {
@@ -398,7 +312,7 @@ kbd {
 
 .icon-btn[aria-expanded='true'] {
   border-color: var(--pink);
-  background: rgba(255, 46, 136, 0.16);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 
 .dropdown {
@@ -412,7 +326,7 @@ kbd {
   padding: 0.4rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-sm);
-  background: rgba(29, 15, 51, 0.97);
+  background: rgba(28, 21, 10, 0.97);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(12px);
 }
@@ -522,8 +436,8 @@ kbd {
   letter-spacing: 0.02em;
   text-transform: lowercase;
   font-style: italic;
-  filter: drop-shadow(0 0 14px rgba(255, 46, 136, 0.55))
-    drop-shadow(0 0 30px rgba(0, 229, 255, 0.28));
+  filter: drop-shadow(0 0 14px rgba(var(--accent-rgb), 0.55))
+    drop-shadow(0 0 30px rgba(240, 182, 74, 0.28));
 }
 
 .logo__tap {
@@ -661,15 +575,15 @@ kbd {
 
 .song-card:hover {
   transform: translateX(4px);
-  border-color: rgba(0, 229, 255, 0.4);
-  background: rgba(35, 18, 62, 0.82);
-  box-shadow: 0 0 22px rgba(0, 229, 255, 0.18);
+  border-color: rgba(240, 182, 74, 0.4);
+  background: rgba(40, 30, 13, 0.82);
+  box-shadow: 0 0 22px rgba(240, 182, 74, 0.18);
 }
 
 .song-card--active {
   border-color: var(--pink);
-  background: rgba(45, 20, 70, 0.85);
-  box-shadow: 0 0 26px rgba(255, 46, 136, 0.3);
+  background: rgba(52, 39, 14, 0.85);
+  box-shadow: 0 0 26px rgba(var(--accent-rgb), 0.3);
 }
 
 .song-card__art {
@@ -709,14 +623,24 @@ kbd {
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   background: var(--panel-solid);
-  box-shadow: 0 0 40px rgba(157, 78, 221, 0.18);
+  box-shadow: 0 0 40px rgba(216, 169, 74, 0.18);
   backdrop-filter: blur(14px);
   overflow-y: auto;
+}
+
+/* The artist sits directly under the title as one header block. Its default
+   paragraph margin was stacking on top of the flex `gap`, doubling the space
+   and making the whole sheet taller than it needs to be. */
+.menu__detail h2 + p {
+  margin: -0.55rem 0 0;
 }
 
 .menu__detail h2 {
   margin: 0;
   font-size: 1.3rem;
+  /* Wrap a long unbreakable title instead of overflowing the fixed-width panel
+     on desktop. (Mobile's bottom sheet overrides this with an ellipsis.) */
+  overflow-wrap: anywhere;
 }
 
 .difficulty-picker {
@@ -746,7 +670,7 @@ kbd {
 
 .difficulty--easy.difficulty--active {
   border-color: var(--mint);
-  background: rgba(0, 255, 157, 0.1);
+  background: rgba(242, 220, 148, 0.1);
 }
 
 .difficulty--medium.difficulty--active {
@@ -756,12 +680,12 @@ kbd {
 
 .difficulty--hard.difficulty--active {
   border-color: var(--pink);
-  background: rgba(255, 46, 136, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .difficulty--extreme.difficulty--active {
   border-color: var(--violet);
-  background: rgba(157, 78, 221, 0.16);
+  background: rgba(216, 169, 74, 0.16);
 }
 
 .best-score {
@@ -788,12 +712,14 @@ kbd {
   font-size: 5.5rem;
 }
 
-.grade--S { color: var(--cyan); }
-.grade--A { color: var(--mint); }
-.grade--B { color: var(--yellow); }
+/* A good→bad ramp that still reads on the gold theme: S is the premium bright
+   gold, then green/yellow/orange down to red. Distinct at a glance. */
+.grade--S { color: #ffe487; }
+.grade--A { color: #7ee89a; }
+.grade--B { color: #ffd60a; }
 .grade--C { color: #ff9f45; }
-.grade--D { color: var(--pink); }
-.grade--F { color: var(--danger); }
+.grade--D { color: #ff7a4d; }
+.grade--F { color: #ff5a4d; }
 
 /* --- play ----------------------------------------------------------------- */
 
@@ -848,7 +774,7 @@ kbd {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   /* Faint on purpose. The label is signage; the number is the reading. */
-  text-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+  text-shadow: 0 0 12px rgba(240, 182, 74, 0.5);
   opacity: 0.75;
 }
 
@@ -859,7 +785,7 @@ kbd {
   font-variant-numeric: tabular-nums;
   /* Lifts the numbers off a busy grid without the weight of a solid plate
      behind them, which would sit on the scene like a sticker. */
-  text-shadow: 0 0 18px rgba(255, 46, 136, 0.55), 0 2px 10px rgba(0, 0, 0, 0.8);
+  text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.55), 0 2px 10px rgba(0, 0, 0, 0.8);
 }
 
 .play__combo {
@@ -908,7 +834,7 @@ kbd {
   transform: translateX(-50%);
   padding: 0.3rem 0.8rem;
   border-radius: 999px;
-  background: rgba(0, 229, 255, 0.14);
+  background: rgba(240, 182, 74, 0.14);
   color: var(--cyan);
   font-size: 0.78rem;
   font-weight: 700;
@@ -926,7 +852,7 @@ kbd {
   font-size: 7rem;
   font-weight: 900;
   color: #fff;
-  text-shadow: 0 0 60px rgba(157, 78, 221, 0.9);
+  text-shadow: 0 0 60px rgba(216, 169, 74, 0.9);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
@@ -985,6 +911,12 @@ kbd {
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* The calibration sub-view fills the pause overlay; the calibration card
+   handles its own centring and scrolling, so drop the overlay's own padding. */
+.play__overlay--calibrate {
+  padding: 0;
+}
+
 .play__overlay {
   position: absolute;
   inset: 0;
@@ -997,6 +929,8 @@ kbd {
   text-align: center;
   background: rgba(5, 1, 15, 0.82);
   backdrop-filter: blur(6px);
+  /* Long unbreakable song titles wrap instead of overflowing (inherited). */
+  overflow-wrap: anywhere;
 }
 
 .play__overlay h2 {
@@ -1007,6 +941,113 @@ kbd {
 .keycaps {
   display: flex;
   gap: 0.5rem;
+}
+
+/* Back to the song list from the ready screen. Absolute so it hugs the corner
+   without disturbing the centred stack. */
+.play__back {
+  position: absolute;
+  top: max(1rem, env(safe-area-inset-top, 0px));
+  left: 1rem;
+  padding: 0.5rem 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.play__back:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* A big, thumb-friendly start button on the ready screen. */
+.btn--start {
+  padding: 0.9rem 2.2rem;
+  font-size: 1.1rem;
+}
+
+/* The ready-screen cover art: a ringed, haloed disc over a slow firework burst,
+   the same language as the CD on the highway and the results medal. */
+.ready-cover {
+  position: relative;
+  width: 9.5rem;
+  height: 9.5rem;
+  margin: 0 auto 0.3rem;
+  display: grid;
+  place-items: center;
+}
+
+.ready-cover__burst {
+  position: absolute;
+  inset: -34%;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(var(--accent-rgb), 0.22) 0deg 5deg,
+    transparent 5deg 13deg
+  );
+  -webkit-mask: radial-gradient(closest-side, transparent 45%, #000 55%, transparent 82%);
+  mask: radial-gradient(closest-side, transparent 45%, #000 55%, transparent 82%);
+  animation: results-spin 18s linear infinite;
+}
+
+.ready-cover__disc {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(var(--accent-rgb), 0.6);
+  /* Warm gradient shows through if the thumbnail is missing or fails to load. */
+  background: linear-gradient(135deg, var(--amber), var(--gold));
+  box-shadow: 0 0 34px rgba(var(--accent-rgb), 0.4);
+}
+
+.ready-cover__blur,
+.ready-cover__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Blurred, scaled-up copy that fills the disc so there is never black behind
+   the artwork (also covers non-16:9 thumbnails and the moment before load). */
+.ready-cover__blur {
+  object-fit: cover;
+  transform: scale(1.45);
+  filter: blur(16px) saturate(1.15);
+}
+
+/* The real artwork on top. Zoomed just past the 12.5% black bars a 16:9 frame
+   leaves in a 4:3 thumbnail, so the picture fills the disc with no letterbox. */
+.ready-cover__art {
+  object-fit: cover;
+  transform: scale(1.34);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ready-cover__burst {
+    animation: none;
+  }
+}
+
+/* Device-appropriate copy: keyboard hints on desktop, tap hints on a phone.
+   Width is a proxy for touch, which is good enough for these hints. */
+.only-mobile {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  .only-desktop {
+    display: none !important;
+  }
+  .only-mobile {
+    display: revert;
+  }
 }
 
 /* --- results -------------------------------------------------------------- */
@@ -1039,61 +1080,169 @@ kbd {
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   background: var(--panel-solid);
-  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.06), 0 22px 60px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 0 0 1px rgba(240, 182, 74, 0.06), 0 22px 60px rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(14px);
   text-align: center;
+  /* Long unbreakable song titles wrap instead of overflowing (inherited). */
+  overflow-wrap: anywhere;
+  animation: results-card-in 0.45s ease both;
+}
+
+.results__diff {
+  margin: 0;
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
 }
 
 .results__card h1 {
-  margin: 0.2rem 0 1rem;
-  font-size: 1.4rem;
+  margin: 0.15rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+/* --- grade medal: the hero, a glowing disc over a spinning firework burst --- */
+.results__medal {
+  position: relative;
+  width: 9.5rem;
+  height: 9.5rem;
+  margin: 1.1rem auto 0.5rem;
+  display: grid;
+  place-items: center;
+  animation: results-pop 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+}
+
+.results__burst {
+  position: absolute;
+  inset: -35%;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(var(--accent-rgb), 0.22) 0deg 5deg,
+    transparent 5deg 13deg
+  );
+  -webkit-mask: radial-gradient(closest-side, transparent 42%, #000 52%, transparent 82%);
+  mask: radial-gradient(closest-side, transparent 42%, #000 52%, transparent 82%);
+  animation: results-spin 18s linear infinite;
+}
+
+.results__disc {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 34%, rgba(58, 44, 16, 0.92), rgba(18, 13, 7, 0.96));
+  border: 2px solid rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 36px rgba(var(--accent-rgb), 0.35), inset 0 2px 20px rgba(var(--accent-rgb), 0.12);
+}
+
+.results__grade {
+  font-size: 4.8rem;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 0 26px currentColor;
 }
 
 .results__best {
-  margin: 0.2rem 0;
-  color: var(--yellow);
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  display: inline-block;
+  margin: 0.1rem auto 0;
+  padding: 0.28rem 0.95rem;
+  border-radius: 999px;
+  background: linear-gradient(120deg, var(--gold), var(--gold-bright));
+  color: #241a06;
+  font-weight: 900;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: 0 0 22px rgba(var(--accent-rgb), 0.5);
 }
 
 .results__score {
-  margin-top: 0.5rem;
-  font-size: 2.8rem;
+  margin-top: 0.7rem;
+  font-size: 3rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold-bright);
+  text-shadow: 0 0 24px rgba(var(--accent-rgb), 0.35);
+}
+
+/* --- hero stats --- */
+.results__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+  margin: 1.1rem 0;
+}
+
+.stat {
+  padding: 0.7rem 0.5rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.stat__value {
+  font-size: 1.5rem;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
 }
 
-.results__breakdown {
-  margin: 1.5rem 0;
-  padding: 0;
-  list-style: none;
-}
-
-.results__breakdown li {
-  display: flex;
-  justify-content: space-between;
-  padding: 0.45rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.results__label {
-  font-weight: 800;
-  letter-spacing: 0.1em;
+.stat__unit {
+  margin-left: 0.1rem;
   font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.stat__label {
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* --- tier chips: perfect / great / good / miss, coloured per tier --- */
+.results__tiers {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin: 0 0 1.3rem;
+}
+
+.tier-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.6rem 0.2rem;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  /* Faint border tinted by the tier's own colour (set inline on the element). */
+  border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+}
+
+.tier-chip__count {
+  font-size: 1.25rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.tier-chip__label {
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .results__count {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
-}
-
-.results__subhead {
-  margin: 0.5rem 0 0.75rem;
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
 }
 
 .timing-bars {
@@ -1128,8 +1277,9 @@ kbd {
   margin: 0.5rem 0 1rem;
   padding: 0.7rem 0.9rem;
   border-radius: var(--radius-sm);
-  background: rgba(124, 196, 255, 0.12);
-  color: #7cc4ff;
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
+  color: var(--gold-bright);
   font-size: 0.9rem;
   font-weight: 600;
 }
@@ -1140,17 +1290,46 @@ kbd {
   justify-content: center;
 }
 
+@keyframes results-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes results-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes results-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .results__card,
+  .results__medal,
+  .results__burst {
+    animation: none;
+  }
+}
+
 /**
- * Phone layout for the scorecard.
- *
- * The card was 835px tall in an 812px viewport, so it overflowed before a single
- * pixel of chrome was accounted for. Shrinking type alone would not have done
- * it — the win is structural: the four-row tier breakdown becomes a 2x2 grid,
- * which halves the tallest block on the card, and the TIMING heading goes since
- * three labelled bars do not need announcing.
- *
- * The grade stays the largest thing on screen. It is the one number a player
- * looks for, and the whole point of the screen is that it reads at a glance.
+ * Phone layout for the scorecard — everything a touch smaller so the whole card
+ * clears an 812px viewport. The grade medal stays the hero; it is the one thing
+ * a player looks for and the point of the screen is that it reads at a glance.
  */
 @media (max-width: 560px) {
   .results {
@@ -1162,38 +1341,47 @@ kbd {
   }
 
   .results__card h1 {
-    margin: 0.15rem 0 0.6rem;
-    font-size: 1.15rem;
+    font-size: 1.05rem;
   }
 
-  .grade--large {
-    font-size: 3.6rem;
+  .results__medal {
+    width: 7.5rem;
+    height: 7.5rem;
+    margin: 0.8rem auto 0.4rem;
+  }
+
+  .results__grade {
+    font-size: 3.7rem;
   }
 
   .results__score {
-    margin-top: 0.25rem;
-    font-size: 2.1rem;
+    font-size: 2.4rem;
   }
 
-  /* Two columns: four stacked rows were the single tallest block here. */
-  .results__breakdown {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    column-gap: 1rem;
-    margin: 0.9rem 0;
+  .results__stats {
+    gap: 0.5rem;
+    margin: 0.85rem 0;
   }
 
-  .results__breakdown li {
-    padding: 0.3rem 0;
+  .stat {
+    padding: 0.55rem 0.4rem;
   }
 
-  .results__label {
-    font-size: 0.8rem;
+  .stat__value {
+    font-size: 1.3rem;
   }
 
-  /* Three labelled bars are self-evidently the timing section. */
-  .results__subhead {
-    display: none;
+  .results__tiers {
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+
+  .tier-chip {
+    padding: 0.5rem 0.15rem;
+  }
+
+  .tier-chip__count {
+    font-size: 1.1rem;
   }
 
   .timing-bars {
@@ -1358,10 +1546,10 @@ kbd {
   margin: auto;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.8rem;
   align-items: center;
-  width: min(28rem, 100%);
-  padding: 2.5rem;
+  width: min(26rem, 100%);
+  padding: 1.75rem;
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   background: var(--panel-solid);
@@ -1372,6 +1560,10 @@ kbd {
 
 .calibration__card h1 {
   margin: 0;
+  /* Smaller and less tracked than the shared signage rule, so CALIBRATION fits
+     on one line even on the narrow pause-menu card. */
+  font-size: 1.5rem;
+  letter-spacing: 0.05em;
 }
 
 /*
@@ -1385,7 +1577,7 @@ kbd {
   margin: 0.4rem 0 1rem;
   border: 2px solid rgba(255, 255, 255, 0.16);
   border-radius: 20px;
-  background: linear-gradient(160deg, rgba(255, 61, 168, 0.16), rgba(0, 224, 255, 0.14));
+  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.16), rgba(0, 224, 255, 0.14));
   color: #fff;
   font: inherit;
   font-size: 1.5rem;
@@ -1404,14 +1596,14 @@ kbd {
 
 .calibration__pad:active {
   border-color: var(--cyan);
-  background: linear-gradient(160deg, rgba(255, 61, 168, 0.3), rgba(0, 224, 255, 0.26));
+  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.3), rgba(0, 224, 255, 0.26));
 }
 
 .calibration__meter {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  padding: 1.2rem 0;
+  padding: 0.5rem 0;
 }
 
 .calibration__count {
@@ -1653,8 +1845,8 @@ kbd {
 }
 
 .themes__item--active {
-  border-color: rgba(255, 46, 136, 0.65);
-  box-shadow: 0 0 0 1px rgba(255, 46, 136, 0.3);
+  border-color: rgba(var(--accent-rgb), 0.65);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.3);
 }
 
 .themes__item-name {
@@ -1719,7 +1911,7 @@ kbd {
   font-size: 0.85rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-cyan, #f0b64a);
 }
 
 .themes__group p {
@@ -1971,7 +2163,7 @@ kbd {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #07030f;
+  background: #0a0805;
 }
 
 .editor__bar {
@@ -2095,7 +2287,10 @@ kbd {
   }
 
   .menu__body {
-    grid-template-columns: 1fr;
+    /* minmax(0, 1fr), not 1fr: a plain 1fr track has a min-content minimum, so
+       a long unbreakable song title forces the column (and the whole list) wider
+       than the viewport instead of letting the title's ellipsis kick in. */
+    grid-template-columns: minmax(0, 1fr);
     gap: 0;
   }
 
@@ -2147,7 +2342,7 @@ kbd {
     padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 22px 22px 0 0;
-    background: rgba(23, 12, 41, 0.94);
+    background: rgba(20, 15, 8, 0.94);
     box-shadow: 0 -18px 44px rgba(0, 0, 0, 0.6);
     transition: transform 0.24s ease;
   }
