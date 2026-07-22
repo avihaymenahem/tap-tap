@@ -142,11 +142,10 @@ button {
     linear-gradient(to bottom, rgba(5, 3, 1, 0.05), rgba(5, 3, 1, 0.45));
 }
 
-/* Recoloured to a song's theme accent — the finished run's on results, the
-   selected song's on the menu — so the light behind the content matches it.
-   Only the warm layers move to the accent; the dark base of the stage stays
-   put. The transition eases the colour as the menu selection changes rather
-   than snapping between songs. */
+/* Recoloured to the finished run's theme accent on the results screen, so the
+   light behind the card matches it. Only the warm layers move to the accent;
+   the dark base of the stage stays put. (The menu deliberately does not use
+   this — tinting to the current selection mixed badly with the gold stage.) */
 .retro-bg--accent {
   transition: background 0.4s ease;
   background:

@@ -1481,13 +1481,14 @@ the moment it is deployed publicly or shared. Do not deploy this.
   Five built-in palettes (Synthwave, Inferno, Arctic, Toxic, Black & White),
   read-only, with Duplicate to make editable copies persisted in
   `media/themes.json`. One follow-up remains:
-  - **The shell now follows the theme** (AAA pass, 2026-07-22). `RetroBackdrop`
-    takes an optional `accent`; `App.tsx` feeds it the selected song's accent on
-    the menu and the finished run's on results, so the glow behind the content
-    matches it. The old "menu shows all songs, so there is no one theme" concern
-    is resolved by keying the tint to the selection (reported up from
-    `MenuScreen`, eased with a CSS transition). Play and results already
-    recoloured via `accentVars`; the accent is now continuous across the flow.
+  - **The shell follows the theme on results only** (AAA pass, 2026-07-22).
+    `RetroBackdrop` takes an optional `accent`; `App.tsx` feeds it the finished
+    run's accent so the glow behind the card matches it. Tinting the **menu**
+    backdrop to the selected song was tried and reverted: the menu shows all
+    songs, so keying the whole-screen glow to the current selection lurched
+    between colours as you browsed and mixed badly with the warm stage. The
+    menu keeps its accent contained to the detail panel; play and results
+    recolour fully via `accentVars`.
   - Still open: whether a theme should change note **shape** as well as colour.
     Still colour-only; shape interacts with the bloom tuning and the "close to
     round" decision in `buildNotes`.

@@ -1,4 +1,4 @@
-import { useRef, useState, type JSX } from 'react';
+import { useRef, type JSX } from 'react';
 import { RetroBackdrop } from './components/RetroBackdrop.js';
 import type { RunResult } from './game/run.js';
 import { loadRun, saveRun } from './lastRun.js';
@@ -19,15 +19,6 @@ export function App(): JSX.Element {
    * The URL carries only ids, and the results screen wants a human name.
    */
   const titleRef = useRef('');
-
-  /**
-   * Accent of the song selected in the menu, so the shared backdrop glow can
-   * follow it as the player browses — the same palette the detail panel already
-   * shows, extended to the light behind it. MenuScreen reports it up because the
-   * backdrop is a sibling it cannot reach, and the selection (which search can
-   * change without a click) lives inside the menu.
-   */
-  const [menuAccent, setMenuAccent] = useState<number | undefined>(undefined);
 
   const onFinish = (result: RunResult, accent: number): void => {
     if (route.name !== 'play') return;
@@ -109,7 +100,6 @@ export function App(): JSX.Element {
             onPlay={(songId, difficulty) => navigate({ name: 'play', songId, difficulty })}
             onAdmin={() => navigate({ name: 'admin' })}
             onCalibrate={() => navigate({ name: 'calibrate' })}
-            onAccentChange={setMenuAccent}
           />
         );
     }
@@ -124,15 +114,16 @@ export function App(): JSX.Element {
       {route.name !== 'play' && route.name !== 'edit' && route.name !== 'themes' && (
         <RetroBackdrop
           dim={route.name === 'admin'}
-          // Tint the backdrop glow to the song in focus: the finished run's
-          // accent on results, the selected song's on the menu — so the light
-          // behind the content matches the content. Elsewhere the default gold.
+          // Only the results screen tints the backdrop, to the finished run's
+          // accent, so the light behind the card matches it. The menu is left on
+          // the default gold on purpose: it lists every song, so tinting to the
+          // current selection made the glow lurch between colours as you browse
+          // and mixed badly with the warm stage. The detail panel still carries
+          // the selected song's accent — that stays contained to the panel.
           accent={
             route.name === 'results'
               ? loadRun(route.songId, route.difficulty)?.accent
-              : route.name === 'menu'
-                ? menuAccent
-                : undefined
+              : undefined
           }
         />
       )}

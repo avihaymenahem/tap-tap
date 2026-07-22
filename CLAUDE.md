@@ -739,11 +739,14 @@ New screens and elements should reuse it rather than invent parallel systems:
   writes on ref'd elements; the combo maths lives in the pure, tested
   `game/combo.ts`.
 - **`accentVars(accent)` (`accent.ts`) is how a screen repaints in a song's
-  theme colour.** The accent now carries continuously: menu detail panel →
-  ready → play → results, and the shared `RetroBackdrop` glow follows it too
-  (selected song on the menu, finished run on results). `TIER_COLORS` /
-  `TIMING_COLORS` are the one thing it must **not** touch — see the theming
-  invariants.
+  theme colour.** The accent carries through the flow: menu detail panel →
+  ready → play → results. The shared `RetroBackdrop` glow follows it **only on
+  results** (the finished run's colour behind the card). The menu backdrop was
+  tried and reverted: it lists every song, so tinting the whole screen to the
+  current selection lurched between colours as you browsed and mixed badly with
+  the gold stage — the menu's accent stays contained to the detail panel.
+  `TIER_COLORS` / `TIMING_COLORS` are the one thing it must **not** touch — see
+  the theming invariants.
 
 ## Open items
 
@@ -765,12 +768,13 @@ New screens and elements should reuse it rather than invent parallel systems:
   applied is still open.
 - **Per-song themes are built** (PLAN.md §6d, T1–T4): five built-in palettes
   plus an editor at `/admin/themes` for custom ones, picked per
-  song in admin. **The shell now follows the theme** (AAA pass): `RetroBackdrop`
-  takes an optional `accent` and `App.tsx` feeds it the selected song's accent
-  on the menu and the finished run's on results, so the glow behind the content
-  matches it — the earlier "no single theme to apply on the menu" concern is
-  resolved by keying it to the selection. The remaining follow-up is whether a
-  theme should change note *shape* as well as colour.
+  song in admin. **The shell follows the theme on results only** (AAA pass):
+  `RetroBackdrop` takes an optional `accent` and `App.tsx` feeds it the finished
+  run's accent so the glow behind the card matches it. The menu was tried and
+  reverted — it lists every song, so tinting the whole screen to the current
+  selection mixed badly with the gold stage; the menu keeps its accent contained
+  to the detail panel. The remaining follow-up is whether a theme should change
+  note *shape* as well as colour.
 - **Editor:** E1 (read-only timeline) is built at `/edit/:songId/:difficulty`.
   E2 (global timing offset + save + `customChart`) and E3 (note editing with
   undo/redo) are designed in PLAN.md §6c but not built. E2 is the highest-value
