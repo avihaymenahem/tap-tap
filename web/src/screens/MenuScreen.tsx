@@ -263,9 +263,8 @@ export function MenuScreen({
     <div className="menu">
       <header className="menu__header">
         <h1 className="logo">
-          <span className="logo__tap">tap</span>
-          <span className="logo__dot">·</span>
-          <span className="logo__tap logo__tap--alt">tap</span>
+          <span className="logo__tap">Tap</span>
+          <span className="logo__tap logo__tap--alt">Tap</span>
         </h1>
         <div className="menu__actions" ref={menuRef}>
           <button

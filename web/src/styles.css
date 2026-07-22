@@ -569,13 +569,10 @@ kbd {
   /* Archivo Black ships one weight — 400 here or the browser synthesises a
      smeared fake-bold on top of an already-black face. */
   font-weight: 400;
-  /* Wide and italic instead of tight: the era's logotypes lean forward and
-     breathe. The gradient fills clip to the text, so the glow has to come from
-     a drop-shadow filter — text-shadow paints under transparent glyphs and
-     would show nothing at all here. */
+  /* The gradient fills clip to the text, so the glow has to come from a
+     drop-shadow filter — text-shadow paints under transparent glyphs and would
+     show nothing at all here. */
   letter-spacing: 0.02em;
-  text-transform: lowercase;
-  font-style: italic;
   filter: drop-shadow(0 0 14px rgba(var(--accent-rgb), 0.55))
     drop-shadow(0 0 30px rgba(240, 182, 74, 0.28));
 }
@@ -640,10 +637,6 @@ kbd {
   }
 }
 
-.logo__dot {
-  color: var(--violet);
-  margin: 0 0.15em;
-}
 
 .menu__actions {
   position: relative;
