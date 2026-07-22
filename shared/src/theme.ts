@@ -279,6 +279,110 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     },
     style: 'stage',
   },
+  {
+    id: 'aurora',
+    name: 'Aurora',
+    accent: 0x4fffb0,
+    // Northern lights: a green→cyan→violet sweep with a warm pin to keep the
+    // outer lanes readable. Green and cyan are the danger pair (adjacent hues),
+    // so they are pushed a full step apart rather than left as neighbours.
+    lanes: [0x2effa0, 0x24d6ff, 0x7a5cff, 0xff4fb0, 0xffe14a],
+    hitLine: 0xe6fff4,
+    sky: {
+      top: 0x04121a,
+      horizon: 0x0e5a4a,
+      horizonAlt: 0x134e5e,
+      below: 0x061a1a,
+      sun: 0x2ea87a,
+      sunCrown: 0x8fe0c0,
+      haze: 0x2e8f7a,
+      glow: 0x2e6f8c,
+    },
+    style: 'stage',
+  },
+  {
+    id: 'vapor',
+    name: 'Vapor',
+    accent: 0xff7ad9,
+    // Vaporwave dusk — magenta and peach over a violet horizon. The cyan is the
+    // one cool lane that stops the warm half from blurring together.
+    lanes: [0xff4fd8, 0xff7a5c, 0xffd06b, 0x4fe0ff, 0x8f6bff],
+    hitLine: 0xffe6f6,
+    sky: {
+      top: 0x180a2e,
+      horizon: 0x5a2a6e,
+      horizonAlt: 0x4e2a6a,
+      below: 0x140826,
+      sun: 0xc84f9a,
+      sunCrown: 0xe0a0c8,
+      haze: 0xa04f8a,
+      glow: 0x8f5abc,
+    },
+    style: 'stage',
+  },
+  {
+    id: 'abyss',
+    name: 'Deep Sea',
+    accent: 0x2ee0ff,
+    // Abyssal: blue and cyan up top, then lime and coral for the bioluminescence
+    // — the two warm lanes are what keep this from being an unreadable wall of
+    // blue, the mistake the Arctic palette warns about.
+    lanes: [0x3a6bff, 0x2ee0ff, 0xa6ff3c, 0xff6a4a, 0xff4fb0],
+    hitLine: 0xe6f6ff,
+    sky: {
+      top: 0x02101e,
+      horizon: 0x0e3a6e,
+      horizonAlt: 0x123a5e,
+      below: 0x04121e,
+      sun: 0x2e7ab0,
+      sunCrown: 0x7ab8d8,
+      haze: 0x2e6a9a,
+      glow: 0x2e5abc,
+    },
+    style: 'stage',
+  },
+  {
+    id: 'royal',
+    name: 'Royal',
+    accent: 0xc89bff,
+    // Violet and magenta with gold — the regal pairing. Rose is pulled toward
+    // coral so it does not read as a second magenta, and cyan grounds the cool
+    // end so five jewel tones stay five.
+    lanes: [0x9a5cff, 0xe04fd0, 0xff6a6a, 0xffcf4a, 0x4fd0e0],
+    hitLine: 0xf2e6ff,
+    sky: {
+      top: 0x10062e,
+      horizon: 0x3e1d6e,
+      horizonAlt: 0x36206a,
+      below: 0x0e0526,
+      sun: 0x7a3ec0,
+      sunCrown: 0xb890e0,
+      haze: 0x6a3ea0,
+      glow: 0x5a3ebc,
+    },
+    style: 'stage',
+  },
+  {
+    id: 'molten',
+    name: 'Molten',
+    accent: 0xff8a3c,
+    // Forge colours: crimson, orange, gold. A cyan lane is deliberately dropped
+    // into the middle — five shades of fire would be five lanes nobody can tell
+    // apart, so the contrast lane is the readability, not a mood break.
+    lanes: [0xff3a3a, 0xff8a2e, 0xffd23c, 0x2ee0ff, 0xff4fb0],
+    hitLine: 0xffece0,
+    sky: {
+      top: 0x230604,
+      horizon: 0x6e2a10,
+      horizonAlt: 0x5e240e,
+      below: 0x1e0804,
+      sun: 0xcc5a22,
+      sunCrown: 0xe0a060,
+      haze: 0xa8502a,
+      glow: 0x8c3a2e,
+    },
+    style: 'stage',
+  },
 ];
 
 export const DEFAULT_THEME_ID = 'synthwave';

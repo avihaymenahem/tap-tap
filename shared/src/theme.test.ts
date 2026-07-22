@@ -61,6 +61,15 @@ describe('BUILTIN_THEMES', () => {
     const ids = BUILTIN_THEMES.map((theme) => theme.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it('ships the five expansion palettes', () => {
+    // Guards against a rebase silently dropping one. The colour rules are
+    // enforced by the validator loop above; this just pins their presence.
+    const ids = new Set(BUILTIN_THEMES.map((theme) => theme.id));
+    for (const id of ['aurora', 'vapor', 'abyss', 'royal', 'molten']) {
+      expect(ids.has(id), id).toBe(true);
+    }
+  });
 });
 
 describe('themeCatalog', () => {
