@@ -10,6 +10,12 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // youtubedl-android ships Python + ffmpeg per ABI. Ship only the two we
+        // run — the S25 (arm64-v8a) and the x86_64 emulator — instead of four,
+        // which roughly halves the APK.
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -20,6 +26,17 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    packagingOptions {
+        jniLibs {
+            // youtubedl-android ships its Python runtime as libpython.zip.so and
+            // opens it as a real file at init; modern AGP keeps native libs
+            // compressed inside the APK, so it must be extracted to disk or init
+            // fails with FileNotFoundException. This is the flag that does it.
+            useLegacyPackaging = true
+            // The library and ffmpeg artifacts both carry libc++_shared.so.
+            pickFirsts += ['**/libc++_shared.so']
         }
     }
 }
@@ -40,6 +57,13 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+
+    // On-device ingest (PLAN.md §6h, MC1): the yt-dlp replacement. Bundles yt-dlp
+    // + a Python runtime + ffmpeg into the APK — the same yt-dlp the desktop
+    // pipeline shelled out to, so metadata/download/transcode behaviour matches.
+    def youtubedlAndroid = "0.18.1"
+    implementation "io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid"
+    implementation "io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlAndroid"
 }
 
 apply from: 'capacitor.build.gradle'

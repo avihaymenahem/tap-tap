@@ -1229,13 +1229,25 @@ playback read the same stored `audio.m4a`, priming delay and all.
   under `web/public/seed/` so a fresh install is not empty — the mechanism is
   proven (tested with a real song), only the shippable demo asset is missing.
 
-**Phase C — on-device ingest**
-- **MC1** — The `youtubedl-android` Capacitor plugin (`fetchMetadata` /
-  `download` + progress).
-- **MC2** — Port `ingestSong` into `web/src/ingest.ts`: plugin download → read
-  m4a → decode → worker analyse → save to library, reusing the existing
-  preservation rules verbatim. In-app ingest screen with the existing job/progress
-  UI, replacing the admin YouTube-URL flow.
+**Phase C — on-device ingest (done — verified end to end on the emulator)**
+- **MC1 (done)** — `YoutubeDlPlugin.java`, a Capacitor plugin wrapping the
+  `io.github.junkfood02.youtubedl-android` fork (`com.yausername.*` classes) with
+  `fetchMetadata` / `download`, registered in `MainActivity`; `youtubedl.ts` is the
+  TS bridge. Gradle carries the library + ffmpeg for arm64-v8a + x86_64 only.
+  **Two traps solved, both build-time:** `execute`'s progress-callback arity has
+  drifted between versions, so we use the plain `execute(request)`; and the
+  library ships its Python as `libpython.zip.so` and opens it as a *file*, so
+  `useLegacyPackaging = true` is mandatory or init dies with `FileNotFoundException`.
+- **MC2 (done)** — `web/src/data/ingest.ts` orchestrates it: `fetchMetadata` →
+  `download` (into the song's Filesystem dir) → read the m4a → Web Audio decode →
+  the MA2 analysis worker → rename to `audio.m4a`/`thumb.jpg` → write
+  beatmap/analysis/waveform, reusing the server's `customName`/`themeId`
+  preservation. `NativeIngest` is the FAB + modal; on native the menu's "add song"
+  entries route here, **not** to the server-only Admin screen (whose HTTP calls
+  return the app shell — the `<!doctype … is not valid JSON` error). **Verified:**
+  pasted a YouTube link on the emulator, watched it download "Never Gonna Give You
+  Up", analyse (bpm 113.66, confidence 0.831), and appear as a playable song — no
+  server, entirely on device.
 
 **Phase D — strip desktop, brand the app**
 - **MD1** — Delete the Express server, Docker, tunnels, `serve:public`/`--no-web`,

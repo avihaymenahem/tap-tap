@@ -1,9 +1,10 @@
 import type { DifficultyName, SongSummary, Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-tap/shared';
-import { ChevronDown, Download, Play, Star, WifiOff } from 'lucide-react';
+import { ChevronDown, Download, Play, Plus, Star, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { accentVars } from '../accent.js';
-import { listCustomThemes, listSongs } from '../data/index.js';
+import { isNativePlatform, listCustomThemes, listSongs } from '../data/index.js';
+import { NativeIngest } from '../components/NativeIngest.js';
 import { playUiSound } from '../uisfx.js';
 import { prefetchAudio } from '../api/prefetch.js';
 import { isReadOnly } from '../api/serverConfig.js';
@@ -62,6 +63,14 @@ function nearestAvailable(
 export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): JSX.Element {
   const [songs, setSongs] = useState<SongSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bumped after a native ingest to re-list the library.
+  const [reloadKey, setReloadKey] = useState(0);
+  const [ingestOpen, setIngestOpen] = useState(false);
+  const native = isNativePlatform();
+  // On device there is no server, so "add songs" runs the native ingest instead
+  // of opening the server-only admin screen (whose HTTP calls just return the
+  // app shell — the "<!doctype … is not valid JSON" error).
+  const openAdd = native ? () => setIngestOpen(true) : onAdmin;
   // Medium, not easy: easy is 3 lanes at ~1.2 notes/sec, which reads as a demo
   // rather than a game to anyone who has played one before. Easy stays one
   // click away for players who want it.
@@ -174,7 +183,7 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   // Bring the restored (last-played) song into view once the list is up — it
   // may be far down, where the highlight alone would be off-screen.
@@ -242,6 +251,29 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
 
   return (
     <div className="menu">
+      {native && (
+        <>
+          <button
+            type="button"
+            className="ingest-fab"
+            aria-label="Add song"
+            onClick={() => {
+              setIngestOpen(true);
+              playUiSound('tick');
+            }}
+          >
+            <Plus size={26} />
+          </button>
+          <NativeIngest
+            open={ingestOpen}
+            onClose={() => setIngestOpen(false)}
+            onDone={() => {
+              setIngestOpen(false);
+              setReloadKey((k) => k + 1);
+            }}
+          />
+        </>
+      )}
       <header className="menu__header">
         <h1 className="logo" aria-label="TapTap">
           {/* A brand mark of two note-tiles — the game's own tap targets — that
@@ -288,7 +320,7 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                   className="dropdown__item"
                   onClick={() => {
                     setMenuOpen(false);
-                    onAdmin();
+                    openAdd();
                   }}
                 >
                   <span>Add songs</span>
@@ -352,7 +384,7 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
           ) : (
             <>
               <p className="muted">Add a YouTube link and it will be analyzed into a chart.</p>
-              <button type="button" className="btn btn--primary" onClick={onAdmin}>
+              <button type="button" className="btn btn--primary" onClick={openAdd}>
                 Add your first song
               </button>
             </>
