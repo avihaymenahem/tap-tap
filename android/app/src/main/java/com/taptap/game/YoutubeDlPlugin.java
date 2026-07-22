@@ -31,6 +31,15 @@ public class YoutubeDlPlugin extends Plugin {
         if (initialized) return;
         YoutubeDL.getInstance().init(getContext());
         FFmpeg.getInstance().init(getContext());
+        // Pull the latest yt-dlp before the first download. The binary bundled in
+        // the APK goes stale fast — YouTube changes its player constantly — and a
+        // stale yt-dlp is the usual cause of "HTTP 403 Forbidden". Best-effort:
+        // if the update can't reach GitHub, fall back to the bundled version.
+        try {
+            YoutubeDL.getInstance().updateYoutubeDL(getContext(), YoutubeDL.UpdateChannel.STABLE.INSTANCE);
+        } catch (Exception ignored) {
+            // Keep the bundled yt-dlp; a failed self-update must not block ingest.
+        }
         initialized = true;
     }
 
