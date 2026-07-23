@@ -21,6 +21,8 @@ describe('isDefaultModifiers', () => {
     expect(isDefaultModifiers({ ...DEFAULT_MODIFIERS, mirror: true })).toBe(false);
     expect(isDefaultModifiers({ ...DEFAULT_MODIFIERS, visibility: 'hidden' })).toBe(false);
     expect(isDefaultModifiers({ ...DEFAULT_MODIFIERS, speed: 1.25 })).toBe(false);
+    // Holds are on by default, so turning them *off* is the change.
+    expect(isDefaultModifiers({ ...DEFAULT_MODIFIERS, holds: false })).toBe(false);
   });
 });
 

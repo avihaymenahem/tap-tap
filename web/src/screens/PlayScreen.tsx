@@ -8,7 +8,7 @@ import { GameEngine, type GameSnapshot } from '../game/engine.js';
 import { accuracyOf, foldUnreached, gradeFor, type Tier, type Timing } from '../game/judge.js';
 import { playUiSound } from '../uisfx.js';
 import type { RunResult } from '../game/run.js';
-import { cancelHaptics, vibrateMiss, vibrateTap } from '../haptics.js';
+import { cancelHaptics, vibrateHold, vibrateMiss, vibrateTap } from '../haptics.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
@@ -258,9 +258,12 @@ export function PlayScreen({
    * ready-screen change), and at restart — all cheap, a chart is just an array.
    */
   const makeEngine = (chart: Chart, clock: AudioClock, run: Modifiers): GameEngine => {
-    const played = run.mirror
-      ? { ...chart, notes: mirrorNotes(chart.notes, chart.laneCount) }
-      : chart;
+    // Holds off → every hold plays as a plain tap. Then mirror, if on.
+    let notes = run.holds
+      ? chart.notes
+      : chart.notes.map((n) => (isHold(n) ? { ...n, type: 'tap' as const, duration: undefined } : n));
+    if (run.mirror) notes = mirrorNotes(notes, chart.laneCount);
+    const played: Chart = notes === chart.notes ? chart : { ...chart, notes };
     return new GameEngine(played, {
       // Calibration is stored in real seconds (song-seconds at 1x). At rate r a
       // physical output latency of L real seconds is L*r song-seconds late, and
@@ -589,6 +592,14 @@ export function PlayScreen({
       for (const lane of engine.takeCompletedHoldLanes()) {
         highway.burst(lane, 'perfect', engine.snapshot.combo);
         vibrateTap();
+      }
+
+      // Rolling buzz for as long as any lane is held. Self-throttled.
+      for (let lane = 0; lane < params.laneCount; lane++) {
+        if (engine.heldNoteId(lane) >= 0) {
+          vibrateHold();
+          break;
+        }
       }
 
       clock.readSpectrum(spectrum);

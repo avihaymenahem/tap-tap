@@ -68,6 +68,16 @@ export function ModifierPanel({
 
         <button
           type="button"
+          className={`mod-chip ${mods.holds ? 'mod-chip--on' : ''}`}
+          aria-pressed={mods.holds}
+          onClick={() => toggle({ holds: !mods.holds }, !mods.holds)}
+        >
+          <span aria-hidden>🎵</span>
+          <span>Holds {mods.holds ? 'On' : 'Off'}</span>
+        </button>
+
+        <button
+          type="button"
           className={`mod-chip ${mods.mirror ? 'mod-chip--on' : ''}`}
           aria-pressed={mods.mirror}
           onClick={() => toggle({ mirror: !mods.mirror }, !mods.mirror)}

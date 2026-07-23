@@ -35,6 +35,12 @@ export interface Modifiers {
    * timeline; the chart's note times are unchanged. Bounded by `SPEED_CHOICES`.
    */
   speed: number;
+  /**
+   * Whether hold notes play as holds. On by default; turning it off demotes
+   * every hold to a plain tap, for players who would rather the chart were all
+   * taps. Applied at engine build, like mirror.
+   */
+  holds: boolean;
 }
 
 export const DEFAULT_MODIFIERS: Modifiers = {
@@ -42,6 +48,7 @@ export const DEFAULT_MODIFIERS: Modifiers = {
   mirror: false,
   visibility: 'normal',
   speed: 1,
+  holds: true,
 };
 
 /** The speeds the UI offers. 1 is centre; the extremes are deliberately modest. */
@@ -50,7 +57,11 @@ export const SPEED_CHOICES: readonly number[] = [0.75, 1, 1.25, 1.5];
 /** True when nothing is changed from a plain run — used to hide "modified" UI. */
 export function isDefaultModifiers(mods: Modifiers): boolean {
   return (
-    !mods.fail && !mods.mirror && mods.visibility === 'normal' && mods.speed === 1
+    !mods.fail &&
+    !mods.mirror &&
+    mods.visibility === 'normal' &&
+    mods.speed === 1 &&
+    mods.holds
   );
 }
 
