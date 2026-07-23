@@ -1570,35 +1570,110 @@ kbd {
   }
 }
 
+/* Pause menu — a compact centred card, split into run actions and settings so
+   the two never blur together (a mistap on Quit costs a whole song). */
+.pause-card {
+  width: min(92vw, 360px);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 1.6rem 1.4rem;
+  border-radius: var(--radius);
+  background: var(--panel-solid);
+  border: 1px solid rgba(var(--accent-rgb), 0.16);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  text-align: center;
+}
+
+.pause-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pause-card__eyebrow {
+  color: var(--gold);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.pause-card__head h2 {
+  margin: 0;
+  font-size: clamp(1.2rem, 4.5vw, 1.6rem);
+  overflow-wrap: anywhere;
+}
+
+.pause-card__meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: capitalize;
+}
+
 .pause-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  justify-content: center;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.pause-actions__row {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.pause-actions__row .btn {
+  flex: 1;
+}
+
+.btn--block {
+  width: 100%;
+}
+
+/* Settings list, divided from the run actions above by a hairline rule. */
+.pause-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /*
- * Deliberately quieter than the pause actions beside it. This adjusts a setting
- * rather than the run, so it should read as secondary — and a tap target that
- * looks like Resume sitting next to Quit invites the wrong one being hit.
+ * A settings row: label left, state (On/Off pill, or a chevron) right. Reads as
+ * a list item, distinct from the pill-shaped run buttons above it.
  */
 .pause-setting {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.55rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
+  width: 100%;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.9);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .pause-setting:hover {
-  border-color: rgba(255, 255, 255, 0.28);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.pause-setting__chev {
+  color: var(--muted);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.pause-card__hint {
+  margin: 0;
 }
 
 /* The calibration sub-view fills the pause overlay; the calibration card

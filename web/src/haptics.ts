@@ -124,6 +124,27 @@ export function vibrateTap(): void {
   fire(HIT_PULSE_MS);
 }
 
+/**
+ * A rolling buzz while a hold is down.
+ *
+ * Call it every frame a lane is held; it self-throttles. Each pulse is longer
+ * than a tap and re-fires *before* the motor fully spins down, so the string of
+ * pulses smears into a near-continuous hum — exactly the "still holding it"
+ * sensation, which the same smearing that ruins fast distinct pulses gives for
+ * free here. Gated to `hits` mode, the same family as the tap buzz.
+ */
+const HOLD_PULSE_MS = 55;
+const HOLD_BUZZ_INTERVAL_MS = 150;
+let lastHoldBuzzAt = Number.NEGATIVE_INFINITY;
+
+export function vibrateHold(): void {
+  if (!hapticsSupported() || getHapticMode() !== 'hits') return;
+  const now = performance.now();
+  if (now - lastHoldBuzzAt < HOLD_BUZZ_INTERVAL_MS) return;
+  lastHoldBuzzAt = now;
+  fire(HOLD_PULSE_MS);
+}
+
 /** Feedback for a dropped note. Only in `misses` mode, and throttled. */
 export function vibrateMiss(): void {
   if (!hapticsSupported() || getHapticMode() !== 'misses') return;

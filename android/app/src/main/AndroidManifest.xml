@@ -32,4 +32,7 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Haptics. Without this the WebView's navigator.vibrate() is a silent
+         no-op on device, so every buzz in the game does nothing. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 </manifest>
