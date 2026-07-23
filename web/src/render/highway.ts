@@ -1998,10 +1998,14 @@ export class Highway {
     if (this.visibility === 'normal') return 1;
     const p = Math.max(0, Math.min(1, progress));
     if (this.visibility === 'hidden') {
-      return Math.max(0, Math.min(1, (p - 0.15) / 0.3));
+      // Fully lit until the note is well down the track, then fade over the last
+      // stretch before the receptor. The band was too high before — notes
+      // vanished with most of the highway still to travel.
+      return Math.max(0, Math.min(1, (p - 0.06) / 0.22));
     }
-    // fadeout
-    return Math.max(0, Math.min(1, (0.62 - p) / 0.3));
+    // fadeout: dark far out, revealing as it approaches — but a touch sooner
+    // than before, so it is readable rather than a last-instant pop.
+    return Math.max(0, Math.min(1, (0.7 - p) / 0.26));
   }
 
   /**
