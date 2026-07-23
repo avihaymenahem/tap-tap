@@ -18,8 +18,10 @@ export const BEATMAP_VERSION = 1;
  *
  * 1 — two-finger holds (one at a time, edge lanes, no chord inside, shorter).
  * 2 — a recovery gap after every hold (no tap for a beat after the tail).
+ * 3 — holds only on prominent onsets (a head-strength gate), so their placement
+ *     matches sounds the player actually hears rather than quiet sustained bass.
  */
-export const CHART_VERSION = 2;
+export const CHART_VERSION = 3;
 
 export type DifficultyName = 'easy' | 'medium' | 'hard' | 'extreme';
 

@@ -190,9 +190,29 @@ function applyHolds(
     if (!existing || head.strength > existing.strength) headByTime.set(key, head);
   }
 
+  // A hold is only worth charting when its head is a *prominent* sound — the
+  // note actually rings out. Sustain detection alone is not enough: a quiet bass
+  // note can hold a flat envelope for a second, pass every sustain test, and
+  // become a hold on a sound the player does not consciously hear, which is what
+  // makes holds feel "out of scope" with the song. Gate the head on a percentile
+  // of the charted onsets' strengths, so only the loud, obvious sustains qualify
+  // — and, like every other threshold here, relative to the song rather than an
+  // absolute that means something different on every master (§2.1).
+  const headStrengths = heads.map((h) => h.strength).sort((a, b) => a - b);
+  const minHeadStrength =
+    headStrengths.length > 0
+      ? headStrengths[Math.floor(headStrengths.length * HOLD_HEAD_PERCENTILE)] ?? 0
+      : 0;
+
   const outerLanes = new Set([0, params.laneCount - 1]);
 
-  const candidates: { index: number; sustain: Sustain; duration: number; onBeat: boolean }[] = [];
+  const candidates: {
+    index: number;
+    sustain: Sustain;
+    duration: number;
+    onBeat: boolean;
+    strength: number;
+  }[] = [];
   notes.forEach((note, index) => {
     const sustain = byTime.get(note.t.toFixed(2));
     if (!sustain) return;
@@ -204,6 +224,12 @@ function applyHolds(
     // rule that keeps a charted hold two-finger playable.
     if (!outerLanes.has(note.lane)) return;
 
+    // Prominent head only (see above): a hold on a near-silent onset reads as
+    // random. No head onset (a snapped/chord time with no match) is treated as
+    // not prominent — safer to leave it a tap.
+    const head = headByTime.get(note.t.toFixed(2));
+    if (!head || head.strength < minHeadStrength) return;
+
     // Trim so the lane is free again before its next note, with the usual
     // spacing preserved. If that leaves too little, this is a tap.
     const gap = nextInLane.get(index) ?? Number.POSITIVE_INFINITY;
@@ -213,19 +239,20 @@ function applyHolds(
 
     // On a trusted grid, a hold whose head sits off the beat reads as mistimed;
     // off a trusted grid the grid says nothing, so every head is treated equally.
-    const head = headByTime.get(note.t.toFixed(2));
-    const onBeat = gridTrusted && head ? head.onGrid : false;
+    const onBeat = gridTrusted ? head.onGrid : false;
 
-    candidates.push({ index, sustain, duration, onBeat });
+    candidates.push({ index, sustain, duration, onBeat, strength: head.strength });
   });
 
-  // On-beat heads first, then steadiest — a hold on the pulse reads as
-  // intentional, and the steadiest sustains are the least ambiguous. Neither
-  // rejects a candidate outright; the budget and concurrency cap below do the
-  // culling, so an on-beat song simply fills with its cleanest holds.
+  // On-beat first, then the loudest heads, then the steadiest sustains — the
+  // holds kept when the budget binds should be the ones a listener would pick
+  // out as *the* sustained moment. Neither rejects a candidate outright; the
+  // budget and concurrency cap below do the culling.
   candidates.sort(
     (a, b) =>
-      Number(b.onBeat) - Number(a.onBeat) || b.sustain.steadiness - a.sustain.steadiness,
+      Number(b.onBeat) - Number(a.onBeat) ||
+      b.strength - a.strength ||
+      b.sustain.steadiness - a.sustain.steadiness,
   );
 
   const accepted: Span[] = [];
@@ -370,6 +397,16 @@ const MIN_GRID_CONFIDENCE = 0.5;
  * second band is not one.
  */
 const CHORD_MIN_STRENGTH = 0.55;
+
+/**
+ * A hold's head must be at least this strong, as a percentile of the charted
+ * onsets' strengths. 0.6 keeps roughly the loudest 40% of onsets eligible to
+ * *start* a hold, which is what stops holds from landing on quiet sustained bass
+ * the player never notices — the "out of scope" placement complaint. Relative,
+ * not absolute, for the §2.1 reason: a fixed strength means something different
+ * on every master.
+ */
+const HOLD_HEAD_PERCENTILE = 0.6;
 
 /**
  * Bar length assumed when scoring rhythmic repetition. The absolute downbeat is

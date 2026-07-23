@@ -18,6 +18,8 @@ export type Route =
   | { name: 'results'; songId: string; difficulty: DifficultyName }
   | { name: 'edit'; songId: string; difficulty: DifficultyName }
   | { name: 'calibrate' }
+  | { name: 'achievements' }
+  | { name: 'tutorial' }
   | { name: 'admin' }
   | { name: 'themes' };
 
@@ -52,6 +54,10 @@ export function parseRoute(pathname: string, options?: ParseOptions): Route {
       return songId === 'themes' ? { name: 'themes' } : { name: 'admin' };
     case 'calibrate':
       return { name: 'calibrate' };
+    case 'achievements':
+      return { name: 'achievements' };
+    case 'tutorial':
+      return { name: 'tutorial' };
     case 'play':
     case 'results':
     case 'edit': {
@@ -74,6 +80,10 @@ export function routeToPath(route: Route): string {
       return '/admin/themes';
     case 'calibrate':
       return '/calibrate';
+    case 'achievements':
+      return '/achievements';
+    case 'tutorial':
+      return '/tutorial';
     case 'play':
       return `/play/${encodeURIComponent(route.songId)}/${route.difficulty}`;
     case 'results':

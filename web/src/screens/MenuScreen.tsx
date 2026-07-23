@@ -11,6 +11,7 @@ import { isReadOnly } from '../api/serverConfig.js';
 import { HapticToggle } from '../components/HapticToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
 import { useCachedAudio, useOffline } from '../hooks/useOffline.js';
+import { previewStartSec, useSongPreview } from '../hooks/useSongPreview.js';
 import { clearOfflineTracks, offlineUsageBytes } from '../pwa.js';
 import {
   MENU_SORTS,
@@ -24,8 +25,10 @@ import {
   getBestScore,
   getFavorites,
   getLastSong,
+  getPreviewEnabled,
   getStoredSort,
   setLastSong,
+  setPreviewEnabled,
   setStoredSort,
   toggleFavorite,
 } from '../storage.js';
@@ -34,6 +37,8 @@ interface MenuScreenProps {
   onPlay: (songId: string, difficulty: DifficultyName) => void;
   onAdmin: () => void;
   onCalibrate: () => void;
+  onAchievements: () => void;
+  onHowToPlay: () => void;
 }
 
 /**
@@ -60,7 +65,13 @@ function nearestAvailable(
   );
 }
 
-export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): JSX.Element {
+export function MenuScreen({
+  onPlay,
+  onAdmin,
+  onCalibrate,
+  onAchievements,
+  onHowToPlay,
+}: MenuScreenProps): JSX.Element {
   const [songs, setSongs] = useState<SongSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Bumped after a native ingest to re-list the library.
@@ -79,6 +90,10 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
   const [query, setQuery] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  /** Menu song previews: a short clip when you select a track. */
+  const preview = useSongPreview();
+  const [previewsOn, setPreviewsOn] = useState(getPreviewEnabled);
 
   const [favorites, setFavorites] = useState<ReadonlySet<string>>(getFavorites);
   // Restore the last chosen sort, so it survives leaving and coming back.
@@ -300,6 +315,51 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
             <div className="dropdown" role="menu">
               <HapticToggle className="dropdown__item" />
               <SoundToggle className="dropdown__item" />
+
+              <button
+                type="button"
+                role="menuitem"
+                className="dropdown__item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onAchievements();
+                }}
+              >
+                <span>🏆 Achievements</span>
+              </button>
+
+              <button
+                type="button"
+                role="menuitem"
+                className="dropdown__item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onHowToPlay();
+                }}
+              >
+                <span>How to play</span>
+              </button>
+
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={previewsOn}
+                className="dropdown__item"
+                // Stays open (like the haptics/sound toggles): the point is to
+                // see the state flip.
+                onClick={() => {
+                  const next = !previewsOn;
+                  setPreviewsOn(next);
+                  setPreviewEnabled(next);
+                  if (!next) preview.stop();
+                  else playUiSound('tick');
+                }}
+              >
+                <span>Song previews</span>
+                <span className={`dropdown__state ${previewsOn ? 'dropdown__state--on' : ''}`}>
+                  {previewsOn ? 'On' : 'Off'}
+                </span>
+              </button>
 
               <button
                 type="button"
@@ -550,6 +610,11 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                         playUiSound('tick');
                         setSelected(song.songId);
                         setLastSong(song.songId);
+                        // A tap is a user gesture, so a preview clip may autoplay
+                        // here (unlike the cold-load last-song restore). Off ⇒
+                        // silence, and the cache warm below still runs.
+                        if (previewsOn) preview.play(song.audioUrl, previewStartSec(song.duration));
+                        else preview.stop();
                         // Picking a track is the way back to a dismissed sheet
                         // on mobile — the only one, deliberately, since it is
                         // also the reason you would want it back.
@@ -694,6 +759,7 @@ export function MenuScreen({ onPlay, onAdmin, onCalibrate }: MenuScreenProps): J
                   onClick={() => {
                     if (!effectiveDifficulty) return;
                     playUiSound('confirm');
+                    preview.stop(); // never let a preview bleed into the run
                     onPlay(selectedSong.songId, effectiveDifficulty);
                   }}
                 >

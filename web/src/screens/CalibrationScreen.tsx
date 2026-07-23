@@ -1,6 +1,7 @@
 import { RotateCcw } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { MIN_STORED_SEC, foldTapDelta } from '../game/calibration.js';
+import { click } from '../game/metronome.js';
 import { getStoredCalibration, setCalibration } from '../storage.js';
 
 /**
@@ -292,20 +293,6 @@ export function CalibrationScreen({ onDone }: CalibrationScreenProps): JSX.Eleme
       </div>
     </div>
   );
-}
-
-/** Short percussive blip at a precise context time. */
-function click(ctx: AudioContext, at: number): void {
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.frequency.value = 1400;
-  gain.gain.setValueAtTime(0.0001, at);
-  gain.gain.exponentialRampToValueAtTime(0.5, at + 0.001);
-  gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.06);
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start(at);
-  osc.stop(at + 0.08);
 }
 
 function median(values: number[]): number {
