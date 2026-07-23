@@ -190,10 +190,19 @@ function applyHolds(
     if (!existing || head.strength > existing.strength) headByTime.set(key, head);
   }
 
+  const outerLanes = new Set([0, params.laneCount - 1]);
+
   const candidates: { index: number; sustain: Sustain; duration: number; onBeat: boolean }[] = [];
   notes.forEach((note, index) => {
     const sustain = byTime.get(note.t.toFixed(2));
     if (!sustain) return;
+
+    // Holds only on the outermost lanes. Touch is two thumbs; while one pins a
+    // hold, the other must still reach every other note. If the hold is on an
+    // edge, the remaining lanes are a contiguous block the free thumb can sweep;
+    // an inner-lane hold splits the board in two and strands a side. This is the
+    // rule that keeps a charted hold two-finger playable.
+    if (!outerLanes.has(note.lane)) return;
 
     // Trim so the lane is free again before its next note, with the usual
     // spacing preserved. If that leaves too little, this is a tap.
@@ -236,6 +245,37 @@ function applyHolds(
     note.type = 'hold';
     note.duration = round(duration);
     accepted.push({ start, end });
+  }
+
+  if (accepted.length === 0) return;
+
+  // Two-finger cleanup: while a hold is down, one thumb is committed, so the
+  // free thumb can take at most one tap at a time. Drop any *simultaneous* tap
+  // (a chord) landing strictly inside a hold's span — a second finger it does
+  // not have. The head instant is left alone: a chord on the hold's own head is
+  // two presses at once, then one releases and the hold carries on one-handed.
+  const EPS = 1e-4;
+  const insideHold = (t: number): boolean =>
+    accepted.some((s) => t > s.start + EPS && t <= s.end + EPS);
+
+  const usedTapAt = new Set<string>();
+  const kept: Note[] = [];
+  for (const note of notes) {
+    if (note.type === 'hold') {
+      kept.push(note);
+      continue;
+    }
+    if (insideHold(note.t)) {
+      const key = note.t.toFixed(3);
+      if (usedTapAt.has(key)) continue; // a chord partner during a hold — drop it
+      usedTapAt.add(key);
+    }
+    kept.push(note);
+  }
+
+  if (kept.length !== notes.length) {
+    notes.length = 0;
+    notes.push(...kept);
   }
 }
 

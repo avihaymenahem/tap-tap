@@ -29,6 +29,23 @@ function sustainedAnalysis(spacing = 2, duration = 60): AnalysisResult {
   return { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets };
 }
 
+/**
+ * Onsets that actually chord: a dominant low band with a real mid secondary
+ * (above the 0.2 content floor), packed close so a hold and a chord overlap and
+ * the two-finger cleanup has something to remove.
+ */
+function chordyAnalysis(duration = 40): AnalysisResult {
+  const beatGrid: number[] = [];
+  for (let t = 0; t < duration; t += 0.5) beatGrid.push(Number(t.toFixed(4)));
+
+  const onsets: Onset[] = [];
+  for (let t = 1; t < duration - 2; t += 0.5) {
+    onsets.push({ t: Number(t.toFixed(3)), strength: 0.9, low: 0.6, mid: 0.5, high: 0.2 });
+  }
+
+  return { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets };
+}
+
 /** Level everywhere from the first onset: every onset sustains until the next. */
 function plateauWaveform(duration = 60): Waveform {
   const count = Math.round(duration / SECONDS_PER_PEAK);
@@ -210,6 +227,36 @@ describe('hold generation', () => {
     const chart = generateChart(sustainedAnalysis(), hard, 1, plateauWaveform());
     for (const note of chart.notes) {
       if (note.type === 'tap') expect(note.duration).toBeUndefined();
+    }
+  });
+
+  it('places every hold on an outer lane', () => {
+    // Two-finger rule: while one thumb pins a hold, the other must reach every
+    // other note. An edge-lane hold leaves the rest of the board contiguous for
+    // the free thumb; an inner one splits it and strands a side.
+    for (const raw of Object.values(DIFFICULTIES)) {
+      const params = enabled(raw);
+      const chart = generateChart(sustainedAnalysis(), params, 1, plateauWaveform());
+      for (const note of chart.notes.filter(isHold)) {
+        expect([0, chart.laneCount - 1], `${params.name} hold lane`).toContain(note.lane);
+      }
+    }
+  });
+
+  it('never lets a chord land inside a hold', () => {
+    // While a hold is down the free thumb can take only one tap at a time, so no
+    // two notes may share a timestamp strictly inside a hold's span. `chordy`
+    // has a real secondary band so chords are actually generated to be culled.
+    const chart = generateChart(chordyAnalysis(), enabled(DIFFICULTIES.hard), 5, plateauWaveform());
+    const holds = chart.notes.filter(isHold).map((n) => ({ start: n.t, end: noteEnd(n) }));
+    expect(holds.length).toBeGreaterThan(0);
+
+    const countAt = new Map<number, number>();
+    for (const n of chart.notes) countAt.set(n.t, (countAt.get(n.t) ?? 0) + 1);
+
+    for (const [t, count] of countAt) {
+      const insideAHold = holds.some((h) => t > h.start + 1e-4 && t <= h.end + 1e-4);
+      if (insideAHold) expect(count, `chord at ${t}s inside a hold`).toBeLessThanOrEqual(1);
     }
   });
 

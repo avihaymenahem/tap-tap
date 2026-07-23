@@ -56,11 +56,12 @@ export interface DifficultyParams {
   /**
    * How many holds may be down at once.
    *
-   * A physical limit, not a taste one. The keymaps are one left hand and touch
-   * is two thumbs, so a third simultaneous hold cannot be honoured at all —
-   * and any note in a fourth lane during it becomes unreachable. The generator
-   * happily produced stacks of them before this existed, because sustains in
-   * different frequency bands land in different lanes at the same moment.
+   * **One.** Touch is two thumbs, and a hold ties up one of them for its whole
+   * length — so a second concurrent hold would leave no free finger for any
+   * other note. The game must stay playable with two fingers at every
+   * difficulty (holds are the only thing that can break that), so the generator
+   * allows a single hold at a time and, with it, always an edge lane (see
+   * `applyHolds`) so the free thumb can still sweep the rest of the board.
    */
   maxConcurrentHolds: number;
 }
@@ -100,8 +101,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     // holds overhaul (tick scoring + strong tail bonus + on-beat generation).
     holdShare: 0.1,
     minHoldSec: 0.6,
-    maxHoldSec: 4,
-    maxConcurrentHolds: 2,
+    maxHoldSec: 2.2,
+    maxConcurrentHolds: 1,
   },
   medium: {
     name: 'medium',
@@ -116,8 +117,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     onGridBonus: 1.6,
     holdShare: 0.14,
     minHoldSec: 0.5,
-    maxHoldSec: 3.5,
-    maxConcurrentHolds: 2,
+    maxHoldSec: 1.8,
+    maxConcurrentHolds: 1,
   },
   hard: {
     name: 'hard',
@@ -134,8 +135,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     // More and shorter than easy/medium.
     holdShare: 0.18,
     minHoldSec: 0.4,
-    maxHoldSec: 3,
-    maxConcurrentHolds: 2,
+    maxHoldSec: 1.5,
+    maxConcurrentHolds: 1,
   },
   /**
    * Extreme is hard turned up on every axis, spacing included.
@@ -171,8 +172,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     // Same shape as hard, a touch shorter.
     holdShare: 0.2,
     minHoldSec: 0.35,
-    maxHoldSec: 2.5,
-    maxConcurrentHolds: 2,
+    maxHoldSec: 1.3,
+    maxConcurrentHolds: 1,
   },
 };
 

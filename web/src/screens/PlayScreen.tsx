@@ -1,5 +1,5 @@
 import type { Beatmap, Chart, DifficultyName, Note } from '@tap-tap/shared';
-import { DEFAULT_ACCENT, DIFFICULTIES, keymapFor, themeCatalog, themeFor } from '@tap-tap/shared';
+import { DEFAULT_ACCENT, DIFFICULTIES, isHold, keymapFor, themeCatalog, themeFor } from '@tap-tap/shared';
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { getBeatmap, listCustomThemes } from '../data/index.js';
 import { AudioClock, bandLevel } from '../game/clock.js';
@@ -60,6 +60,16 @@ const CHEER_HOLD_MS = 1750;
  */
 const INTRO_SKIP_THRESHOLD_SEC = 8;
 const INTRO_SKIP_LEAD_SEC = 3;
+
+/**
+ * A hold whose head lands within this much of the start has too little runway to
+ * be grabbed — the note is at the receptor almost as the song begins, and unlike
+ * a tap you would miss the *whole* sustain, not just an instant. Such holds are
+ * demoted to taps so the opening is always playable. Measured from where
+ * playback actually starts (`offset`), so an intro-skip that already leaves
+ * several seconds of runway keeps its holds.
+ */
+const HOLD_START_LEAD_SEC = 1.5;
 /** A note counts as "sustained" if this many follow it within the window. */
 const SUSTAINED_WINDOW_SEC = 8;
 const SUSTAINED_MIN_NOTES = 4;
@@ -306,8 +316,17 @@ export function PlayScreen({
         // instant the clock starts past them, wrecking the score before the
         // player has touched a key.
         const offset = startOffsetFor(chart.notes);
-        const played: Chart =
-          offset > 0 ? { ...chart, notes: chart.notes.filter((n) => n.t >= offset) } : chart;
+        const kept = offset > 0 ? chart.notes.filter((n) => n.t >= offset) : chart.notes;
+        // Demote holds too close to the start (see HOLD_START_LEAD_SEC): a hold
+        // sitting on the hit line as the song begins is ungrabbable.
+        const played: Chart = {
+          ...chart,
+          notes: kept.map((n) =>
+            isHold(n) && n.t - offset < HOLD_START_LEAD_SEC
+              ? { ...n, type: 'tap' as const, duration: undefined }
+              : n,
+          ),
+        };
 
         clockRef.current = clock;
         chartRef.current = played;
@@ -1081,48 +1100,61 @@ export function PlayScreen({
 
       {phase === 'paused' && pauseView === 'menu' && (
         <div className="play__overlay play__overlay--pause">
-          <h2 className="rise" style={{ '--i': 0 } as CSSProperties}>Paused</h2>
-          {beatmap && (
-            <p className="muted rise" style={{ '--i': 1 } as CSSProperties}>
-              {beatmap.title}
+          <div className="pause-card">
+            <div className="pause-card__head rise" style={{ '--i': 0 } as CSSProperties}>
+              <span className="pause-card__eyebrow">❚❚ Paused</span>
+              {beatmap && <h2>{beatmap.title}</h2>}
+              <span className="pause-card__meta">
+                {difficulty} · {Math.round(beatmap?.bpm ?? 0)} BPM
+              </span>
+            </div>
+
+            <div className="pause-actions rise" style={{ '--i': 1 } as CSSProperties}>
+              <button
+                type="button"
+                className="btn btn--primary btn--block"
+                onClick={() => controlsRef.current?.resume()}
+              >
+                Resume
+              </button>
+              <div className="pause-actions__row">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => controlsRef.current?.restart()}
+                >
+                  ↻ Restart
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => controlsRef.current?.quit()}
+                >
+                  Quit
+                </button>
+              </div>
+            </div>
+
+            {/* Settings, grouped and divided from the run actions: these change a
+                setting rather than the run, and must not sit next to Quit where a
+                mistap costs a whole song. */}
+            <div className="pause-settings rise" style={{ '--i': 2 } as CSSProperties}>
+              <HapticToggle className="pause-setting" />
+              <SoundToggle className="pause-setting" />
+              <button
+                type="button"
+                className="pause-setting"
+                onClick={() => setPauseView('calibrate')}
+              >
+                <span>Calibrate timing</span>
+                <span className="pause-setting__chev" aria-hidden>›</span>
+              </button>
+            </div>
+
+            <p className="muted small pause-card__hint rise" style={{ '--i': 3 } as CSSProperties}>
+              ESC or SPACE to resume
             </p>
-          )}
-          <div className="pause-actions rise" style={{ '--i': 2 } as CSSProperties}>
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => controlsRef.current?.resume()}
-            >
-              Resume
-            </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => controlsRef.current?.restart()}
-            >
-              Restart
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => controlsRef.current?.quit()}
-            >
-              Quit
-            </button>
           </div>
-          {/* Below the actions, not among them: these change settings rather
-              than the state of the run, and must not sit next to Quit where a
-              mistap costs a whole song. */}
-          <HapticToggle className="pause-setting" />
-          <SoundToggle className="pause-setting" />
-          <button
-            type="button"
-            className="pause-setting"
-            onClick={() => setPauseView('calibrate')}
-          >
-            Calibrate timing
-          </button>
-          <p className="muted small">ESC or SPACE to resume</p>
         </div>
       )}
 
