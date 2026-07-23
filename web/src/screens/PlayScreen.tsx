@@ -14,9 +14,11 @@ import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
 import { HapticToggle } from '../components/HapticToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
+import { ModifierPanel } from '../components/ModifierPanel.js';
 import { CalibrationScreen } from './CalibrationScreen.js';
 import { accentVars } from '../accent.js';
-import { getStoredCalibration, setCalibration } from '../storage.js';
+import { getStoredCalibration, getStoredModifiers, setCalibration, setStoredModifiers } from '../storage.js';
+import { type Modifiers, mirrorNotes } from '../game/modifiers.js';
 import { MIN_STORED_SEC, autoCalibrationStep, resolveCalibration } from '../game/calibration.js';
 
 /**
@@ -166,10 +168,22 @@ export function PlayScreen({
   const pauseViewRef = useRef<'menu' | 'calibrate'>('menu');
   pauseViewRef.current = pauseView;
 
+  /**
+   * Per-run modifiers, chosen on the ready screen. Seeded from the last-used set
+   * so a player's choice persists. Read through a ref by the engine builder so a
+   * change on the ready screen takes effect on the *next* start without the
+   * input/render effect re-running.
+   */
+  const [mods, setMods] = useState<Modifiers>(getStoredModifiers);
+  const modsRef = useRef<Modifiers>(mods);
+  modsRef.current = mods;
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scoreRef = useRef<HTMLDivElement>(null);
   const comboRef = useRef<HTMLDivElement>(null);
   const accuracyRef = useRef<HTMLDivElement>(null);
+  /** Health bar fill; width + colour written from the render loop. */
+  const healthRef = useRef<HTMLDivElement>(null);
   const judgementRef = useRef<HTMLDivElement>(null);
   const timingRef = useRef<HTMLDivElement>(null);
   const countdownRef = useRef<HTMLDivElement>(null);
@@ -225,6 +239,29 @@ export function PlayScreen({
 
   const params = DIFFICULTIES[difficulty];
 
+  /**
+   * Build a fresh engine for the played chart under the current modifiers.
+   *
+   * Mirror is applied here rather than baked into `chartRef`, so toggling it and
+   * restarting re-flips from the unmodified chart instead of compounding. `Fail`
+   * becomes the engine's `canFail`. Called at load, at start (to pick up a
+   * ready-screen change), and at restart — all cheap, a chart is just an array.
+   */
+  const makeEngine = (chart: Chart, clock: AudioClock, run: Modifiers): GameEngine => {
+    const played = run.mirror
+      ? { ...chart, notes: mirrorNotes(chart.notes, chart.laneCount) }
+      : chart;
+    return new GameEngine(played, {
+      // Calibration is stored in real seconds (song-seconds at 1x). At rate r a
+      // physical output latency of L real seconds is L*r song-seconds late, and
+      // the engine subtracts song-seconds — so the offset scales with speed, or
+      // a fast run would judge and draw everything a fraction off.
+      calibrationSec: effectiveCalibration(clock) * run.speed,
+      minGapSec: params.minGapSec,
+      canFail: run.fail,
+    });
+  };
+
   // Held for the whole screen, not just while playing: the ready and pause
   // screens can sit untouched for a while too.
   useWakeLock(true);
@@ -275,10 +312,7 @@ export function PlayScreen({
         clockRef.current = clock;
         chartRef.current = played;
         introOffsetRef.current = offset;
-        engineRef.current = new GameEngine(played, {
-          calibrationSec: effectiveCalibration(clock),
-          minGapSec: params.minGapSec,
-        });
+        engineRef.current = makeEngine(played, clock, modsRef.current);
         autoDeltasRef.current = [];
         autoDriftRef.current = 0;
         const theme = themeFor(themeCatalog(customThemes), map.themeId);
@@ -295,6 +329,7 @@ export function PlayScreen({
           coverUrl: map.thumbnailUrl ?? undefined,
         });
         highwayRef.current.resize(canvas.clientWidth, canvas.clientHeight);
+        highwayRef.current.setVisibility(modsRef.current.visibility);
 
         setBeatmap(map);
         setThemeAccent(theme.accent ?? DEFAULT_ACCENT);
@@ -355,6 +390,8 @@ export function PlayScreen({
     // or a break without the engine having to emit an event for it.
     let prevCombo = 0;
     let prevTier = 0;
+    // Low-health warning state, toggled on the health bar only when it changes.
+    let prevLow = false;
 
     /** Replay a one-shot CSS animation by clearing the class and forcing reflow. */
     const restartAnim = (el: HTMLElement | null, cls: string): void => {
@@ -401,6 +438,7 @@ export function PlayScreen({
         timingCounts: snap.timingCounts,
         meanDelta: snap.meanDelta,
         totalNotes: snap.totalNotes,
+        failed: snap.failed,
       };
     };
 
@@ -413,8 +451,14 @@ export function PlayScreen({
       const result = buildResult(snap);
       const clock = clockRef.current;
       clock?.stop();
-      // Scaled by the run: an F grade should not get a stadium ovation.
-      clock?.playCheer(0.3 + result.accuracy * 0.7);
+      // A failed run gets no ovation — a descending game-over sting and a quicker
+      // hand-off to the results card, which shows FAILED. A natural finish rides
+      // out the cheer, scaled by the run so an F grade does not get an ovation.
+      if (result.failed) {
+        playUiSound('fail');
+      } else {
+        clock?.playCheer(0.3 + result.accuracy * 0.7);
+      }
 
       // Hold on the finished board so the cheer is heard before the results
       // card takes over. Navigating immediately would cut it off instantly,
@@ -422,7 +466,7 @@ export function PlayScreen({
       finishTimerRef.current = window.setTimeout(() => {
         finishTimerRef.current = null;
         onFinishRef.current(result, accentRef.current);
-      }, CHEER_HOLD_MS);
+      }, result.failed ? 700 : CHEER_HOLD_MS);
     };
 
     // Belt and braces. The frame loop finishes on `songTime >= duration`, but it
@@ -520,6 +564,14 @@ export function PlayScreen({
         vibrateMiss();
       }
 
+      // A hold carried all the way to its tail completes inside `update` and
+      // never passes through `release`, so it bursts from here instead — same
+      // success feedback a released completion gets.
+      for (const lane of engine.takeCompletedHoldLanes()) {
+        highway.burst(lane, 'perfect', engine.snapshot.combo);
+        vibrateTap();
+      }
+
       clock.readSpectrum(spectrum);
       const bass = bandLevel(spectrum, 1, 8);
       const treble = bandLevel(spectrum, 60, 160);
@@ -551,6 +603,23 @@ export function PlayScreen({
       }
       if (accuracyRef.current) {
         accuracyRef.current.textContent = `${(snap.accuracy * 100).toFixed(1)}%`;
+      }
+      if (healthRef.current) {
+        healthRef.current.style.height = `${Math.max(0, snap.health * 100)}%`;
+        // Warn when the margin gets thin — a class toggle drives the pulse, only
+        // touched on the transition since this runs every frame.
+        const low = snap.health <= 0.25;
+        if (low !== prevLow) {
+          healthRef.current.classList.toggle('play__health-fill--low', low);
+          prevLow = low;
+        }
+      }
+
+      // Health hit zero with Fail on: end the run as a game-over. `finish` scores
+      // over the whole chart (unreached notes become misses) and flags `failed`.
+      if (snap.failed) {
+        finish();
+        return;
       }
 
       // Milestone banner on the way up; red flash + soft sound on a break.
@@ -589,7 +658,10 @@ export function PlayScreen({
         outroStarted = true;
         const untilFinish = finishAt - songTime;
         const audioLeft = Math.max(0, clock.duration - songTime) - 0.2;
-        clock.fadeOut(Math.max(0.4, Math.min(untilFinish, audioLeft)));
+        // `fadeOut` takes *real* seconds, but these are song-seconds — at rate r
+        // the same span of song passes in 1/r the real time, so divide.
+        const realLeft = Math.min(untilFinish, audioLeft) / clock.rate;
+        clock.fadeOut(Math.max(0.4, realLeft));
       }
 
       const outroDone = songTime >= finishAt;
@@ -629,6 +701,14 @@ export function PlayScreen({
       if (!clock || clock.isPlaying || phaseRef.current !== 'ready') return;
       // Called from the start tap — the gesture fullscreen needs.
       enterFullscreen();
+      // Rebuild the engine so any modifier changed on the ready screen (Fail,
+      // Mirror) is honoured — the one built during loading predates them.
+      engineRef.current = makeEngine(chartRef.current!, clock, modsRef.current);
+      highwayRef.current?.setVisibility(modsRef.current.visibility);
+      clock.setRate(modsRef.current.speed);
+      autoDeltasRef.current = [];
+      autoDriftRef.current = 0;
+      outroStarted = false;
       prevCombo = 0;
       prevTier = 0;
       void clock.start(introOffset, LEAD_IN_SEC);
@@ -672,12 +752,10 @@ export function PlayScreen({
       const clock = clockRef.current;
       const engine = engineRef.current;
       if (!clock || !engine) return;
-      // A fresh engine is the simplest correct reset: score, combo and every
-      // note's judged state all come back with it.
-      engineRef.current = new GameEngine(chartRef.current!, {
-        calibrationSec: effectiveCalibration(clock),
-        minGapSec: params.minGapSec,
-      });
+      // A fresh engine is the simplest correct reset: score, combo, health and
+      // every note's judged state all come back with it. Reads the current
+      // modifiers so a change made in the pause menu applies on restart too.
+      engineRef.current = makeEngine(chartRef.current!, clock, modsRef.current);
       autoDeltasRef.current = [];
       autoDriftRef.current = 0;
       outroStarted = false;
@@ -750,6 +828,11 @@ export function PlayScreen({
      */
     const autoCalibrate = (engine: GameEngine, tier: Tier, delta: number): void => {
       if (tier !== 'perfect' && tier !== 'great') return;
+      // A sped-up or slowed run measures a *scaled* bias (the engine's offset is
+      // in song-seconds, scaled by rate), so persisting it would corrupt the
+      // real-time calibration every other run relies on. Leave it alone at any
+      // non-normal speed — the stored value only means anything at 1x.
+      if (modsRef.current.speed !== 1) return;
 
       const window = autoDeltasRef.current;
       window.push(delta);
@@ -965,6 +1048,13 @@ export function PlayScreen({
         </div>
       </div>
 
+      {/* Health. A vertical meter down the left edge, out of the way of the
+          cover art. Hidden outside a run (CSS, keyed on data-phase). Height +
+          low-health pulse are written from the render loop. */}
+      <div className="play__health" aria-hidden>
+        <div ref={healthRef} className="play__health-fill" style={{ height: '100%' }} />
+      </div>
+
       {/* Red edge flash on a broken combo. Sits above the canvas, below the
           HUD; the animation class is toggled from the render loop. */}
       <div ref={vignetteRef} className="play__vignette" aria-hidden />
@@ -1105,8 +1195,16 @@ export function PlayScreen({
             <span className={`ready-chip ready-chip--${difficulty}`}>{difficulty}</span>
             <span className="ready-chip">{Math.round(beatmap.bpm)} BPM</span>
           </div>
+          <ModifierPanel
+            mods={mods}
+            onChange={(next) => {
+              setMods(next);
+              setStoredModifiers(next);
+            }}
+            style={{ '--i': 3 } as CSSProperties}
+          />
           {/* Keyboard keys are desktop-only; on a phone you tap the lanes. */}
-          <div className="keycaps only-desktop rise" style={{ '--i': 3 } as CSSProperties}>
+          <div className="keycaps only-desktop rise" style={{ '--i': 4 } as CSSProperties}>
             {keys.map((key) => (
               <kbd key={key}>{key.toUpperCase()}</kbd>
             ))}
@@ -1114,13 +1212,13 @@ export function PlayScreen({
           <button
             type="button"
             className="btn btn--primary btn--start rise"
-            style={{ '--i': 4 } as CSSProperties}
+            style={{ '--i': 5 } as CSSProperties}
             onClick={() => controlsRef.current?.start()}
           >
             <span className="only-desktop">Press SPACE to start</span>
             <span className="only-mobile">Tap to start</span>
           </button>
-          <p className="muted small only-desktop rise" style={{ '--i': 5 } as CSSProperties}>
+          <p className="muted small only-desktop rise" style={{ '--i': 6 } as CSSProperties}>
             ESC to pause
           </p>
         </div>

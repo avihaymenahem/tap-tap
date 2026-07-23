@@ -32,9 +32,12 @@ export function ResultsScreen({
   // Read once per mount: the run is fixed for this screen.
   const [result] = useState(() => loadRun(songId, difficulty));
 
-  // Persist during the initializer so a re-render cannot double-record.
+  // Persist during the initializer so a re-render cannot double-record. A failed
+  // run is never a "best" — it folds its unreached notes to misses, so its score
+  // would not beat a real run anyway, but skipping the record makes that explicit
+  // and keeps a game-over from ever flashing "New best".
   const [isBest] = useState(() =>
-    result
+    result && !result.failed
       ? recordScore(songId, difficulty, {
           score: result.score,
           accuracy: result.accuracy,
@@ -80,8 +83,11 @@ export function ResultsScreen({
       }
     };
 
-    // The fanfare tracks the medal slamming in (its CSS animation runs ~0.5s).
-    const fanfareTimer = window.setTimeout(() => playUiSound('fanfare'), 240);
+    // No fanfare on a failed run — the game-over already sounded on the play
+    // screen, and a triumphant sting over a FAILED card is the wrong note.
+    const fanfareTimer = result.failed
+      ? 0
+      : window.setTimeout(() => playUiSound('fanfare'), 240);
     const startTimer = window.setTimeout(() => {
       startTs = performance.now();
       lastTick = startTs;
@@ -127,6 +133,8 @@ export function ResultsScreen({
 
         <p className="results__diff">{difficulty}</p>
         <h1>{result.title}</h1>
+
+        {result.failed && <div className="results__failed">FAILED</div>}
 
         {/* The grade is the hero: a glowing medal with a firework burst behind
             it, the same gold-on-dark language as the game. */}

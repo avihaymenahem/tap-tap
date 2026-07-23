@@ -92,7 +92,14 @@ function fakeAudio(durationSec: number) {
       },
     }),
     createBufferSource: () => {
-      const source = { ...nodes, buffer: null, onended: null, start: () => {}, stop: () => {} };
+      const source = {
+        ...nodes,
+        buffer: null,
+        onended: null,
+        playbackRate: { value: 1 },
+        start: () => {},
+        stop: () => {},
+      };
       started = source;
       return source;
     },
@@ -144,6 +151,42 @@ describe('end of song', () => {
     audio.endPlayback();
 
     expect(ended).toHaveBeenCalledTimes(1);
+  });
+
+  it('advances song time at the playback rate', async () => {
+    const audio = fakeAudio(200);
+    const clock = await AudioClock.load('/audio.m4a');
+    clock.setRate(1.5);
+
+    await clock.start(0); // no lead-in: audio starts at ctx time 0
+    audio.ctx.currentTime = 2; // two real seconds elapse
+
+    // At 1.5x, two real seconds is three song seconds.
+    expect(clock.currentTime).toBeCloseTo(3, 5);
+    expect(clock.rate).toBe(1.5);
+  });
+
+  it('round-trips contextTimeFor against the rate', async () => {
+    const audio = fakeAudio(200);
+    const clock = await AudioClock.load('/audio.m4a');
+    clock.setRate(0.75);
+    await clock.start(10); // starts at song offset 10, audio start at ctx 0
+
+    // A sound scheduled for song time 16 is 6 song-seconds ahead = 8 real
+    // seconds at 0.75x.
+    expect(clock.contextTimeFor(16)).toBeCloseTo(8, 5);
+    void audio;
+  });
+
+  it('clamps a nonsense rate to a safe range', async () => {
+    await fakeAudio(10);
+    const clock = await AudioClock.load('/audio.m4a');
+    clock.setRate(0);
+    expect(clock.rate).toBe(1);
+    clock.setRate(Number.NaN);
+    expect(clock.rate).toBe(1);
+    clock.setRate(99);
+    expect(clock.rate).toBe(4);
   });
 
   it('does not fire the ended callback for a deliberate stop', async () => {

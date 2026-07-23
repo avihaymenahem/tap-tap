@@ -5,6 +5,8 @@ import {
   TIERS,
   type Tier,
   type Timing,
+  HOLD_TICK_SCORE,
+  HOLD_TICK_SEC,
   accuracyOf,
   baseScore,
   comboMultiplier,
@@ -14,6 +16,7 @@ import {
   tierFor,
   timingOf,
 } from './judge.js';
+import { HEALTH_CONFIG, applyHealthDelta, isDead } from './health.js';
 
 /**
  * The game engine.
@@ -46,6 +49,12 @@ export interface NoteState {
   timing: Timing | null;
   /** Holds only; `null` on taps. */
   hold: HoldState | null;
+  /**
+   * Score ticks already awarded for this hold while held. Lets `update` award
+   * each `HOLD_TICK_SEC` boundary exactly once no matter how the frame times
+   * fall across it. 0 on taps and ungrabbed holds.
+   */
+  holdTicks: number;
 }
 
 export interface HitResult {
@@ -82,6 +91,14 @@ export interface EngineOptions {
    * spaced at 0.19s or wider, which is every difficulty except Extreme.
    */
   minGapSec?: number;
+  /**
+   * When true, health reaching 0 sets `failed` and the run is over. Off by
+   * default: the `fail` modifier opts into it. Health is tracked and reported
+   * either way; this only decides whether hitting empty ends the run. The
+   * engine never *acts* on `failed` — it reports it and `PlayScreen` owns the
+   * game-over flow — so the engine stays pure and testable.
+   */
+  canFail?: boolean;
 }
 
 export interface GameSnapshot {
@@ -95,10 +112,19 @@ export interface GameSnapshot {
   /** Holds carried to their tail. Reported separately: accuracy counts the head. */
   holdsCompleted: number;
   totalHolds: number;
+  /** Score ticks awarded across all holds this run. Additive juice, not accuracy. */
+  holdTicks: number;
   accuracy: number;
   notesJudged: number;
   totalNotes: number;
   finished: boolean;
+  /** 0..1, always tracked and shown. Drains on misses, heals slowly on hits. */
+  health: number;
+  /**
+   * True once health has hit 0 *and* the run can fail. Purely a report — the
+   * engine takes no action on it; `PlayScreen` reads it and ends the run.
+   */
+  failed: boolean;
 }
 
 export class GameEngine {
@@ -115,6 +141,8 @@ export class GameEngine {
   private readonly windows: HitWindows;
   /** Outer edge of `windows` — the miss threshold and retirement horizon. */
   private readonly missWindow: number;
+  /** Whether reaching 0 health ends the run. See `EngineOptions.canFail`. */
+  private readonly canFail: boolean;
   /** Note id currently held in each lane, or -1. At most one per lane. */
   private readonly heldByLane: number[];
   /**
@@ -133,18 +161,30 @@ export class GameEngine {
   private hits = 0;
   private judged = 0;
   private holdsCompleted = 0;
+  private holdTicksHit = 0;
+  private health = HEALTH_CONFIG.start;
+  private failed = false;
+  /**
+   * Lanes whose hold just auto-completed at its tail during `update` (the player
+   * held it all the way). Drained by the caller each frame to fire a completion
+   * burst — the release-driven path bursts in `PlayScreen`, but a hold carried to
+   * its natural end never passes through `releaseLane`, so it needs this.
+   */
+  private completedHoldLanes: number[] = [];
 
   constructor(chart: Chart, options: EngineOptions = {}) {
     this.laneCount = chart.laneCount;
     this.calibrationSec = options.calibrationSec ?? 0;
     this.windows = options.minGapSec !== undefined ? hitWindowsFor(options.minGapSec) : { ...HIT_WINDOWS };
     this.missWindow = this.windows.good;
+    this.canFail = options.canFail ?? false;
     this.notes = chart.notes.map((note, id) => ({
       note,
       id,
       tier: null,
       timing: null,
       hold: isHold(note) ? ('pending' as const) : null,
+      holdTicks: 0,
     }));
     this.totalNotes = this.notes.length;
     this.totalHolds = this.notes.filter((state) => state.hold !== null).length;
@@ -215,7 +255,23 @@ export class GameEngine {
       const id = this.heldByLane[lane]!;
       if (id < 0) continue;
       const state = this.notes[id]!;
-      if (now >= noteEnd(state.note)) this.finishHold(state, lane, true);
+      const tail = noteEnd(state.note);
+
+      // Score ticks for each HOLD_TICK_SEC boundary the hold has crossed while
+      // down, capped at the tail. Awarded here (not per frame) and gated by
+      // `holdTicks` so a slow or fast frame still lands each tick exactly once.
+      const capped = Math.min(now, tail);
+      const due = Math.floor((capped - state.note.t) / HOLD_TICK_SEC);
+      while (state.holdTicks < due) {
+        state.holdTicks++;
+        this.score += HOLD_TICK_SCORE * comboMultiplier(this.combo);
+        this.holdTicksHit++;
+      }
+
+      if (now >= tail) {
+        this.finishHold(state, lane, true);
+        this.completedHoldLanes.push(lane);
+      }
     }
 
     for (const lane of this.lanes) {
@@ -333,6 +389,18 @@ export class GameEngine {
     return this.heldByLane[lane] ?? -1;
   }
 
+  /**
+   * Lanes whose hold auto-completed at its tail since the last call, cleared as
+   * they are read. Lets the play loop fire a completion burst for a hold the
+   * player carried to its natural end, which never touches `releaseLane`.
+   */
+  takeCompletedHoldLanes(): number[] {
+    if (this.completedHoldLanes.length === 0) return [];
+    const lanes = this.completedHoldLanes;
+    this.completedHoldLanes = [];
+    return lanes;
+  }
+
   /** Notes that should currently be on screen, nearest first. */
   visibleNotes(songTime: number, approachSec: number): NoteState[] {
     const from = songTime - 0.25;
@@ -367,10 +435,13 @@ export class GameEngine {
       meanDelta: this.hits > 0 ? this.deltaSum / this.hits : 0,
       holdsCompleted: this.holdsCompleted,
       totalHolds: this.totalHolds,
+      holdTicks: this.holdTicksHit,
       accuracy: accuracyOf(this.counts),
       notesJudged: this.judged,
       totalNotes: this.totalNotes,
       finished: this.judged >= this.totalNotes,
+      health: this.health,
+      failed: this.failed,
     };
   }
 
@@ -379,6 +450,12 @@ export class GameEngine {
     state.timing = timing;
     this.counts[tier]++;
     this.judged++;
+
+    // Health moves on every tap judgement — a hold's head counts here too, since
+    // it is judged exactly like a tap. A dropped hold does *not* reach this path
+    // (holds are strictly additive and never drain health); only the head does.
+    this.health = applyHealthDelta(this.health, tier);
+    if (this.canFail && isDead(this.health)) this.failed = true;
 
     if (tier === 'miss' || timing === null) {
       this.combo = 0;

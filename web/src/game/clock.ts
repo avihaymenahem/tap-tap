@@ -17,6 +17,14 @@ export class AudioClock {
   private source: AudioBufferSourceNode | null = null;
   private startedAtContextTime = 0;
   private startOffset = 0;
+  /**
+   * Playback rate, 1 = normal. The Speed modifier sets it before `start`. It
+   * scales *song time* against real time: at rate `r`, `r` song-seconds pass per
+   * real second, and the buffer source plays at `r` (so pitch rises with speed,
+   * the classic rhythm-game speed feel). The chart's note times never change;
+   * only how fast the playhead moves through them does.
+   */
+  private rateValue = 1;
   private playing = false;
   private paused = false;
   private freezeDuringLeadIn = false;
@@ -82,6 +90,7 @@ export class AudioClock {
 
     const source = this.ctx.createBufferSource();
     source.buffer = this.buffer;
+    source.playbackRate.value = this.rateValue;
     source.connect(this.gain);
     source.onended = () => {
       if (this.source === source) {
@@ -107,6 +116,19 @@ export class AudioClock {
     this.playing = true;
     this.source = source;
     source.start(this.startedAtContextTime, this.startOffset);
+  }
+
+  /**
+   * Set the playback rate. Must be called *before* `start`/`resume`, since the
+   * rate is applied to the buffer source as it is created. Clamped defensively.
+   */
+  setRate(rate: number): void {
+    this.rateValue = Number.isFinite(rate) && rate > 0 ? Math.max(0.25, Math.min(4, rate)) : 1;
+  }
+
+  /** The current playback rate, 1 = normal. */
+  get rate(): number {
+    return this.rateValue;
   }
 
   stop(): void {
@@ -139,7 +161,11 @@ export class AudioClock {
     if (!this.playing) return this.startOffset;
     const elapsed = this.ctx.currentTime - this.startedAtContextTime;
     if (elapsed < 0 && this.freezeDuringLeadIn) return this.startOffset;
-    return elapsed + this.startOffset;
+    // Song time runs at `rate` against real time, so notes approach and the
+    // playhead advances at the modifier's speed. The lead-in (elapsed < 0)
+    // scales the same way, so the scroll speed is constant across the count-in
+    // rather than jumping at t=0.
+    return this.startOffset + elapsed * this.rateValue;
   }
 
   /**
@@ -166,7 +192,10 @@ export class AudioClock {
    * the frame jitter the audio clock exists to avoid.
    */
   contextTimeFor(songTime: number): number {
-    return this.startedAtContextTime + (songTime - this.startOffset);
+    // Inverse of `currentTime`: real seconds ahead of the audio start are
+    // song-seconds divided by the rate, so a scheduled sound still lands on the
+    // right beat at any speed.
+    return this.startedAtContextTime + (songTime - this.startOffset) / this.rateValue;
   }
 
   /**

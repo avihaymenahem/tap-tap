@@ -63,10 +63,10 @@ const FLOOR_SHARE = 0.4;
  *   plateau fading 0 .. 20%/sec         accepted
  *   plateau fading 30%/sec or faster    rejected
  */
-const MIN_STEADINESS = 0.62;
+const MIN_STEADINESS = 0.68;
 
 /** Peak amplitude below this is background, and a "sustain" there is noise. */
-const MIN_ATTACK = 0.12;
+const MIN_ATTACK = 0.16;
 
 /** Buckets after the onset used to measure the attack level. ~60ms. */
 const ATTACK_BUCKETS = 3;

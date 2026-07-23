@@ -35,7 +35,8 @@ export type UiSoundName =
   | 'fanfare' // results reveal
   | 'tallyTick' // score count-up tick
   | 'tallyEnd' // score count-up lands
-  | 'newBest'; // new best sting
+  | 'newBest' // new best sting
+  | 'fail'; // run failed — game over
 
 /** One scheduled oscillator note inside a sound. Times are in seconds. */
 export interface UiNote {
@@ -119,6 +120,17 @@ export const UI_SOUNDS: Record<UiSoundName, readonly UiNote[]> = {
     { freq: 1568, at: 0.16, dur: 0.1, gain: 0.14, type: 'triangle' },
     { freq: 2093, at: 0.24, dur: 0.28, gain: 0.15, type: 'triangle' },
   ],
+
+  // Game over: a slow descending minor cadence with a sub-bass drop under it.
+  // The opposite shape of the fanfare — where that rolls a major chord *up*,
+  // this falls and sinks. It plays after the song has stopped, so it is boosted
+  // and reverbed (RESULTS_SOUNDS) to land as a moment rather than a blip.
+  fail: [
+    { freq: 415, at: 0, dur: 0.2, gain: 0.16, type: 'triangle' },
+    { freq: 311, at: 0.16, dur: 0.22, gain: 0.16, type: 'triangle' },
+    { freq: 208, at: 0.32, dur: 0.27, gain: 0.17, type: 'sine' },
+    { freq: 155, slideTo: 104, at: 0.32, dur: 0.27, gain: 0.14, type: 'sine' },
+  ],
 };
 
 /** Master level for all UI sounds. One knob so the whole layer mixes at once. */
@@ -137,6 +149,9 @@ export const RESULTS_SOUNDS: ReadonlySet<UiSoundName> = new Set<UiSoundName>([
   'fanfare',
   'tallyEnd',
   'newBest',
+  // The fail sting plays after the song stops too, so it gets the same boost and
+  // reverb — a game-over should feel weighty, not like a dismissed dialog.
+  'fail',
 ]);
 
 /** How much louder the results trio plays than its authored gain. */

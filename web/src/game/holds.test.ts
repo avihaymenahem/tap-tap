@@ -191,6 +191,74 @@ describe('breaking a hold', () => {
   });
 });
 
+describe('hold ticks', () => {
+  it('awards score ticks while the hold is down', () => {
+    const engine = new GameEngine(holdChart([[1, 0, LONG]]));
+    engine.hitLane(0, 1);
+    const headScore = engine.snapshot.score;
+
+    engine.update(1 + LONG * 0.5); // held halfway
+    expect(engine.snapshot.holdTicks).toBeGreaterThan(0);
+    expect(engine.snapshot.score).toBeGreaterThan(headScore);
+  });
+
+  it('never double-awards a tick across frames at the same time', () => {
+    const engine = new GameEngine(holdChart([[1, 0, LONG]]));
+    engine.hitLane(0, 1);
+    engine.update(1 + LONG * 0.5);
+    const ticks = engine.snapshot.holdTicks;
+
+    engine.update(1 + LONG * 0.5); // same instant sampled again
+    expect(engine.snapshot.holdTicks).toBe(ticks);
+  });
+
+  it('stops ticking after a break — the drop forfeits only the rest', () => {
+    const engine = new GameEngine(holdChart([[1, 0, LONG]]));
+    engine.hitLane(0, 1);
+    engine.update(1 + LONG * 0.25);
+    const ticks = engine.snapshot.holdTicks;
+
+    engine.releaseLane(0, 1 + LONG * 0.25); // break, combo-safe
+    engine.update(1 + LONG); // time rolls on, but nothing is held now
+    expect(engine.snapshot.holdTicks).toBe(ticks);
+    // The break kept combo (strictly additive) — reasserted here beside ticks.
+    expect(engine.snapshot.combo).toBe(1);
+  });
+
+  it('reports an auto-completed lane once, then clears it', () => {
+    // A hold carried to its tail completes inside `update`, not `releaseLane`, so
+    // the play loop learns of it through this queue to fire a completion burst.
+    const engine = new GameEngine(holdChart([[1, 0, LONG]]));
+    engine.hitLane(0, 1);
+    expect(engine.takeCompletedHoldLanes()).toEqual([]);
+
+    engine.update(1 + LONG + 0.01);
+    expect(engine.takeCompletedHoldLanes()).toEqual([0]);
+    // Drained — a second read is empty, so the burst fires exactly once.
+    expect(engine.takeCompletedHoldLanes()).toEqual([]);
+  });
+
+  it('does not report a lane released early (that path bursts itself)', () => {
+    const engine = new GameEngine(holdChart([[1, 0, LONG]]));
+    engine.hitLane(0, 1);
+    engine.releaseLane(0, 1 + LONG * 0.25); // break
+    engine.update(1 + LONG);
+    expect(engine.takeCompletedHoldLanes()).toEqual([]);
+  });
+
+  it('a completed hold ticks along its whole length and still pays the tail bonus', () => {
+    const engine = new GameEngine(holdChart([[1, 0, LONG]]));
+    engine.hitLane(0, 1);
+    const headScore = engine.snapshot.score;
+
+    engine.update(1 + LONG + 0.01); // held to the tail, auto-completes
+    expect(engine.snapshot.holdsCompleted).toBe(1);
+    expect(engine.snapshot.holdTicks).toBeGreaterThan(0);
+    // Score gained = ticks + the completion bonus, both on top of the head.
+    expect(engine.snapshot.score).toBeGreaterThan(headScore + holdBonus(LONG));
+  });
+});
+
 describe('several holds at once', () => {
   it('tracks one held note per lane independently', () => {
     const engine = new GameEngine(

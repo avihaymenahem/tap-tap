@@ -11,4 +11,11 @@ export interface RunResult {
   /** Signed mean error in seconds. Negative means hitting early. */
   meanDelta: number;
   totalNotes: number;
+  /**
+   * True when the run ended because health hit 0 (the `fail` modifier was on).
+   * Results shows a FAILED banner and skips the celebration. Absent/false on a
+   * normal finish or a plain quit. Score and accuracy are still computed over
+   * the whole chart, so a failed run's unreached notes count as misses.
+   */
+  failed?: boolean;
 }

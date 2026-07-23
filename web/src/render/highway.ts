@@ -5,6 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { NoteState } from '../game/engine.js';
 import type { Tier } from '../game/judge.js';
+import type { Visibility } from '../game/modifiers.js';
 import type { Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT } from '@tap-tap/shared';
 import { laneColor } from './palette.js';
@@ -245,6 +246,15 @@ export class Highway {
   private readonly bloom: UnrealBloomPass;
   private readonly laneCount: number;
   private readonly approachSec: number;
+  /**
+   * Note-visibility modifier. `normal` draws every note fully; `hidden` fades a
+   * note out as it nears the receptor (commit blind); `fadeout` keeps it dark
+   * until it is close (read late). Applied as a plain colour multiply in
+   * `updateNotes`/`updateHoldBodies` — the tiles glow against a dark track, so
+   * multiplying toward 0 fades them to nothing without any transparent-material
+   * or shader change.
+   */
+  private visibility: Visibility = 'normal';
   private readonly theme: Theme;
   /** Beatstar-style rendering: dark colourless track, glowing rails, cover ring. */
   private readonly stage: boolean;
@@ -1422,7 +1432,9 @@ export class Highway {
       // PlaneGeometry rows run from +height/2 down, so row 0 is the far end.
       const t = row / HOLD_SEGMENTS;
       const z = farZ + (nearZ - farZ) * t;
-      const halfWidth = LANE_WIDTH * 0.3 * curveWidth(z);
+      // A slim ribbon, ~70% narrower than the tile — it reads as a thread the
+      // finger follows rather than a slab covering the lane.
+      const halfWidth = LANE_WIDTH * 0.09 * curveWidth(z);
       const x = this.laneX(lane) * curveWidth(z);
       // Just above the floor and just below the note pills, so it reads as
       // lying on the track rather than floating over it.
@@ -1467,10 +1479,43 @@ export class Highway {
       fog: false,
     });
 
+    // Per-instance fade for the visibility modifiers (Hidden / Fade-out).
+    //
+    // A colour multiply cannot hide these tiles: the material is emissive metal,
+    // so a black instance colour still shows the constant emissive glow and the
+    // env reflection — the "flat colour that never disappears" bug. Real
+    // per-instance *alpha* is needed, which InstancedMesh only supports through
+    // a shader. `instanceReveal` (1 = fully visible, 0 = gone) is read in the
+    // vertex shader and multiplied into the fragment alpha, so a fading note
+    // takes its emissive and reflection down with it.
+    material.transparent = true;
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader =
+        'attribute float instanceReveal;\nvarying float vReveal;\n' +
+        shader.vertexShader.replace('void main() {', 'void main() {\n\tvReveal = instanceReveal;');
+      shader.fragmentShader =
+        'varying float vReveal;\n' +
+        shader.fragmentShader.replace(
+          '#include <dithering_fragment>',
+          '#include <dithering_fragment>\n\tgl_FragColor.a *= vReveal;',
+        );
+    };
+
     const mesh = new THREE.InstancedMesh(geometry, material, MAX_NOTE_INSTANCES);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.count = 0;
     mesh.frustumCulled = false;
+
+    // The reveal attribute lives on the geometry (InstancedMesh reads instanced
+    // attributes from there). Default 1 so a note is fully visible until the
+    // modifier says otherwise.
+    const reveal = new THREE.InstancedBufferAttribute(
+      new Float32Array(MAX_NOTE_INSTANCES).fill(1),
+      1,
+    );
+    reveal.setUsage(THREE.DynamicDrawUsage);
+    mesh.geometry.setAttribute('instanceReveal', reveal);
+
     return mesh;
   }
 
@@ -1764,6 +1809,39 @@ export class Highway {
     }
   }
 
+  /**
+   * A gentle upward spray at the receptor while a hold is held — the reward for
+   * keeping it down. No shockwave or shake (that is for a hit); just a few
+   * short-lived embers in the lane colour, emitted intermittently by
+   * `updateHoldBodies` so a held note visibly fizzes.
+   */
+  private emitHoldSparkle(lane: number): void {
+    if (lane < 0 || lane >= this.laneCount) return;
+    this.color.setHex(laneColor(this.theme, lane));
+    const x = this.laneX(lane);
+
+    for (let i = 0; i < 2; i++) {
+      const p = this.particleCursor;
+      this.particleCursor = (this.particleCursor + 1) % MAX_PARTICLES;
+
+      this.particlePositions[p * 3] = x + (Math.random() - 0.5) * 0.35;
+      this.particlePositions[p * 3 + 1] = 0.1;
+      this.particlePositions[p * 3 + 2] = 0.1 + (Math.random() - 0.5) * 0.4;
+
+      // Mostly up, a little toward the camera, far slower than a hit burst.
+      this.particleVelocities[p * 3] = (Math.random() - 0.5) * 1.2;
+      this.particleVelocities[p * 3 + 1] = 1.6 + Math.random() * 1.3;
+      this.particleVelocities[p * 3 + 2] = 0.7 + Math.random() * 0.8;
+
+      this.particleColors[p * 3] = this.color.r;
+      this.particleColors[p * 3 + 1] = this.color.g;
+      this.particleColors[p * 3 + 2] = this.color.b;
+
+      // Shorter-lived than a burst ember, so it reads as a fizz, not a plume.
+      this.particleLife[p] = 0.6;
+    }
+  }
+
   private buildShockwaves(): void {
     for (let i = 0; i < MAX_SHOCKWAVES; i++) {
       // A thin flat annulus that starts small at the receptor and expands. Lies
@@ -1903,6 +1981,33 @@ export class Highway {
     return Math.max(0, 1 - (songTime - last) * 5);
   }
 
+  /** Set the note-visibility modifier for this run. See the `visibility` field. */
+  setVisibility(mode: Visibility): void {
+    this.visibility = mode;
+  }
+
+  /**
+   * How visible a note at this approach `progress` is, 0..1, under the current
+   * visibility modifier. `progress` is 1 at spawn and 0 at the receptor.
+   *  - normal:  always 1.
+   *  - hidden:  1 far out, ramping to 0 as it nears the line — commit blind.
+   *  - fadeout: 0 far out, ramping to 1 as it approaches — read it late.
+   * The bands leave a readable sliver either side so a note never simply pops.
+   */
+  private revealFor(progress: number): number {
+    if (this.visibility === 'normal') return 1;
+    const p = Math.max(0, Math.min(1, progress));
+    if (this.visibility === 'hidden') {
+      // Fully lit until the note is well down the track, then fade over the last
+      // stretch before the receptor. The band was too high before — notes
+      // vanished with most of the highway still to travel.
+      return Math.max(0, Math.min(1, (p - 0.06) / 0.22));
+    }
+    // fadeout: dark far out, revealing as it approaches — but a touch sooner
+    // than before, so it is readable rather than a last-instant pop.
+    return Math.max(0, Math.min(1, (0.7 - p) / 0.26));
+  }
+
   /**
    * Draw the body of every visible hold.
    *
@@ -1928,13 +2033,23 @@ export class Highway {
       const broken = state.hold === 'broken';
       const missed = state.tier === 'miss';
 
+      // Under a visibility modifier a body rides the same ramp its head does,
+      // keyed on the head's approach progress — except while actually held, when
+      // it stays lit so the player can see what they are holding.
+      const headProgress = (state.note.t - songTime) / this.approachSec;
+      const reveal = held ? 1 : this.revealFor(headProgress);
+
       // Brightest while actually held — the body is the main feedback that the
       // player is doing it right, since the note itself is long gone under
       // their finger. A broken or missed hold drops back to scenery.
       const brightness = held ? 0.85 : broken || missed ? 0.12 : 0.42;
       mesh.material.color.setHex(laneColor(this.theme, state.note.lane));
-      mesh.material.color.multiplyScalar(brightness);
-      mesh.material.opacity = held ? 0.95 : broken || missed ? 0.3 : 0.7;
+      mesh.material.color.multiplyScalar(brightness * reveal);
+      mesh.material.opacity = (held ? 0.95 : broken || missed ? 0.3 : 0.7) * reveal;
+
+      // Sparkle while held. Emitted probabilistically per frame so the fizz is
+      // irregular rather than a metronomic stream; cheap (2 short-lived points).
+      if (held && Math.random() < 0.3) this.emitHoldSparkle(state.note.lane);
 
       used++;
     }
@@ -1944,6 +2059,9 @@ export class Highway {
 
   private updateNotes(songTime: number, visible: readonly NoteState[]): void {
     let count = 0;
+    const revealAttr = this.notes.geometry.getAttribute(
+      'instanceReveal',
+    ) as THREE.InstancedBufferAttribute;
 
     for (const state of visible) {
       if (count >= MAX_NOTE_INSTANCES) break;
@@ -1954,6 +2072,9 @@ export class Highway {
 
       const missed = state.tier === 'miss';
       const missFade = missed ? 0.4 : 1;
+      // Visibility modifier (Hidden / Fade-out). A held hold's head stays lit so
+      // the player can see what they are holding; otherwise it rides the ramp.
+      const reveal = state.hold === 'held' ? 1 : this.revealFor(progress);
       const nearness = Math.max(0, Math.min(1, 1 - progress));
       // Lane positions taper with the track. Without this the notes keep their
       // full-width spacing while the floor narrows underneath them, and the
@@ -1989,6 +2110,9 @@ export class Highway {
       this.color.setHex(this.noteHex(state.note.lane));
       this.color.multiplyScalar((0.72 + nearness * 0.3) * missFade * spawnFade);
       this.notes.setColorAt(count, this.color);
+      // Hidden / Fade-out fade the tile through its alpha (see buildNotes): a
+      // colour multiply cannot, because the tile is emissive metal.
+      revealAttr.setX(count, reveal);
 
       // --- outer glow: light spilling onto the lane around the tile ---
       // Stage: a rounded-rect glow spread beyond the bar's footprint, so it
@@ -2013,7 +2137,7 @@ export class Highway {
       // Eased back from 0.38 + 0.7: the halo was bright enough to bleed into
       // its neighbours through the bloom, which softened the tile's own edge.
       const haloScale = this.stage ? 0.85 : 1;
-      this.color.multiplyScalar((0.3 + nearness * 0.55) * haloScale * missFade * spawnFade);
+      this.color.multiplyScalar((0.3 + nearness * 0.55) * haloScale * missFade * spawnFade * reveal);
       this.noteGlow.setColorAt(count, this.color);
 
       count++;
@@ -2022,6 +2146,7 @@ export class Highway {
     this.notes.count = count;
     this.notes.instanceMatrix.needsUpdate = true;
     if (this.notes.instanceColor) this.notes.instanceColor.needsUpdate = true;
+    revealAttr.needsUpdate = true;
 
     this.noteGlow.count = count;
     this.noteGlow.instanceMatrix.needsUpdate = true;

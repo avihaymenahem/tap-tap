@@ -57,6 +57,7 @@ describe('UI_SOUNDS palette', () => {
     expect(pitchDirection('newBest')).toBeGreaterThan(0);
     expect(pitchDirection('back')).toBeLessThan(0);
     expect(pitchDirection('comboBreak')).toBeLessThan(0);
+    expect(pitchDirection('fail')).toBeLessThan(0);
   });
 
   it('keeps the tally tick nearly silent relative to the sounds around it', () => {
@@ -77,10 +78,10 @@ describe('UI_SOUNDS palette', () => {
 });
 
 describe('results cues (boost + reverb)', () => {
-  it('boosts and wets exactly the three game-end cues', () => {
+  it('boosts and wets exactly the post-song cues', () => {
     // These play after the song ends, so nothing competes and they can be loud
     // and reverbed. The tap cues sit under music and must stay dry and quiet.
-    expect([...RESULTS_SOUNDS].sort()).toEqual(['fanfare', 'newBest', 'tallyEnd']);
+    expect([...RESULTS_SOUNDS].sort()).toEqual(['fail', 'fanfare', 'newBest', 'tallyEnd']);
     for (const dry of ['tick', 'confirm', 'back', 'count', 'go', 'tallyTick'] as UiSoundName[]) {
       expect(RESULTS_SOUNDS.has(dry), dry).toBe(false);
     }
