@@ -1,5 +1,5 @@
 import type { Beatmap, JobStatus } from '@tap-tap/shared';
-import { BEATMAP_VERSION } from '@tap-tap/shared';
+import { BEATMAP_VERSION, CHART_VERSION } from '@tap-tap/shared';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ANALYSIS_VERSION, analyze, computeWaveform, generateAllCharts } from '@tap-tap/core';
@@ -87,6 +87,7 @@ export async function ingestSong(url: string, onProgress: ProgressFn = () => {})
 
   const beatmap: Beatmap = {
     version: BEATMAP_VERSION,
+    chartVersion: CHART_VERSION,
     songId,
     title: keepName ? previous.title : meta.title,
     artist: keepName ? previous.artist : meta.artist,
@@ -164,6 +165,7 @@ export async function regenerateCharts(songId: string): Promise<Beatmap> {
 
   const beatmap: Beatmap = {
     ...existing,
+    chartVersion: CHART_VERSION,
     // Re-analysis may have moved the grid; the beatmap must describe the charts
     // beside it, not the analysis they replaced.
     bpm: analysis.bpm,

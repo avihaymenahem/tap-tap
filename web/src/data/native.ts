@@ -27,6 +27,7 @@ import type {
   Waveform,
 } from '@tap-tap/shared';
 import {
+  CHART_VERSION,
   DIFFICULTY_NAMES,
   isBuiltinTheme,
   isThemeId,
@@ -207,6 +208,7 @@ export async function regenerateCharts(songId: string): Promise<SongSummary> {
   if (!analysis) throw new Error(`No cached analysis for ${songId}`);
   const updated: Beatmap = {
     ...existing,
+    chartVersion: CHART_VERSION,
     bpm: analysis.bpm,
     bpmConfidence: analysis.bpmConfidence,
     beatGrid: analysis.beatGrid,

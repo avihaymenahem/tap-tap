@@ -13,7 +13,7 @@
 
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import type { Beatmap } from '@tap-tap/shared';
-import { BEATMAP_VERSION } from '@tap-tap/shared';
+import { BEATMAP_VERSION, CHART_VERSION } from '@tap-tap/shared';
 import { analyzeInWorker, decodeAudioToMonoPcm } from '../ingest/index.js';
 import { YoutubeDl } from '../plugins/youtubedl.js';
 import { base64ToArrayBuffer } from './base64.js';
@@ -119,6 +119,7 @@ export async function ingestFromUrl(url: string, onProgress: IngestProgress = ()
 
   const beatmap: Beatmap = {
     version: BEATMAP_VERSION,
+    chartVersion: CHART_VERSION,
     songId,
     title: keepName ? previous.title : meta.title,
     artist: keepName ? previous.artist : meta.artist,
