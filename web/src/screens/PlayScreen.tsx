@@ -75,6 +75,18 @@ const SUSTAINED_WINDOW_SEC = 8;
 const SUSTAINED_MIN_NOTES = 4;
 
 /**
+ * No note is required in the first second after playback begins.
+ *
+ * A chart that opens on beat one otherwise lands a note on the player the
+ * instant the count-in ends, with no beat to settle. Notes inside this window
+ * are dropped — the music still plays them — rather than delayed, which would
+ * desync every note from the audio it was timed against. Measured from where
+ * playback actually starts (`offset`), so an intro-skip already past this keeps
+ * all its notes.
+ */
+const START_GRACE_SEC = 1;
+
+/**
  * Where playback should begin.
  *
  * Skipping to the *first* note is not enough: an atmospheric intro can contain
@@ -319,7 +331,12 @@ export function PlayScreen({
         // instant the clock starts past them, wrecking the score before the
         // player has touched a key.
         const offset = startOffsetFor(chart.notes);
-        const kept = offset > 0 ? chart.notes.filter((n) => n.t >= offset) : chart.notes;
+        // Plus a grace second (see START_GRACE_SEC): never demand a hit in the
+        // first second of playback. Guarded so a pathologically short chart is
+        // never emptied entirely.
+        const firstPlayableAt = offset + START_GRACE_SEC;
+        const graced = chart.notes.filter((n) => n.t >= firstPlayableAt);
+        const kept = graced.length > 0 ? graced : chart.notes.filter((n) => n.t >= offset);
         // Demote holds too close to the start (see HOLD_START_LEAD_SEC): a hold
         // sitting on the hit line as the song begins is ungrabbable.
         const played: Chart = {
