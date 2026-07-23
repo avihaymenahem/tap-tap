@@ -145,7 +145,7 @@ export function generateChart(
   }
 
   notes.sort((a, b) => a.t - b.t || a.lane - b.lane);
-  if (sustains.length > 0) applyHolds(notes, sustains, params);
+  if (sustains.length > 0) applyHolds(notes, sustains, params, accepted, gridTrusted);
   return { laneCount: params.laneCount, notes };
 }
 
@@ -157,7 +157,13 @@ export function generateChart(
  * extend as far as the next note in that same lane. Deciding durations before
  * lanes were known would produce holds a player physically cannot honour.
  */
-function applyHolds(notes: Note[], sustains: readonly Sustain[], params: DifficultyParams): void {
+function applyHolds(
+  notes: Note[],
+  sustains: readonly Sustain[],
+  params: DifficultyParams,
+  heads: readonly PoolOnset[],
+  gridTrusted: boolean,
+): void {
   const budget = Math.floor(notes.length * params.holdShare);
   if (budget <= 0) return;
 
@@ -175,7 +181,16 @@ function applyHolds(notes: Note[], sustains: readonly Sustain[], params: Difficu
   const byTime = new Map<string, Sustain>();
   for (const sustain of sustains) byTime.set(sustain.t.toFixed(2), sustain);
 
-  const candidates: { index: number; sustain: Sustain; duration: number }[] = [];
+  // The head onset behind each time, so a hold can prefer landing on the beat.
+  // Keyed the same way; the strongest onset wins a shared bucket.
+  const headByTime = new Map<string, PoolOnset>();
+  for (const head of heads) {
+    const key = head.t.toFixed(2);
+    const existing = headByTime.get(key);
+    if (!existing || head.strength > existing.strength) headByTime.set(key, head);
+  }
+
+  const candidates: { index: number; sustain: Sustain; duration: number; onBeat: boolean }[] = [];
   notes.forEach((note, index) => {
     const sustain = byTime.get(note.t.toFixed(2));
     if (!sustain) return;
@@ -187,12 +202,22 @@ function applyHolds(notes: Note[], sustains: readonly Sustain[], params: Difficu
     const duration = Math.min(sustain.duration, params.maxHoldSec, room);
     if (duration < params.minHoldSec) return;
 
-    candidates.push({ index, sustain, duration });
+    // On a trusted grid, a hold whose head sits off the beat reads as mistimed;
+    // off a trusted grid the grid says nothing, so every head is treated equally.
+    const head = headByTime.get(note.t.toFixed(2));
+    const onBeat = gridTrusted && head ? head.onGrid : false;
+
+    candidates.push({ index, sustain, duration, onBeat });
   });
 
-  // Steadiest first: when a chart has more candidates than budget, the ones
-  // kept should be the most unambiguously sustained, not merely the earliest.
-  candidates.sort((a, b) => b.sustain.steadiness - a.sustain.steadiness);
+  // On-beat heads first, then steadiest — a hold on the pulse reads as
+  // intentional, and the steadiest sustains are the least ambiguous. Neither
+  // rejects a candidate outright; the budget and concurrency cap below do the
+  // culling, so an on-beat song simply fills with its cleanest holds.
+  candidates.sort(
+    (a, b) =>
+      Number(b.onBeat) - Number(a.onBeat) || b.sustain.steadiness - a.sustain.steadiness,
+  );
 
   const accepted: Span[] = [];
   for (const { index, duration } of candidates) {

@@ -39,11 +39,11 @@ function plateauWaveform(duration = 60): Waveform {
 }
 
 /**
- * Holds are switched off in the shipped config (`holdShare: 0`), so these tests
- * enable them explicitly. The *mechanism* has to stay covered while the feature
- * is dark — otherwise it would rot silently and re-enabling it later would mean
- * re-testing everything from scratch. `enabled()` restores the tuned shares
- * recorded in `difficulty.ts`.
+ * Holds are enabled in the shipped config (the overhaul turned them back on).
+ * `enabled()` used to restore the tuned shares while the feature was dark; it
+ * now just pins them, so the generation tests keep working against a known share
+ * even if the shipped numbers are later tuned. The shares here must track
+ * `difficulty.ts` — the `shipped configuration` test below asserts they do.
  */
 const TUNED_SHARE: Record<DifficultyName, number> = {
   easy: 0.1,
@@ -86,16 +86,23 @@ describe('peakConcurrency', () => {
 });
 
 describe('shipped configuration', () => {
-  it('generates no holds, because the feature is currently off', () => {
-    // Holds are disabled deliberately — they did not play well enough to keep.
-    // This asserts the *shipped* behaviour, so re-enabling them is a conscious
-    // act that fails this test, rather than something that drifts back in with
-    // an unrelated change to the difficulty table.
+  it('enables holds on every difficulty, climbing with difficulty', () => {
+    // The overhaul turned holds back on. This asserts the *shipped* behaviour so
+    // an accidental return to zero (which would silently switch a difficulty's
+    // holds back off) fails here rather than shipping. The shares are what the
+    // generation tests below pin via `enabled()`.
     for (const params of Object.values(DIFFICULTIES)) {
-      expect(params.holdShare, `${params.name} holdShare`).toBe(0);
-      const chart = generateChart(sustainedAnalysis(), params, 1, plateauWaveform());
-      expect(chart.notes.some(isHold), `${params.name} produced holds`).toBe(false);
+      expect(params.holdShare, `${params.name} holdShare`).toBe(TUNED_SHARE[params.name]);
+      expect(params.holdShare, `${params.name} holdShare > 0`).toBeGreaterThan(0);
     }
+    expect(DIFFICULTIES.easy.holdShare).toBeLessThan(DIFFICULTIES.hard.holdShare);
+  });
+
+  it('produces holds on a sustained track with the shipped config', () => {
+    // Not just the parameter — the pipeline end to end with the real difficulty
+    // params (no `enabled()` override) must yield holds when the audio sustains.
+    const chart = generateChart(sustainedAnalysis(), DIFFICULTIES.hard, 1, plateauWaveform());
+    expect(chart.notes.some(isHold)).toBe(true);
   });
 });
 

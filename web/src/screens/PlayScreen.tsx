@@ -559,6 +559,14 @@ export function PlayScreen({
         vibrateMiss();
       }
 
+      // A hold carried all the way to its tail completes inside `update` and
+      // never passes through `release`, so it bursts from here instead — same
+      // success feedback a released completion gets.
+      for (const lane of engine.takeCompletedHoldLanes()) {
+        highway.burst(lane, 'perfect', engine.snapshot.combo);
+        vibrateTap();
+      }
+
       clock.readSpectrum(spectrum);
       const bass = bandLevel(spectrum, 1, 8);
       const treble = bandLevel(spectrum, 60, 160);

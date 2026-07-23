@@ -36,14 +36,17 @@ export interface DifficultyParams {
    * 0..1 — the most of a chart's notes that may become holds.
    *
    * A ceiling, not a target: a song with no sustained sounds gets no holds, and
-   * that is the correct chart for it. The generator takes the steadiest
-   * candidates up to this share rather than manufacturing holds to fill a quota.
+   * that is the correct chart for it. The generator takes the steadiest, most
+   * on-beat candidates up to this share rather than manufacturing holds to fill
+   * a quota.
    *
-   * **Currently 0 everywhere — holds are switched off.** They did not play well
-   * enough to keep on. Zero is the whole off-switch: `applyHolds` returns
-   * immediately on a zero budget, so no chart gains a hold and every other part
-   * of the feature simply never fires. The tuned values are recorded beside each
-   * difficulty below; restoring them re-enables it with no other change.
+   * **Re-enabled with the holds overhaul.** Holds were dark (0 everywhere) while
+   * they played badly — the problem was that breaking one cost nothing, so
+   * holding had no payoff. They now tick for score along the body and pay a
+   * strong tail bonus (still strictly additive — a drop only forfeits the rest,
+   * never combo or health), and generation prefers on-beat, clearly-sustained
+   * heads. `holdShare` climbs with difficulty; a zero here would switch a
+   * difficulty back off (`applyHolds` returns immediately on a zero budget).
    */
   holdShare: number;
   /** Shorter than this is a tap. Below ~0.35s a hold reads as a sloppy tap. */
@@ -93,9 +96,9 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     approachSec: 1.9,
     // Strongly on-beat: a beginner should almost never face a syncopated note.
     onGridBonus: 2.5,
-    // Holds off; 0.1 when enabled. Few and long — on easy a hold is a rest,
-    // not a demand.
-    holdShare: 0,
+    // Few and long — on easy a hold is a rest, not a demand. Re-enabled with the
+    // holds overhaul (tick scoring + strong tail bonus + on-beat generation).
+    holdShare: 0.1,
     minHoldSec: 0.6,
     maxHoldSec: 4,
     maxConcurrentHolds: 2,
@@ -111,8 +114,7 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     targetNps: 2,
     approachSec: 1.6,
     onGridBonus: 1.6,
-    // Holds off; 0.14 when enabled.
-    holdShare: 0,
+    holdShare: 0.14,
     minHoldSec: 0.5,
     maxHoldSec: 3.5,
     maxConcurrentHolds: 2,
@@ -129,8 +131,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     approachSec: 1.3,
     // The old flat value; hard is where off-beat detail starts to belong.
     onGridBonus: 1.2,
-    // Holds off; 0.18 when enabled. More and shorter than easy/medium.
-    holdShare: 0,
+    // More and shorter than easy/medium.
+    holdShare: 0.18,
     minHoldSec: 0.4,
     maxHoldSec: 3,
     maxConcurrentHolds: 2,
@@ -166,8 +168,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     approachSec: 0.95,
     // Barely tips toward the grid: extreme should keep syncopation as texture.
     onGridBonus: 1.1,
-    // Holds off; 0.2 when enabled. Same shape as hard, a touch shorter.
-    holdShare: 0,
+    // Same shape as hard, a touch shorter.
+    holdShare: 0.2,
     minHoldSec: 0.35,
     maxHoldSec: 2.5,
     maxConcurrentHolds: 2,

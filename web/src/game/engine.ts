@@ -5,6 +5,8 @@ import {
   TIERS,
   type Tier,
   type Timing,
+  HOLD_TICK_SCORE,
+  HOLD_TICK_SEC,
   accuracyOf,
   baseScore,
   comboMultiplier,
@@ -47,6 +49,12 @@ export interface NoteState {
   timing: Timing | null;
   /** Holds only; `null` on taps. */
   hold: HoldState | null;
+  /**
+   * Score ticks already awarded for this hold while held. Lets `update` award
+   * each `HOLD_TICK_SEC` boundary exactly once no matter how the frame times
+   * fall across it. 0 on taps and ungrabbed holds.
+   */
+  holdTicks: number;
 }
 
 export interface HitResult {
@@ -104,6 +112,8 @@ export interface GameSnapshot {
   /** Holds carried to their tail. Reported separately: accuracy counts the head. */
   holdsCompleted: number;
   totalHolds: number;
+  /** Score ticks awarded across all holds this run. Additive juice, not accuracy. */
+  holdTicks: number;
   accuracy: number;
   notesJudged: number;
   totalNotes: number;
@@ -151,8 +161,16 @@ export class GameEngine {
   private hits = 0;
   private judged = 0;
   private holdsCompleted = 0;
+  private holdTicksHit = 0;
   private health = HEALTH_CONFIG.start;
   private failed = false;
+  /**
+   * Lanes whose hold just auto-completed at its tail during `update` (the player
+   * held it all the way). Drained by the caller each frame to fire a completion
+   * burst — the release-driven path bursts in `PlayScreen`, but a hold carried to
+   * its natural end never passes through `releaseLane`, so it needs this.
+   */
+  private completedHoldLanes: number[] = [];
 
   constructor(chart: Chart, options: EngineOptions = {}) {
     this.laneCount = chart.laneCount;
@@ -166,6 +184,7 @@ export class GameEngine {
       tier: null,
       timing: null,
       hold: isHold(note) ? ('pending' as const) : null,
+      holdTicks: 0,
     }));
     this.totalNotes = this.notes.length;
     this.totalHolds = this.notes.filter((state) => state.hold !== null).length;
@@ -236,7 +255,23 @@ export class GameEngine {
       const id = this.heldByLane[lane]!;
       if (id < 0) continue;
       const state = this.notes[id]!;
-      if (now >= noteEnd(state.note)) this.finishHold(state, lane, true);
+      const tail = noteEnd(state.note);
+
+      // Score ticks for each HOLD_TICK_SEC boundary the hold has crossed while
+      // down, capped at the tail. Awarded here (not per frame) and gated by
+      // `holdTicks` so a slow or fast frame still lands each tick exactly once.
+      const capped = Math.min(now, tail);
+      const due = Math.floor((capped - state.note.t) / HOLD_TICK_SEC);
+      while (state.holdTicks < due) {
+        state.holdTicks++;
+        this.score += HOLD_TICK_SCORE * comboMultiplier(this.combo);
+        this.holdTicksHit++;
+      }
+
+      if (now >= tail) {
+        this.finishHold(state, lane, true);
+        this.completedHoldLanes.push(lane);
+      }
     }
 
     for (const lane of this.lanes) {
@@ -354,6 +389,18 @@ export class GameEngine {
     return this.heldByLane[lane] ?? -1;
   }
 
+  /**
+   * Lanes whose hold auto-completed at its tail since the last call, cleared as
+   * they are read. Lets the play loop fire a completion burst for a hold the
+   * player carried to its natural end, which never touches `releaseLane`.
+   */
+  takeCompletedHoldLanes(): number[] {
+    if (this.completedHoldLanes.length === 0) return [];
+    const lanes = this.completedHoldLanes;
+    this.completedHoldLanes = [];
+    return lanes;
+  }
+
   /** Notes that should currently be on screen, nearest first. */
   visibleNotes(songTime: number, approachSec: number): NoteState[] {
     const from = songTime - 0.25;
@@ -388,6 +435,7 @@ export class GameEngine {
       meanDelta: this.hits > 0 ? this.deltaSum / this.hits : 0,
       holdsCompleted: this.holdsCompleted,
       totalHolds: this.totalHolds,
+      holdTicks: this.holdTicksHit,
       accuracy: accuracyOf(this.counts),
       notesJudged: this.judged,
       totalNotes: this.totalNotes,

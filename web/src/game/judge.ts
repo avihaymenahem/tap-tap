@@ -164,6 +164,17 @@ export function releaseWindowFor(duration: number): number {
 export const HOLD_BONUS_PER_SEC = 120;
 
 /**
+ * Score ticks while a hold is down — the "juice" that makes holding feel active
+ * rather than a chore of keeping a finger pressed. A tick fires every
+ * `HOLD_TICK_SEC` of held song-time and is worth `HOLD_TICK_SCORE` before the
+ * combo multiplier. Ticks add score and nothing else: they never touch the tap
+ * accuracy tally or the combo, so a hold stays *strictly additive* (breaking one
+ * simply stops the ticks) while still paying out steadily for holding it.
+ */
+export const HOLD_TICK_SEC = 0.25;
+export const HOLD_TICK_SCORE = 22;
+
+/**
  * Longest stretch of a hold that earns the bonus.
  *
  * A sustain detected across an outro could otherwise be worth more than the
