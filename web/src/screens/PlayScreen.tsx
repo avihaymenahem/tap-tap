@@ -325,6 +325,7 @@ export function PlayScreen({
           coverUrl: map.thumbnailUrl ?? undefined,
         });
         highwayRef.current.resize(canvas.clientWidth, canvas.clientHeight);
+        highwayRef.current.setVisibility(modsRef.current.visibility);
 
         setBeatmap(map);
         setThemeAccent(theme.accent ?? DEFAULT_ACCENT);
@@ -696,6 +697,7 @@ export function PlayScreen({
       // Rebuild the engine so any modifier changed on the ready screen (Fail,
       // Mirror) is honoured — the one built during loading predates them.
       engineRef.current = makeEngine(chartRef.current!, clock, modsRef.current);
+      highwayRef.current?.setVisibility(modsRef.current.visibility);
       autoDeltasRef.current = [];
       autoDriftRef.current = 0;
       outroStarted = false;

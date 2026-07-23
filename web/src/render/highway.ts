@@ -5,6 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { NoteState } from '../game/engine.js';
 import type { Tier } from '../game/judge.js';
+import type { Visibility } from '../game/modifiers.js';
 import type { Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT } from '@tap-tap/shared';
 import { laneColor } from './palette.js';
@@ -245,6 +246,15 @@ export class Highway {
   private readonly bloom: UnrealBloomPass;
   private readonly laneCount: number;
   private readonly approachSec: number;
+  /**
+   * Note-visibility modifier. `normal` draws every note fully; `hidden` fades a
+   * note out as it nears the receptor (commit blind); `fadeout` keeps it dark
+   * until it is close (read late). Applied as a plain colour multiply in
+   * `updateNotes`/`updateHoldBodies` — the tiles glow against a dark track, so
+   * multiplying toward 0 fades them to nothing without any transparent-material
+   * or shader change.
+   */
+  private visibility: Visibility = 'normal';
   private readonly theme: Theme;
   /** Beatstar-style rendering: dark colourless track, glowing rails, cover ring. */
   private readonly stage: boolean;
@@ -1903,6 +1913,29 @@ export class Highway {
     return Math.max(0, 1 - (songTime - last) * 5);
   }
 
+  /** Set the note-visibility modifier for this run. See the `visibility` field. */
+  setVisibility(mode: Visibility): void {
+    this.visibility = mode;
+  }
+
+  /**
+   * How visible a note at this approach `progress` is, 0..1, under the current
+   * visibility modifier. `progress` is 1 at spawn and 0 at the receptor.
+   *  - normal:  always 1.
+   *  - hidden:  1 far out, ramping to 0 as it nears the line — commit blind.
+   *  - fadeout: 0 far out, ramping to 1 as it approaches — read it late.
+   * The bands leave a readable sliver either side so a note never simply pops.
+   */
+  private revealFor(progress: number): number {
+    if (this.visibility === 'normal') return 1;
+    const p = Math.max(0, Math.min(1, progress));
+    if (this.visibility === 'hidden') {
+      return Math.max(0, Math.min(1, (p - 0.15) / 0.3));
+    }
+    // fadeout
+    return Math.max(0, Math.min(1, (0.62 - p) / 0.3));
+  }
+
   /**
    * Draw the body of every visible hold.
    *
@@ -1928,13 +1961,19 @@ export class Highway {
       const broken = state.hold === 'broken';
       const missed = state.tier === 'miss';
 
+      // Under a visibility modifier a body rides the same ramp its head does,
+      // keyed on the head's approach progress — except while actually held, when
+      // it stays lit so the player can see what they are holding.
+      const headProgress = (state.note.t - songTime) / this.approachSec;
+      const reveal = held ? 1 : this.revealFor(headProgress);
+
       // Brightest while actually held — the body is the main feedback that the
       // player is doing it right, since the note itself is long gone under
       // their finger. A broken or missed hold drops back to scenery.
       const brightness = held ? 0.85 : broken || missed ? 0.12 : 0.42;
       mesh.material.color.setHex(laneColor(this.theme, state.note.lane));
-      mesh.material.color.multiplyScalar(brightness);
-      mesh.material.opacity = held ? 0.95 : broken || missed ? 0.3 : 0.7;
+      mesh.material.color.multiplyScalar(brightness * reveal);
+      mesh.material.opacity = (held ? 0.95 : broken || missed ? 0.3 : 0.7) * reveal;
 
       used++;
     }
@@ -1954,6 +1993,9 @@ export class Highway {
 
       const missed = state.tier === 'miss';
       const missFade = missed ? 0.4 : 1;
+      // Visibility modifier (Hidden / Fade-out). A held hold's head stays lit so
+      // the player can see what they are holding; otherwise it rides the ramp.
+      const reveal = state.hold === 'held' ? 1 : this.revealFor(progress);
       const nearness = Math.max(0, Math.min(1, 1 - progress));
       // Lane positions taper with the track. Without this the notes keep their
       // full-width spacing while the floor narrows underneath them, and the
@@ -1987,7 +2029,7 @@ export class Highway {
       // needs more colour to read as solid neon. The texture's opaque white rim
       // carries the bloom, so the tile keeps a crisp lit edge either way.
       this.color.setHex(this.noteHex(state.note.lane));
-      this.color.multiplyScalar((0.72 + nearness * 0.3) * missFade * spawnFade);
+      this.color.multiplyScalar((0.72 + nearness * 0.3) * missFade * spawnFade * reveal);
       this.notes.setColorAt(count, this.color);
 
       // --- outer glow: light spilling onto the lane around the tile ---
@@ -2013,7 +2055,7 @@ export class Highway {
       // Eased back from 0.38 + 0.7: the halo was bright enough to bleed into
       // its neighbours through the bloom, which softened the tile's own edge.
       const haloScale = this.stage ? 0.85 : 1;
-      this.color.multiplyScalar((0.3 + nearness * 0.55) * haloScale * missFade * spawnFade);
+      this.color.multiplyScalar((0.3 + nearness * 0.55) * haloScale * missFade * spawnFade * reveal);
       this.noteGlow.setColorAt(count, this.color);
 
       count++;

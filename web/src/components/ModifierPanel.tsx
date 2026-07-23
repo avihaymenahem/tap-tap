@@ -1,6 +1,14 @@
 import type { CSSProperties, JSX } from 'react';
-import type { Modifiers } from '../game/modifiers.js';
+import type { Modifiers, Visibility } from '../game/modifiers.js';
 import { playUiSound } from '../uisfx.js';
+
+/** The visibility cycle and how each state reads on its chip. */
+const VISIBILITY_ORDER: Visibility[] = ['normal', 'hidden', 'fadeout'];
+const VISIBILITY_LABEL: Record<Visibility, string> = {
+  normal: 'Full',
+  hidden: 'Hidden',
+  fadeout: 'Fade-out',
+};
 
 /**
  * The per-run modifier controls, shown on the ready screen.
@@ -26,6 +34,16 @@ export function ModifierPanel({
     onChange({ ...mods, ...patch });
   };
 
+  // Visibility is a three-way cycle rather than a boolean, so one chip steps
+  // Full -> Hidden -> Fade-out and back.
+  const cycleVisibility = (): void => {
+    const next =
+      VISIBILITY_ORDER[
+        (VISIBILITY_ORDER.indexOf(mods.visibility) + 1) % VISIBILITY_ORDER.length
+      ]!;
+    toggle({ visibility: next }, next !== 'normal');
+  };
+
   return (
     <div className="mod-panel rise" style={style}>
       <span className="mod-panel__label">Modifiers</span>
@@ -36,9 +54,28 @@ export function ModifierPanel({
           aria-pressed={mods.fail}
           onClick={() => toggle({ fail: !mods.fail }, !mods.fail)}
         >
-          {/* A heart when survival is on, a shield-off when you cannot die. */}
+          {/* A heart when survival is on, a shield when you cannot die. */}
           <span aria-hidden>{mods.fail ? '💔' : '🛡'}</span>
           <span>Fail {mods.fail ? 'On' : 'Off'}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mod-chip ${mods.mirror ? 'mod-chip--on' : ''}`}
+          aria-pressed={mods.mirror}
+          onClick={() => toggle({ mirror: !mods.mirror }, !mods.mirror)}
+        >
+          <span aria-hidden>🪞</span>
+          <span>Mirror {mods.mirror ? 'On' : 'Off'}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mod-chip ${mods.visibility !== 'normal' ? 'mod-chip--on' : ''}`}
+          onClick={cycleVisibility}
+        >
+          <span aria-hidden>👁</span>
+          <span>{VISIBILITY_LABEL[mods.visibility]}</span>
         </button>
       </div>
     </div>
