@@ -17,6 +17,13 @@ export interface StoredRun extends RunResult {
   title: string;
   /** The song theme's accent colour, so the results screen keeps its palette. */
   accent?: number;
+  /**
+   * Ids of achievements this run unlocked, recorded once at finish and carried
+   * here so the results screen can celebrate them. Stored on the run (not
+   * re-derived) so re-visiting results shows the same badges without recording
+   * the run a second time.
+   */
+  newAchievements?: string[];
 }
 
 const KEY = 'tap-tap.lastRun';

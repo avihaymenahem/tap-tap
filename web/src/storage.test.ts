@@ -4,8 +4,12 @@ import {
   getBestScore,
   getFavorites,
   getLastSong,
+  getPreviewEnabled,
+  getTutorialSeen,
   recordScore,
   setLastSong,
+  setPreviewEnabled,
+  setTutorialSeen,
   toggleFavorite,
 } from './storage.js';
 
@@ -62,5 +66,21 @@ describe('forgetSong', () => {
     setLastSong('keeper');
     expect(() => forgetSong('never-existed')).not.toThrow();
     expect(getLastSong()).toBe('keeper');
+  });
+});
+
+describe('onboarding + preview flags', () => {
+  it('has never seen the tutorial by default, then remembers it was seen', () => {
+    expect(getTutorialSeen()).toBe(false);
+    setTutorialSeen(true);
+    expect(getTutorialSeen()).toBe(true);
+  });
+
+  it('enables previews by default, and can be turned off', () => {
+    expect(getPreviewEnabled()).toBe(true);
+    setPreviewEnabled(false);
+    expect(getPreviewEnabled()).toBe(false);
+    setPreviewEnabled(true);
+    expect(getPreviewEnabled()).toBe(true);
   });
 });

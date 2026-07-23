@@ -1,9 +1,10 @@
 import { DEFAULT_ACCENT, type DifficultyName } from '@tap-tap/shared';
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { accentVars } from '../accent.js';
-import { TIERS, TIMINGS, biasAdvice, type Tier, type Timing } from '../game/judge.js';
+import { achievementById } from '../game/achievements.js';
+import { TIERS, TIMINGS, biasAdvice, type Tier } from '../game/judge.js';
 import { loadRun } from '../lastRun.js';
-import { TIER_COLORS, TIER_LABELS, TIMING_COLORS } from '../render/palette.js';
+import { TIER_COLORS, TIER_LABELS } from '../render/palette.js';
 import { recordScore } from '../storage.js';
 import { playUiSound } from '../uisfx.js';
 
@@ -15,12 +16,6 @@ interface ResultsScreenProps {
   /** Called when this URL was opened without a matching run to show. */
   onMissing: () => void;
 }
-
-const TIMING_TITLES: Record<Timing, string> = {
-  exact: 'Dead on',
-  early: 'Early',
-  late: 'Late',
-};
 
 export function ResultsScreen({
   songId,
@@ -80,6 +75,11 @@ export function ResultsScreen({
         // The new-best sting lands just after the score settles, not on top of
         // it — two celebrations at once read as one muddled noise.
         if (isBest) bestTimer = window.setTimeout(() => playUiSound('newBest'), 280);
+        // An achievement gets its own sparkle too — but only if a new best did
+        // not already fire one, so the moment is never doubled.
+        else if ((result.newAchievements?.length ?? 0) > 0) {
+          bestTimer = window.setTimeout(() => playUiSound('newBest'), 320);
+        }
       }
     };
 
@@ -118,6 +118,12 @@ export function ResultsScreen({
   const advice = biasAdvice(result.meanDelta, hits);
   const meanMs = Math.round(result.meanDelta * 1000);
 
+  // Badges this run unlocked, resolved from their stored ids. Unknown ids (a
+  // badge removed in a later build) are dropped rather than rendered blank.
+  const earned = (result.newAchievements ?? [])
+    .map(achievementById)
+    .filter((a): a is NonNullable<typeof a> => a !== undefined);
+
   return (
     <div className="results">
       <div className="results__card" style={accentVars(result.accent ?? DEFAULT_ACCENT)}>
@@ -151,6 +157,29 @@ export function ResultsScreen({
           </div>
         )}
 
+        {earned.length > 0 && (
+          <div className="results__achievements">
+            <span className="results__achievements-label rise" style={{ '--i': 2 } as CSSProperties}>
+              Achievement{earned.length > 1 ? 's' : ''} unlocked
+            </span>
+            <div className="results__badges">
+              {earned.map((a, i) => (
+                <div
+                  key={a.id}
+                  className="badge-pop pop"
+                  style={{ '--i': i } as CSSProperties}
+                  title={a.description}
+                >
+                  <span className="badge-pop__icon" aria-hidden>
+                    {a.icon}
+                  </span>
+                  <span className="badge-pop__name">{a.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="results__score">{shownScore.toLocaleString()}</div>
 
         <div className="results__stats rise" style={{ '--i': 3 } as CSSProperties}>
@@ -177,27 +206,6 @@ export function ResultsScreen({
               <span className="tier-chip__label">{TIER_LABELS[tier]}</span>
             </div>
           ))}
-        </div>
-
-        <div className="timing-bars rise" style={{ '--i': 5 } as CSSProperties}>
-          {TIMINGS.map((timing) => {
-            const count = result.timingCounts[timing];
-            const share = hits > 0 ? (count / hits) * 100 : 0;
-            return (
-              <div key={timing} className="timing-bar">
-                <div className="timing-bar__head">
-                  <span style={{ color: TIMING_COLORS[timing] }}>{TIMING_TITLES[timing]}</span>
-                  <span className="results__count">{count}</span>
-                </div>
-                <div className="timing-bar__track">
-                  <div
-                    className="timing-bar__fill"
-                    style={{ width: `${share}%`, background: TIMING_COLORS[timing] }}
-                  />
-                </div>
-              </div>
-            );
-          })}
         </div>
 
         {hits > 0 && (

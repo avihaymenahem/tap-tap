@@ -1,5 +1,14 @@
 import { type DifficultyName, DIFFICULTY_NAMES } from '@tap-tap/shared';
 import { DEFAULT_MODIFIERS, type Modifiers } from './game/modifiers.js';
+import {
+  type Achievement,
+  type AchievementStats,
+  applyRun,
+  emptyStats,
+  newlyUnlocked,
+  unlockedIds,
+} from './game/achievements.js';
+import type { RunResult } from './game/run.js';
 
 /** Local persistence: calibration offset and per-chart best scores. */
 
@@ -9,6 +18,9 @@ const FAVORITES_KEY = 'tap-tap.favorites';
 const SORT_KEY = 'tap-tap.sort';
 const LAST_SONG_KEY = 'tap-tap.lastSong';
 const MODIFIERS_KEY = 'tap-tap.modifiers';
+const ACHIEVEMENTS_KEY = 'tap-tap.achievements';
+const TUTORIAL_SEEN_KEY = 'tap-tap.tutorialSeen';
+const PREVIEW_KEY = 'tap-tap.previews';
 
 export interface BestScore {
   score: number;
@@ -119,6 +131,79 @@ export function getStoredModifiers(): Modifiers {
 
 export function setStoredModifiers(mods: Modifiers): void {
   write(MODIFIERS_KEY, mods);
+}
+
+// --- onboarding + previews -------------------------------------------------
+
+/** Whether the player has been through the first-run tutorial. */
+export function getTutorialSeen(): boolean {
+  return read<boolean>(TUTORIAL_SEEN_KEY, false) === true;
+}
+
+export function setTutorialSeen(seen: boolean): void {
+  write(TUTORIAL_SEEN_KEY, seen);
+}
+
+/**
+ * Whether selecting a song in the menu auto-plays a preview clip. On by default;
+ * a player who finds it noisy (or is on mobile data) can switch it off.
+ */
+export function getPreviewEnabled(): boolean {
+  return read<boolean>(PREVIEW_KEY, true) !== false;
+}
+
+export function setPreviewEnabled(enabled: boolean): void {
+  write(PREVIEW_KEY, enabled);
+}
+
+// --- achievements ----------------------------------------------------------
+
+/**
+ * Career achievement state: the running stats aggregate and the ids earned so
+ * far. Per-device like scores and favorites. The `unlocked` list is stored
+ * alongside the stats (rather than recomputed) so that renaming or removing a
+ * badge definition never silently strips a player of one they earned.
+ */
+interface AchievementState {
+  stats: AchievementStats;
+  unlocked: string[];
+}
+
+function readAchievementState(): AchievementState {
+  const stored = read<Partial<AchievementState>>(ACHIEVEMENTS_KEY, {});
+  return {
+    stats: { ...emptyStats(), ...stored.stats },
+    unlocked: Array.isArray(stored.unlocked) ? stored.unlocked : [],
+  };
+}
+
+export function getAchievementStats(): AchievementStats {
+  return readAchievementState().stats;
+}
+
+/** Every badge id the player has earned. */
+export function getUnlockedAchievements(): Set<string> {
+  return new Set(readAchievementState().unlocked);
+}
+
+/**
+ * Fold one finished run into the career total and return the badges it just
+ * earned. Called **once per run**, from `App.onFinish` — never from the results
+ * screen, which can re-mount and would double-count. The freshly earned list is
+ * carried to results on the stored run, so re-visiting results re-shows the
+ * banner without re-recording.
+ */
+export function recordRunAchievements(
+  songId: string,
+  difficulty: DifficultyName,
+  run: RunResult,
+): Achievement[] {
+  const { stats, unlocked } = readAchievementState();
+  const nextStats = applyRun(stats, run, songId, difficulty);
+  const fresh = newlyUnlocked(unlocked, nextStats);
+  const nextUnlocked = fresh.length > 0 ? unlockedIds(nextStats) : unlocked;
+  write(ACHIEVEMENTS_KEY, { stats: nextStats, unlocked: nextUnlocked });
+  return fresh;
 }
 
 // --- favorites -------------------------------------------------------------
