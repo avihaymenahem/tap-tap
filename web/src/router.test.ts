@@ -11,11 +11,16 @@ describe('parseRoute', () => {
     expect(parseRoute('/calibrate')).toEqual({ name: 'calibrate' });
   });
 
-  it('parses play and results with a difficulty', () => {
+  it('parses play, versus and results with a difficulty', () => {
     expect(parseRoute('/play/abc123/hard')).toEqual({
       name: 'play',
       songId: 'abc123',
       difficulty: 'hard',
+    });
+    expect(parseRoute('/versus/abc123/medium')).toEqual({
+      name: 'versus',
+      songId: 'abc123',
+      difficulty: 'medium',
     });
     expect(parseRoute('/results/abc123/easy')).toEqual({
       name: 'results',
@@ -77,6 +82,7 @@ describe('round trip', () => {
     { name: 'calibrate' },
     { name: 'play', songId: 'dQw4w9WgXcQ', difficulty: 'easy' },
     { name: 'play', songId: '_Yhyp-_hX2s', difficulty: 'medium' },
+    { name: 'versus', songId: 'dQw4w9WgXcQ', difficulty: 'hard' },
     { name: 'results', songId: 'abc123', difficulty: 'hard' },
     { name: 'results', songId: 'a/b c', difficulty: 'easy' },
   ];

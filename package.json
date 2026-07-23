@@ -1,7 +1,7 @@
 {
   "name": "tap-tap",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "workspaces": [
     "shared",
@@ -16,6 +16,7 @@
     "build": "npm run build -w web && npm run build:sw -w web",
     "build:sw": "npm run build:sw -w web",
     "icons": "tsx scripts/make-icons.ts",
+    "logo": "tsx scripts/make-logo.ts",
     "cap:sync": "cap sync android",
     "build:android": "npm run build && cap sync android",
     "android": "npm run build:android && cap open android",

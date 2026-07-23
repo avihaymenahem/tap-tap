@@ -23,7 +23,13 @@ const ANALYSIS_SAMPLE_RATE = 44100;
 const AUDIO_FILE = 'audio.m4a';
 const THUMB_FILE = 'thumb.jpg';
 
-export type IngestProgress = (message: string) => void;
+/**
+ * Progress callback: a human message and a 0..1 fraction for a bar. The fraction
+ * is stage-based, not a true download percentage — the native download has no
+ * per-line callback (its arity drifts between library versions), so the long
+ * download stage holds at a fraction while the bar shimmers to show it is alive.
+ */
+export type IngestProgress = (message: string, fraction: number) => void;
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
 
@@ -60,7 +66,7 @@ async function writeJson(songId: string, file: string, value: unknown): Promise<
  * Only works in the native app — the `YoutubeDl` plugin is unimplemented on web.
  */
 export async function ingestFromUrl(url: string, onProgress: IngestProgress = () => {}): Promise<string> {
-  onProgress('Fetching details…');
+  onProgress('Fetching details…', 0.08);
   const meta = await YoutubeDl.fetchMetadata({ url });
   const songId = meta.id;
 
@@ -68,9 +74,10 @@ export async function ingestFromUrl(url: string, onProgress: IngestProgress = ()
   const { uri } = await Filesystem.getUri({ directory: DIR, path: `media/${songId}` });
   const destDir = uri.replace(/^file:\/\//, '');
 
-  onProgress(`Downloading “${meta.title}”…`);
+  onProgress(`Downloading “${meta.title}”…`, 0.2);
   const listener = await YoutubeDl.addListener('progress', ({ progress }) => {
-    if (progress > 0) onProgress(`Downloading… ${Math.round(progress)}%`);
+    // Only emitted if the native plugin gains a progress callback; harmless now.
+    if (progress > 0) onProgress(`Downloading… ${Math.round(progress)}%`, 0.2 + (progress / 100) * 0.4);
   });
   let download;
   try {
@@ -79,12 +86,12 @@ export async function ingestFromUrl(url: string, onProgress: IngestProgress = ()
     await listener.remove();
   }
 
-  onProgress('Decoding audio…');
+  onProgress('Decoding audio…', 0.65);
   const audioName = basename(download.audioPath);
   const { data } = await Filesystem.readFile({ directory: DIR, path: `media/${songId}/${audioName}` });
   const pcm = await decodeAudioToMonoPcm(base64ToArrayBuffer(data as string), ANALYSIS_SAMPLE_RATE);
 
-  onProgress('Detecting beats and building charts…');
+  onProgress('Detecting beats and building charts…', 0.82);
   const bundle = await analyzeInWorker(pcm, ANALYSIS_SAMPLE_RATE, songId);
 
   // Move the downloaded files into their canonical names, so the read layer and
@@ -138,6 +145,6 @@ export async function ingestFromUrl(url: string, onProgress: IngestProgress = ()
   await writeJson(songId, 'waveform.json', bundle.waveform);
   await writeJson(songId, 'beatmap.json', beatmap);
 
-  onProgress('Done');
+  onProgress('Done', 1);
   return songId;
 }

@@ -15,6 +15,7 @@ import { isReadOnly } from './api/serverConfig.js';
 export type Route =
   | { name: 'menu' }
   | { name: 'play'; songId: string; difficulty: DifficultyName }
+  | { name: 'versus'; songId: string; difficulty: DifficultyName }
   | { name: 'results'; songId: string; difficulty: DifficultyName }
   | { name: 'edit'; songId: string; difficulty: DifficultyName }
   | { name: 'calibrate' }
@@ -59,6 +60,7 @@ export function parseRoute(pathname: string, options?: ParseOptions): Route {
     case 'tutorial':
       return { name: 'tutorial' };
     case 'play':
+    case 'versus':
     case 'results':
     case 'edit': {
       if (head === 'edit' && !authoring) return { name: 'menu' };
@@ -86,6 +88,8 @@ export function routeToPath(route: Route): string {
       return '/tutorial';
     case 'play':
       return `/play/${encodeURIComponent(route.songId)}/${route.difficulty}`;
+    case 'versus':
+      return `/versus/${encodeURIComponent(route.songId)}/${route.difficulty}`;
     case 'results':
       return `/results/${encodeURIComponent(route.songId)}/${route.difficulty}`;
     case 'edit':

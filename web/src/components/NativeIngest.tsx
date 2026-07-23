@@ -1,31 +1,45 @@
-import { useState, type JSX } from 'react';
+import { useEffect, useState, type JSX } from 'react';
 import { ingestFromUrl } from '../data/ingest.js';
 import { playUiSound } from '../uisfx.js';
 
 /**
  * The on-device "add a song" modal (MC2) — a URL prompt that runs the native
- * ingest with live status. Controlled by the menu, which opens it from the FAB,
- * the empty-state button and the hamburger. Rendered only in the Capacitor app,
+ * ingest with a live progress bar. Controlled by the menu, which opens it from
+ * the FAB, the empty-state button, the hamburger, and a shared YouTube link (the
+ * URL arrives prefilled via `initialUrl`). Rendered only in the Capacitor app,
  * where the `YoutubeDl` plugin exists; it replaces the server's admin ingest,
  * which cannot work without a server (its HTTP calls return the app shell).
  */
 interface NativeIngestProps {
   open: boolean;
+  /** Prefill the field — e.g. a YouTube link shared into the app. */
+  initialUrl?: string | null;
   onClose: () => void;
   onDone: () => void;
 }
 
-export function NativeIngest({ open, onClose, onDone }: NativeIngestProps): JSX.Element | null {
+interface Progress {
+  message: string;
+  fraction: number;
+}
+
+export function NativeIngest({ open, initialUrl, onClose, onDone }: NativeIngestProps): JSX.Element | null {
   const [url, setUrl] = useState('');
-  const [status, setStatus] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // A shared link arrives asynchronously (from the OS share sheet), so prefill
+  // whenever one lands rather than only on the first render.
+  useEffect(() => {
+    if (initialUrl) setUrl(initialUrl);
+  }, [initialUrl]);
 
   if (!open) return null;
 
   const reset = (): void => {
     setUrl('');
-    setStatus(null);
+    setProgress(null);
     setError(null);
   };
 
@@ -34,7 +48,8 @@ export function NativeIngest({ open, onClose, onDone }: NativeIngestProps): JSX.
     if (!trimmed || busy) return;
     setBusy(true);
     setError(null);
-    ingestFromUrl(trimmed, setStatus)
+    setProgress({ message: 'Starting…', fraction: 0.02 });
+    ingestFromUrl(trimmed, (message, fraction) => setProgress({ message, fraction }))
       .then(() => {
         setBusy(false);
         reset();
@@ -43,6 +58,7 @@ export function NativeIngest({ open, onClose, onDone }: NativeIngestProps): JSX.
       })
       .catch((e: unknown) => {
         setBusy(false);
+        setProgress(null);
         setError(e instanceof Error ? e.message : String(e));
       });
   };
@@ -52,7 +68,8 @@ export function NativeIngest({ open, onClose, onDone }: NativeIngestProps): JSX.
       <div className="ingest-modal rise">
         <h2>Add a song</h2>
         <p className="muted small">
-          Paste a YouTube link — it downloads and is analysed into a chart right on your phone.
+          Paste a YouTube link — or share one straight from YouTube. It downloads and is analysed
+          into a chart right on your phone.
         </p>
         <input
           className="ingest-input"
@@ -65,7 +82,19 @@ export function NativeIngest({ open, onClose, onDone }: NativeIngestProps): JSX.
           onChange={(e) => setUrl(e.target.value)}
           disabled={busy}
         />
-        {status && <p className="ingest-status">{status}</p>}
+
+        {progress && (
+          <div className="ingest-progress" aria-label="Progress">
+            <div className="ingest-progress__track">
+              <div
+                className={`ingest-progress__fill ${busy ? 'ingest-progress__fill--busy' : ''}`}
+                style={{ width: `${Math.round(Math.max(0, Math.min(1, progress.fraction)) * 100)}%` }}
+              />
+            </div>
+            <p className="ingest-status">{progress.message}</p>
+          </div>
+        )}
+
         {error && <p className="error-text">{error}</p>}
         <div className="ingest-actions">
           <button

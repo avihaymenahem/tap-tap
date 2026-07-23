@@ -1,9 +1,10 @@
-import { useEffect, useRef, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import { RetroBackdrop } from './components/RetroBackdrop.js';
 import type { RunResult } from './game/run.js';
 import { loadRun, saveRun } from './lastRun.js';
 import { getTutorialSeen, recordRunAchievements } from './storage.js';
 import { useAndroidBackButton } from './hooks/useAndroidBackButton.js';
+import { useSharedLink } from './hooks/useSharedLink.js';
 import { useRouter } from './router.js';
 import { AdminScreen } from './screens/AdminScreen.js';
 import { ThemesScreen } from './screens/ThemesScreen.js';
@@ -12,6 +13,7 @@ import { CalibrationScreen } from './screens/CalibrationScreen.js';
 import { EditorScreen } from './screens/EditorScreen.js';
 import { MenuScreen } from './screens/MenuScreen.js';
 import { PlayScreen } from './screens/PlayScreen.js';
+import { VersusPlayScreen } from './screens/VersusPlayScreen.js';
 import { ResultsScreen } from './screens/ResultsScreen.js';
 import { TutorialScreen } from './screens/TutorialScreen.js';
 
@@ -30,6 +32,7 @@ export function App(): JSX.Element {
         navigate({ name: 'admin' }, { replace: true });
         return true;
       case 'play':
+      case 'versus':
       case 'results':
       case 'edit':
       case 'calibrate':
@@ -51,6 +54,14 @@ export function App(): JSX.Element {
     // Intentionally only on mount: this is a first-launch redirect, not a guard.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A YouTube link shared into the app: route to the menu and hand the URL to it,
+  // where it opens the Add-a-song dialog prefilled.
+  const [sharedUrl, setSharedUrl] = useState<string | null>(null);
+  useSharedLink((url) => {
+    setSharedUrl(url);
+    navigate({ name: 'menu' });
+  });
 
   /**
    * Title of the chart currently being played, captured when a run finishes.
@@ -94,6 +105,16 @@ export function App(): JSX.Element {
             }}
             onExit={() => navigate({ name: 'menu' })}
             onFinish={onFinish}
+          />
+        );
+
+      case 'versus':
+        return (
+          <VersusPlayScreen
+            key={`${route.songId}:${route.difficulty}`}
+            songId={route.songId}
+            difficulty={route.difficulty}
+            onExit={() => navigate({ name: 'menu' })}
           />
         );
 
@@ -162,6 +183,8 @@ export function App(): JSX.Element {
             onCalibrate={() => navigate({ name: 'calibrate' })}
             onAchievements={() => navigate({ name: 'achievements' })}
             onHowToPlay={() => navigate({ name: 'tutorial' })}
+            sharedUrl={sharedUrl}
+            onShareConsumed={() => setSharedUrl(null)}
           />
         );
     }
@@ -174,6 +197,7 @@ export function App(): JSX.Element {
           The themes screen is excluded for the first reason: its preview canvas
           is a live highway, and two suns on screen read as a rendering fault. */}
       {route.name !== 'play' &&
+        route.name !== 'versus' &&
         route.name !== 'tutorial' &&
         route.name !== 'edit' &&
         route.name !== 'themes' && (
@@ -194,7 +218,7 @@ export function App(): JSX.Element {
       )}
       {/* Keyed by route so every navigation replays the entrance. Play is
           unwrapped: its canvas manages its own phases and must never fade. */}
-      {route.name === 'play' || route.name === 'tutorial' ? (
+      {route.name === 'play' || route.name === 'versus' || route.name === 'tutorial' ? (
         screen()
       ) : (
         <div className="screen" key={route.name}>

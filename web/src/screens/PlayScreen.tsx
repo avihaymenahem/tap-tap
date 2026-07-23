@@ -1206,64 +1206,80 @@ export function PlayScreen({
           <button type="button" className="play__back" onClick={onExit}>
             ‹ Back
           </button>
-          {/* The song's cover, ringed and haloed like the CD on the highway.
-              The thumbnail is a rectangle in a circle, so a blurred copy fills
-              behind it instead of leaving black corners. The whole ready stack
-              staggers in via `.rise` + `--i`, so it assembles rather than
-              appearing all at once. */}
-          <div className="ready-cover pop">
-            <div className="ready-cover__burst" aria-hidden />
-            <div className="ready-cover__disc">
-              <img
-                className="ready-cover__blur"
-                src={beatmap.thumbnailUrl ?? undefined}
-                alt=""
-                aria-hidden
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-              <img
-                className="ready-cover__art"
-                src={beatmap.thumbnailUrl ?? undefined}
-                alt=""
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
+          {/* The ready screen shares the pause card's chrome — the same bordered
+              panel, head (eyebrow/title/meta) and pill actions — so pausing feels
+              like the same surface returning, not a different screen. */}
+          <div className="pause-card ready-card">
+            {/* The song's cover, ringed and haloed like the CD on the highway.
+                The thumbnail is a rectangle in a circle, so a blurred copy fills
+                behind it instead of leaving black corners. */}
+            <div className="ready-cover pop">
+              <div className="ready-cover__burst" aria-hidden />
+              <div className="ready-cover__disc">
+                <img
+                  className="ready-cover__blur"
+                  src={beatmap.thumbnailUrl ?? undefined}
+                  alt=""
+                  aria-hidden
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <img
+                  className="ready-cover__art"
+                  src={beatmap.thumbnailUrl ?? undefined}
+                  alt=""
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
             </div>
+
+            <div className="pause-card__head rise" style={{ '--i': 0 } as CSSProperties}>
+              <span className="pause-card__eyebrow">▶ Ready</span>
+              <h2>{beatmap.title}</h2>
+              <span className="pause-card__meta">
+                {difficulty} · {Math.round(beatmap.bpm)} BPM
+              </span>
+            </div>
+
+            {/* Modifiers take the settings section's place — the pre-run choices,
+                divided from the head by the same hairline the pause menu uses. */}
+            <div className="pause-settings rise" style={{ '--i': 1 } as CSSProperties}>
+              <ModifierPanel
+                mods={mods}
+                onChange={(next) => {
+                  setMods(next);
+                  setStoredModifiers(next);
+                }}
+              />
+              {/* Keyboard keys are desktop-only; on a phone you tap the lanes. */}
+              <div className="keycaps only-desktop">
+                {keys.map((key) => (
+                  <kbd key={key}>{key.toUpperCase()}</kbd>
+                ))}
+              </div>
+            </div>
+
+            <div className="pause-actions rise" style={{ '--i': 2 } as CSSProperties}>
+              <button
+                type="button"
+                className="btn btn--primary btn--block btn--start"
+                onClick={() => controlsRef.current?.start()}
+              >
+                <span className="only-desktop">Press SPACE to start</span>
+                <span className="only-mobile">Tap to start</span>
+              </button>
+            </div>
+
+            <p
+              className="muted small only-desktop pause-card__hint rise"
+              style={{ '--i': 3 } as CSSProperties}
+            >
+              ESC to pause
+            </p>
           </div>
-          <h2 className="rise" style={{ '--i': 1 } as CSSProperties}>{beatmap.title}</h2>
-          <div className="ready-meta rise" style={{ '--i': 2 } as CSSProperties}>
-            <span className={`ready-chip ready-chip--${difficulty}`}>{difficulty}</span>
-            <span className="ready-chip">{Math.round(beatmap.bpm)} BPM</span>
-          </div>
-          <ModifierPanel
-            mods={mods}
-            onChange={(next) => {
-              setMods(next);
-              setStoredModifiers(next);
-            }}
-            style={{ '--i': 3 } as CSSProperties}
-          />
-          {/* Keyboard keys are desktop-only; on a phone you tap the lanes. */}
-          <div className="keycaps only-desktop rise" style={{ '--i': 4 } as CSSProperties}>
-            {keys.map((key) => (
-              <kbd key={key}>{key.toUpperCase()}</kbd>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="btn btn--primary btn--start rise"
-            style={{ '--i': 5 } as CSSProperties}
-            onClick={() => controlsRef.current?.start()}
-          >
-            <span className="only-desktop">Press SPACE to start</span>
-            <span className="only-mobile">Tap to start</span>
-          </button>
-          <p className="muted small only-desktop rise" style={{ '--i': 6 } as CSSProperties}>
-            ESC to pause
-          </p>
         </div>
       )}
     </div>

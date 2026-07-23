@@ -39,6 +39,9 @@ interface MenuScreenProps {
   onCalibrate: () => void;
   onAchievements: () => void;
   onHowToPlay: () => void;
+  /** A YouTube link shared into the app; opens the Add-a-song dialog prefilled. */
+  sharedUrl?: string | null;
+  onShareConsumed?: () => void;
 }
 
 /**
@@ -71,12 +74,16 @@ export function MenuScreen({
   onCalibrate,
   onAchievements,
   onHowToPlay,
+  sharedUrl,
+  onShareConsumed,
 }: MenuScreenProps): JSX.Element {
   const [songs, setSongs] = useState<SongSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Bumped after a native ingest to re-list the library.
   const [reloadKey, setReloadKey] = useState(0);
   const [ingestOpen, setIngestOpen] = useState(false);
+  /** URL to prefill the Add-a-song dialog with (a shared YouTube link). */
+  const [ingestUrl, setIngestUrl] = useState<string | null>(null);
   const native = isNativePlatform();
   // On device there is no server, so "add songs" runs the native ingest instead
   // of opening the server-only admin screen (whose HTTP calls just return the
@@ -200,6 +207,17 @@ export function MenuScreen({
     };
   }, [reloadKey]);
 
+  // A YouTube link shared into the app (delivered via props from App) opens the
+  // Add-a-song dialog prefilled — so the whole flow is: share → tap Add.
+  useEffect(() => {
+    if (!sharedUrl) return;
+    setIngestUrl(sharedUrl);
+    setIngestOpen(true);
+    onShareConsumed?.();
+    // Only react to a fresh shared URL; the consume callback nulls it out.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedUrl]);
+
   // Bring the restored (last-played) song into view once the list is up — it
   // may be far down, where the highlight alone would be off-screen.
   const scrolledRef = useRef(false);
@@ -281,9 +299,14 @@ export function MenuScreen({
           </button>
           <NativeIngest
             open={ingestOpen}
-            onClose={() => setIngestOpen(false)}
+            initialUrl={ingestUrl}
+            onClose={() => {
+              setIngestOpen(false);
+              setIngestUrl(null);
+            }}
             onDone={() => {
               setIngestOpen(false);
+              setIngestUrl(null);
               setReloadKey((k) => k + 1);
             }}
           />
@@ -772,6 +795,7 @@ export function MenuScreen({
                     'No chart for this song'
                   )}
                 </button>
+
               </>
             )}
           </aside>
