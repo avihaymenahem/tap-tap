@@ -451,11 +451,11 @@ export function PlayScreen({
       const result = buildResult(snap);
       const clock = clockRef.current;
       clock?.stop();
-      // A failed run gets no ovation — a soft negative cue and a quicker hand-off
-      // to the results card, which shows FAILED. A natural finish rides out the
-      // cheer, scaled by the run so an F grade does not get a stadium ovation.
+      // A failed run gets no ovation — a descending game-over sting and a quicker
+      // hand-off to the results card, which shows FAILED. A natural finish rides
+      // out the cheer, scaled by the run so an F grade does not get an ovation.
       if (result.failed) {
-        playUiSound('comboBreak');
+        playUiSound('fail');
       } else {
         clock?.playCheer(0.3 + result.accuracy * 0.7);
       }
