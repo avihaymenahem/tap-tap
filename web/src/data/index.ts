@@ -12,6 +12,7 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { CHART_VERSION, type Beatmap } from '@tap-tap/shared';
 import * as http from '../api/client.js';
 import * as native from './native.js';
 
@@ -27,7 +28,31 @@ const source = isNativePlatform() ? native : http;
 // Reads
 export const getConfig = source.getConfig;
 export const listSongs = source.listSongs;
-export const getBeatmap = source.getBeatmap;
+
+/**
+ * Read a beatmap, upgrading it in place if its charts predate the current
+ * generation rules.
+ *
+ * This is the self-heal for stale charts: a code update that changes note
+ * placement raises `CHART_VERSION`, and any already-ingested song still on the
+ * old rules regenerates from its cached analysis the first time it is opened —
+ * no re-download, no re-analysis, and no manual "regenerate every song" chore
+ * after an update. Regeneration also persists, so it happens once per song, then
+ * the fast path (a single read) resumes. On any failure the existing map is
+ * returned unchanged: a stale chart still plays, so healing must never break
+ * opening a song.
+ */
+export async function getBeatmap(songId: string): Promise<Beatmap> {
+  const map = await source.getBeatmap(songId);
+  if ((map.chartVersion ?? 0) >= CHART_VERSION) return map;
+  try {
+    await source.regenerateCharts(songId);
+    return await source.getBeatmap(songId);
+  } catch {
+    return map;
+  }
+}
+
 export const getAnalysis = source.getAnalysis;
 export const getWaveform = source.getWaveform;
 export const listCustomThemes = source.listCustomThemes;

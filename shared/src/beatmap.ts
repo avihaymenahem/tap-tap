@@ -7,6 +7,19 @@
 
 export const BEATMAP_VERSION = 1;
 
+/**
+ * Version of the *chart generation* rules. Unlike `BEATMAP_VERSION` (the wire
+ * shape) this tracks the note-placement logic: bump it whenever a generation
+ * change should reach the existing library. A beatmap whose `chartVersion` is
+ * below this is regenerated from its cached analysis the next time it is opened
+ * (`getBeatmap` in `web/src/data`), so a code update self-heals stale charts
+ * instead of leaving every already-ingested song on the old rules until someone
+ * regenerates it by hand. Regeneration needs no re-analysis, so it is cheap.
+ *
+ * 1 — two-finger holds (one at a time, edge lanes, no chord inside, shorter).
+ */
+export const CHART_VERSION = 1;
+
 export type DifficultyName = 'easy' | 'medium' | 'hard' | 'extreme';
 
 export const DIFFICULTY_NAMES: readonly DifficultyName[] = ['easy', 'medium', 'hard', 'extreme'];
@@ -70,6 +83,12 @@ export interface Beatmap {
    * is the palette those songs already render with.
    */
   themeId?: string;
+
+  /**
+   * The `CHART_VERSION` the charts were generated under. Absent on everything
+   * built before the stamp existed — absence means "old", so it regenerates.
+   */
+  chartVersion?: number;
 
   bpm: number;
   /** 0..1. Below ~0.5 the beat grid is probably wrong — the admin UI warns. */
