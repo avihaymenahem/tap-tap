@@ -17,8 +17,9 @@ export const BEATMAP_VERSION = 1;
  * regenerates it by hand. Regeneration needs no re-analysis, so it is cheap.
  *
  * 1 — two-finger holds (one at a time, edge lanes, no chord inside, shorter).
+ * 2 — a recovery gap after every hold (no tap for a beat after the tail).
  */
-export const CHART_VERSION = 1;
+export const CHART_VERSION = 2;
 
 export type DifficultyName = 'easy' | 'medium' | 'hard' | 'extreme';
 

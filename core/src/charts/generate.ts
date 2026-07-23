@@ -249,14 +249,20 @@ function applyHolds(
 
   if (accepted.length === 0) return;
 
+  const EPS = 1e-4;
+  const recovery = holdRecoverySec(params.minGapSec);
   // Two-finger cleanup: while a hold is down, one thumb is committed, so the
   // free thumb can take at most one tap at a time. Drop any *simultaneous* tap
   // (a chord) landing strictly inside a hold's span — a second finger it does
   // not have. The head instant is left alone: a chord on the hold's own head is
   // two presses at once, then one releases and the hold carries on one-handed.
-  const EPS = 1e-4;
   const insideHold = (t: number): boolean =>
     accepted.some((s) => t > s.start + EPS && t <= s.end + EPS);
+  // Recovery: a beat of quiet just after a hold's tail, so releasing and
+  // immediately tapping is never required — a hold resolves into rest, not a
+  // scramble. This is the "double bar right after a hold" the gap fixes.
+  const inRecovery = (t: number): boolean =>
+    accepted.some((s) => t > s.end + EPS && t < s.end + recovery);
 
   const usedTapAt = new Set<string>();
   const kept: Note[] = [];
@@ -265,6 +271,7 @@ function applyHolds(
       kept.push(note);
       continue;
     }
+    if (inRecovery(note.t)) continue; // clear the recovery window after a hold
     if (insideHold(note.t)) {
       const key = note.t.toFixed(3);
       if (usedTapAt.has(key)) continue; // a chord partner during a hold — drop it
@@ -282,6 +289,19 @@ function applyHolds(
 interface Span {
   start: number;
   end: number;
+}
+
+/**
+ * How much quiet to leave after a hold ends before the next tap.
+ *
+ * A hold should resolve into a beat of rest, not a scramble to release-and-tap.
+ * Scales with the difficulty's spacing (a tighter chart gets a shorter breather)
+ * but stays a real gap even on the tightest one, and is capped so an easy chart
+ * does not open a cavernous hole. Exported so the generation test can assert the
+ * gap it produces without duplicating the formula.
+ */
+export function holdRecoverySec(minGapSec: number): number {
+  return Math.min(0.4, Math.max(minGapSec * 2, 0.22));
 }
 
 /**

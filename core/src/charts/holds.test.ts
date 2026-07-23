@@ -1,7 +1,7 @@
 import type { AnalysisResult, Onset, Waveform } from '@tap-tap/shared';
 import { DIFFICULTIES, type DifficultyName, type DifficultyParams, isHold, noteEnd } from '@tap-tap/shared';
 import { describe, expect, it } from 'vitest';
-import { generateChart, peakConcurrency } from './generate.js';
+import { generateChart, holdRecoverySec, peakConcurrency } from './generate.js';
 
 const SECONDS_PER_PEAK = 0.02;
 
@@ -257,6 +257,29 @@ describe('hold generation', () => {
     for (const [t, count] of countAt) {
       const insideAHold = holds.some((h) => t > h.start + 1e-4 && t <= h.end + 1e-4);
       if (insideAHold) expect(count, `chord at ${t}s inside a hold`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('leaves a recovery gap after every hold', () => {
+    // A hold must resolve into a beat of rest: no tap may land in the recovery
+    // window after its tail (another hold may follow — holds are their own
+    // transition). Fixes the "double bar with zero gap right after a hold".
+    for (const raw of Object.values(DIFFICULTIES)) {
+      const params = enabled(raw);
+      const recovery = holdRecoverySec(params.minGapSec);
+      const chart = generateChart(chordyAnalysis(), params, 5, plateauWaveform());
+      const holds = chart.notes.filter(isHold);
+
+      for (const h of holds) {
+        const end = noteEnd(h);
+        for (const n of chart.notes) {
+          if (n === h || isHold(n)) continue;
+          const inWindow = n.t > end + 1e-4 && n.t < end + recovery;
+          expect(inWindow, `${params.name}: tap at ${n.t}s inside recovery after ${end}s`).toBe(
+            false,
+          );
+        }
+      }
     }
   });
 
