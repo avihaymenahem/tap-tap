@@ -424,3 +424,47 @@ describe('GameEngine visibleNotes', () => {
     expect(engine.snapshot.finished).toBe(true);
   });
 });
+
+describe('GameEngine health and fail', () => {
+  const MISS_PAD = HIT_WINDOWS.good + 0.05;
+
+  it('starts at full health, not failed', () => {
+    const engine = new GameEngine(chartOf([[1, 0]]));
+    expect(engine.snapshot.health).toBe(1);
+    expect(engine.snapshot.failed).toBe(false);
+  });
+
+  it('drains health on a miss', () => {
+    const engine = new GameEngine(chartOf([[1, 0]]));
+    engine.update(1 + MISS_PAD); // note 0 retires as a miss
+    expect(engine.snapshot.health).toBeLessThan(1);
+  });
+
+  it('does not fail when canFail is off, even at zero health', () => {
+    // Many lanes so many notes can be missed independently and drain fully.
+    const notes: [number, number][] = [];
+    for (let i = 0; i < 60; i++) notes.push([1 + i, i % 3]);
+    const engine = new GameEngine(chartOf(notes));
+    engine.update(1000); // retire everything as misses
+    expect(engine.snapshot.health).toBe(0);
+    expect(engine.snapshot.failed).toBe(false);
+  });
+
+  it('fails once health hits zero when canFail is on', () => {
+    const notes: [number, number][] = [];
+    for (let i = 0; i < 60; i++) notes.push([1 + i, i % 3]);
+    const engine = new GameEngine(chartOf(notes), { canFail: true });
+    engine.update(1000);
+    expect(engine.snapshot.health).toBe(0);
+    expect(engine.snapshot.failed).toBe(true);
+  });
+
+  it('heals a little on a clean hit', () => {
+    // Drain one miss, then a perfect hit should recover some of it.
+    const engine = new GameEngine(chartOf([[1, 0], [3, 1]]));
+    engine.update(1 + MISS_PAD);
+    const drained = engine.snapshot.health;
+    engine.hitLane(1, 3);
+    expect(engine.snapshot.health).toBeGreaterThan(drained);
+  });
+});

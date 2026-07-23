@@ -14,6 +14,7 @@ import {
   tierFor,
   timingOf,
 } from './judge.js';
+import { HEALTH_CONFIG, applyHealthDelta, isDead } from './health.js';
 
 /**
  * The game engine.
@@ -82,6 +83,14 @@ export interface EngineOptions {
    * spaced at 0.19s or wider, which is every difficulty except Extreme.
    */
   minGapSec?: number;
+  /**
+   * When true, health reaching 0 sets `failed` and the run is over. Off by
+   * default: the `fail` modifier opts into it. Health is tracked and reported
+   * either way; this only decides whether hitting empty ends the run. The
+   * engine never *acts* on `failed` — it reports it and `PlayScreen` owns the
+   * game-over flow — so the engine stays pure and testable.
+   */
+  canFail?: boolean;
 }
 
 export interface GameSnapshot {
@@ -99,6 +108,13 @@ export interface GameSnapshot {
   notesJudged: number;
   totalNotes: number;
   finished: boolean;
+  /** 0..1, always tracked and shown. Drains on misses, heals slowly on hits. */
+  health: number;
+  /**
+   * True once health has hit 0 *and* the run can fail. Purely a report — the
+   * engine takes no action on it; `PlayScreen` reads it and ends the run.
+   */
+  failed: boolean;
 }
 
 export class GameEngine {
@@ -115,6 +131,8 @@ export class GameEngine {
   private readonly windows: HitWindows;
   /** Outer edge of `windows` — the miss threshold and retirement horizon. */
   private readonly missWindow: number;
+  /** Whether reaching 0 health ends the run. See `EngineOptions.canFail`. */
+  private readonly canFail: boolean;
   /** Note id currently held in each lane, or -1. At most one per lane. */
   private readonly heldByLane: number[];
   /**
@@ -133,12 +151,15 @@ export class GameEngine {
   private hits = 0;
   private judged = 0;
   private holdsCompleted = 0;
+  private health = HEALTH_CONFIG.start;
+  private failed = false;
 
   constructor(chart: Chart, options: EngineOptions = {}) {
     this.laneCount = chart.laneCount;
     this.calibrationSec = options.calibrationSec ?? 0;
     this.windows = options.minGapSec !== undefined ? hitWindowsFor(options.minGapSec) : { ...HIT_WINDOWS };
     this.missWindow = this.windows.good;
+    this.canFail = options.canFail ?? false;
     this.notes = chart.notes.map((note, id) => ({
       note,
       id,
@@ -371,6 +392,8 @@ export class GameEngine {
       notesJudged: this.judged,
       totalNotes: this.totalNotes,
       finished: this.judged >= this.totalNotes,
+      health: this.health,
+      failed: this.failed,
     };
   }
 
@@ -379,6 +402,12 @@ export class GameEngine {
     state.timing = timing;
     this.counts[tier]++;
     this.judged++;
+
+    // Health moves on every tap judgement — a hold's head counts here too, since
+    // it is judged exactly like a tap. A dropped hold does *not* reach this path
+    // (holds are strictly additive and never drain health); only the head does.
+    this.health = applyHealthDelta(this.health, tier);
+    if (this.canFail && isDead(this.health)) this.failed = true;
 
     if (tier === 'miss' || timing === null) {
       this.combo = 0;

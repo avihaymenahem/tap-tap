@@ -1,4 +1,5 @@
 import { type DifficultyName, DIFFICULTY_NAMES } from '@tap-tap/shared';
+import { DEFAULT_MODIFIERS, type Modifiers } from './game/modifiers.js';
 
 /** Local persistence: calibration offset and per-chart best scores. */
 
@@ -7,6 +8,7 @@ const SCORES_KEY = 'tap-tap.scores';
 const FAVORITES_KEY = 'tap-tap.favorites';
 const SORT_KEY = 'tap-tap.sort';
 const LAST_SONG_KEY = 'tap-tap.lastSong';
+const MODIFIERS_KEY = 'tap-tap.modifiers';
 
 export interface BestScore {
   score: number;
@@ -99,6 +101,24 @@ export function getLastSong(): string | null {
 
 export function setLastSong(songId: string): void {
   write(LAST_SONG_KEY, songId);
+}
+
+// --- modifiers -------------------------------------------------------------
+
+/**
+ * The play modifiers last chosen, so a player who always turns on Fail (or plays
+ * mirrored) does not re-set them every song. Per-device like the rest of this
+ * file. Merged over `DEFAULT_MODIFIERS` on read, so a stored blob from an older
+ * build that predates a field still resolves to a complete, valid set rather
+ * than an object missing `speed` or `visibility`.
+ */
+export function getStoredModifiers(): Modifiers {
+  const stored = read<Partial<Modifiers>>(MODIFIERS_KEY, {});
+  return { ...DEFAULT_MODIFIERS, ...stored };
+}
+
+export function setStoredModifiers(mods: Modifiers): void {
+  write(MODIFIERS_KEY, mods);
 }
 
 // --- favorites -------------------------------------------------------------
