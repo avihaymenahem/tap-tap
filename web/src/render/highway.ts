@@ -1479,10 +1479,43 @@ export class Highway {
       fog: false,
     });
 
+    // Per-instance fade for the visibility modifiers (Hidden / Fade-out).
+    //
+    // A colour multiply cannot hide these tiles: the material is emissive metal,
+    // so a black instance colour still shows the constant emissive glow and the
+    // env reflection — the "flat colour that never disappears" bug. Real
+    // per-instance *alpha* is needed, which InstancedMesh only supports through
+    // a shader. `instanceReveal` (1 = fully visible, 0 = gone) is read in the
+    // vertex shader and multiplied into the fragment alpha, so a fading note
+    // takes its emissive and reflection down with it.
+    material.transparent = true;
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader =
+        'attribute float instanceReveal;\nvarying float vReveal;\n' +
+        shader.vertexShader.replace('void main() {', 'void main() {\n\tvReveal = instanceReveal;');
+      shader.fragmentShader =
+        'varying float vReveal;\n' +
+        shader.fragmentShader.replace(
+          '#include <dithering_fragment>',
+          '#include <dithering_fragment>\n\tgl_FragColor.a *= vReveal;',
+        );
+    };
+
     const mesh = new THREE.InstancedMesh(geometry, material, MAX_NOTE_INSTANCES);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.count = 0;
     mesh.frustumCulled = false;
+
+    // The reveal attribute lives on the geometry (InstancedMesh reads instanced
+    // attributes from there). Default 1 so a note is fully visible until the
+    // modifier says otherwise.
+    const reveal = new THREE.InstancedBufferAttribute(
+      new Float32Array(MAX_NOTE_INSTANCES).fill(1),
+      1,
+    );
+    reveal.setUsage(THREE.DynamicDrawUsage);
+    mesh.geometry.setAttribute('instanceReveal', reveal);
+
     return mesh;
   }
 
@@ -2022,6 +2055,9 @@ export class Highway {
 
   private updateNotes(songTime: number, visible: readonly NoteState[]): void {
     let count = 0;
+    const revealAttr = this.notes.geometry.getAttribute(
+      'instanceReveal',
+    ) as THREE.InstancedBufferAttribute;
 
     for (const state of visible) {
       if (count >= MAX_NOTE_INSTANCES) break;
@@ -2068,8 +2104,11 @@ export class Highway {
       // needs more colour to read as solid neon. The texture's opaque white rim
       // carries the bloom, so the tile keeps a crisp lit edge either way.
       this.color.setHex(this.noteHex(state.note.lane));
-      this.color.multiplyScalar((0.72 + nearness * 0.3) * missFade * spawnFade * reveal);
+      this.color.multiplyScalar((0.72 + nearness * 0.3) * missFade * spawnFade);
       this.notes.setColorAt(count, this.color);
+      // Hidden / Fade-out fade the tile through its alpha (see buildNotes): a
+      // colour multiply cannot, because the tile is emissive metal.
+      revealAttr.setX(count, reveal);
 
       // --- outer glow: light spilling onto the lane around the tile ---
       // Stage: a rounded-rect glow spread beyond the bar's footprint, so it
@@ -2103,6 +2142,7 @@ export class Highway {
     this.notes.count = count;
     this.notes.instanceMatrix.needsUpdate = true;
     if (this.notes.instanceColor) this.notes.instanceColor.needsUpdate = true;
+    revealAttr.needsUpdate = true;
 
     this.noteGlow.count = count;
     this.noteGlow.instanceMatrix.needsUpdate = true;
