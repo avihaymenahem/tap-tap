@@ -4,8 +4,8 @@ import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react
 import { getBeatmap, listCustomThemes } from '../data/index.js';
 import { AudioClock, bandLevel } from '../game/clock.js';
 import { comboMilestone, comboTier } from '../game/combo.js';
-import { GameEngine } from '../game/engine.js';
-import { gradeFor, type Tier, type Timing } from '../game/judge.js';
+import { GameEngine, type GameSnapshot } from '../game/engine.js';
+import { accuracyOf, foldUnreached, gradeFor, type Tier, type Timing } from '../game/judge.js';
 import { playUiSound } from '../uisfx.js';
 import type { RunResult } from '../game/run.js';
 import { cancelHaptics, vibrateMiss, vibrateTap } from '../haptics.js';
@@ -384,27 +384,37 @@ export function PlayScreen({
       judgementAlpha = 1;
     };
 
+    // Score a run over the *whole* chart, not just the notes reached. Any note
+    // the player never got to (a mid-song quit) folds into the miss count, so
+    // accuracy and grade reflect the entire song rather than the handful that
+    // were faced. On a natural finish every note is already judged, so this
+    // matches `snap.accuracy` exactly — the difference only bites an early quit.
+    const buildResult = (snap: GameSnapshot): RunResult => {
+      const counts = foldUnreached(snap.counts, snap.totalNotes);
+      const accuracy = accuracyOf(counts);
+      return {
+        score: snap.score,
+        accuracy,
+        maxCombo: snap.maxCombo,
+        grade: gradeFor(accuracy),
+        counts,
+        timingCounts: snap.timingCounts,
+        meanDelta: snap.meanDelta,
+        totalNotes: snap.totalNotes,
+      };
+    };
+
     const finish = (): void => {
       const engine = engineRef.current;
       if (!engine || phaseRef.current === 'loading') return;
       phaseRef.current = 'loading';
 
       const snap = engine.snapshot;
+      const result = buildResult(snap);
       const clock = clockRef.current;
       clock?.stop();
       // Scaled by the run: an F grade should not get a stadium ovation.
-      clock?.playCheer(0.3 + snap.accuracy * 0.7);
-
-      const result = {
-        score: snap.score,
-        accuracy: snap.accuracy,
-        maxCombo: snap.maxCombo,
-        grade: gradeFor(snap.accuracy),
-        counts: snap.counts,
-        timingCounts: snap.timingCounts,
-        meanDelta: snap.meanDelta,
-        totalNotes: snap.totalNotes,
-      };
+      clock?.playCheer(0.3 + result.accuracy * 0.7);
 
       // Hold on the finished board so the cheer is heard before the results
       // card takes over. Navigating immediately would cut it off instantly,
@@ -694,20 +704,9 @@ export function PlayScreen({
       }
       phaseRef.current = 'loading';
       clockRef.current?.stop();
-      const snap = engine.snapshot;
-      onFinishRef.current(
-        {
-          score: snap.score,
-          accuracy: snap.accuracy,
-          maxCombo: snap.maxCombo,
-          grade: gradeFor(snap.accuracy),
-          counts: snap.counts,
-          timingCounts: snap.timingCounts,
-          meanDelta: snap.meanDelta,
-          totalNotes: snap.totalNotes,
-        },
-        accentRef.current,
-      );
+      // Scored over the whole chart: the notes never reached count as misses, so
+      // quitting three notes in cannot read as a flawless S-grade best.
+      onFinishRef.current(buildResult(engine.snapshot), accentRef.current);
     };
 
     controlsRef.current = { start, pause, resume, restart, quit };

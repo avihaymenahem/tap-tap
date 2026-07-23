@@ -11,6 +11,7 @@ import {
   baseScore,
   biasAdvice,
   comboMultiplier,
+  foldUnreached,
   gradeFor,
   hitWindowsFor,
   tierFor,
@@ -343,6 +344,49 @@ describe('GameEngine scoring', () => {
     expect(gradeFor(1)).toBe('S');
     expect(gradeFor(0.92)).toBe('A');
     expect(gradeFor(0.5)).toBe('F');
+  });
+});
+
+describe('foldUnreached', () => {
+  it('counts notes the run never reached as misses', () => {
+    // Quit after 3 clean perfects in a 100-note chart.
+    const counts = { perfect: 3, great: 0, good: 0, miss: 0 };
+    const folded = foldUnreached(counts, 100);
+    expect(folded.miss).toBe(97);
+    expect(folded.perfect).toBe(3);
+    // Over the whole chart this is a failing run, not the S grade that scoring
+    // over faced-notes-only produced.
+    expect(accuracyOf(folded)).toBeCloseTo(0.03, 5);
+    expect(gradeFor(accuracyOf(folded))).toBe('F');
+  });
+
+  it('is a no-op once every note is judged', () => {
+    const counts = { perfect: 8, great: 1, good: 1, miss: 2 };
+    const total = 8 + 1 + 1 + 2;
+    expect(foldUnreached(counts, total)).toEqual(counts);
+    // A natural finish grades identically whether or not it is folded.
+    expect(accuracyOf(foldUnreached(counts, total))).toBe(accuracyOf(counts));
+  });
+
+  it('never invents negative misses if counts already exceed the total', () => {
+    const counts = { perfect: 5, great: 0, good: 0, miss: 0 };
+    expect(foldUnreached(counts, 3).miss).toBe(0);
+  });
+
+  it('grades a partial run over the whole chart via the engine', () => {
+    // 10-note chart; hit only the first two perfectly, then quit.
+    const notes: [number, number][] = Array.from({ length: 10 }, (_, i) => [i + 1, 0]);
+    const engine = new GameEngine(chartOf(notes));
+    engine.hitLane(0, 1);
+    engine.hitLane(0, 2);
+    const snap = engine.snapshot;
+    // The live snapshot still reads 100% — current form over notes faced.
+    expect(snap.accuracy).toBe(1);
+    // The saved result folds the eight unreached notes into misses.
+    const folded = foldUnreached(snap.counts, snap.totalNotes);
+    expect(folded.miss).toBe(8);
+    expect(accuracyOf(folded)).toBeCloseTo(0.2, 5);
+    expect(gradeFor(accuracyOf(folded))).toBe('F');
   });
 });
 
