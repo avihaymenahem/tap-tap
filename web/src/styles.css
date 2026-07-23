@@ -1737,10 +1737,18 @@ kbd {
    top above the scroll origin (see the layout traps in CLAUDE.md). */
 .play__overlay--ready {
   justify-content: flex-start;
+  /* Only vertical scroll. Without pinning overflow-x, a scroll container
+     promotes the visible axis to `auto`, and the card + overlay padding then
+     overflow the viewport width and produce a stray horizontal scrollbar. */
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
 .ready-card {
+  /* Fit inside the overlay's padding. The base `.pause-card` is `92vw`, which
+     together with the 2rem overlay padding exceeds the viewport — the source of
+     the horizontal overflow. `100%` is the padded content box, so it can't. */
+  width: min(100%, 360px);
   margin: auto;
   gap: 0.9rem;
 }
