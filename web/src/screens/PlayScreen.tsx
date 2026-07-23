@@ -252,7 +252,11 @@ export function PlayScreen({
       ? { ...chart, notes: mirrorNotes(chart.notes, chart.laneCount) }
       : chart;
     return new GameEngine(played, {
-      calibrationSec: effectiveCalibration(clock),
+      // Calibration is stored in real seconds (song-seconds at 1x). At rate r a
+      // physical output latency of L real seconds is L*r song-seconds late, and
+      // the engine subtracts song-seconds — so the offset scales with speed, or
+      // a fast run would judge and draw everything a fraction off.
+      calibrationSec: effectiveCalibration(clock) * run.speed,
       minGapSec: params.minGapSec,
       canFail: run.fail,
     });
@@ -601,7 +605,7 @@ export function PlayScreen({
         accuracyRef.current.textContent = `${(snap.accuracy * 100).toFixed(1)}%`;
       }
       if (healthRef.current) {
-        healthRef.current.style.width = `${Math.max(0, snap.health * 100)}%`;
+        healthRef.current.style.height = `${Math.max(0, snap.health * 100)}%`;
         // Warn when the margin gets thin — a class toggle drives the pulse, only
         // touched on the transition since this runs every frame.
         const low = snap.health <= 0.25;
@@ -654,7 +658,10 @@ export function PlayScreen({
         outroStarted = true;
         const untilFinish = finishAt - songTime;
         const audioLeft = Math.max(0, clock.duration - songTime) - 0.2;
-        clock.fadeOut(Math.max(0.4, Math.min(untilFinish, audioLeft)));
+        // `fadeOut` takes *real* seconds, but these are song-seconds — at rate r
+        // the same span of song passes in 1/r the real time, so divide.
+        const realLeft = Math.min(untilFinish, audioLeft) / clock.rate;
+        clock.fadeOut(Math.max(0.4, realLeft));
       }
 
       const outroDone = songTime >= finishAt;
@@ -698,6 +705,7 @@ export function PlayScreen({
       // Mirror) is honoured — the one built during loading predates them.
       engineRef.current = makeEngine(chartRef.current!, clock, modsRef.current);
       highwayRef.current?.setVisibility(modsRef.current.visibility);
+      clock.setRate(modsRef.current.speed);
       autoDeltasRef.current = [];
       autoDriftRef.current = 0;
       outroStarted = false;
@@ -820,6 +828,11 @@ export function PlayScreen({
      */
     const autoCalibrate = (engine: GameEngine, tier: Tier, delta: number): void => {
       if (tier !== 'perfect' && tier !== 'great') return;
+      // A sped-up or slowed run measures a *scaled* bias (the engine's offset is
+      // in song-seconds, scaled by rate), so persisting it would corrupt the
+      // real-time calibration every other run relies on. Leave it alone at any
+      // non-normal speed — the stored value only means anything at 1x.
+      if (modsRef.current.speed !== 1) return;
 
       const window = autoDeltasRef.current;
       window.push(delta);
@@ -1035,10 +1048,11 @@ export function PlayScreen({
         </div>
       </div>
 
-      {/* Health. Always shown; only ends a run when the Fail modifier is on.
-          Width + low-health pulse are written from the render loop. */}
+      {/* Health. A vertical meter down the left edge, out of the way of the
+          cover art. Hidden outside a run (CSS, keyed on data-phase). Height +
+          low-health pulse are written from the render loop. */}
       <div className="play__health" aria-hidden>
-        <div ref={healthRef} className="play__health-fill" style={{ width: '100%' }} />
+        <div ref={healthRef} className="play__health-fill" style={{ height: '100%' }} />
       </div>
 
       {/* Red edge flash on a broken combo. Sits above the canvas, below the

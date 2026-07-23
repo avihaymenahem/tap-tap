@@ -1432,7 +1432,9 @@ export class Highway {
       // PlaneGeometry rows run from +height/2 down, so row 0 is the far end.
       const t = row / HOLD_SEGMENTS;
       const z = farZ + (nearZ - farZ) * t;
-      const halfWidth = LANE_WIDTH * 0.3 * curveWidth(z);
+      // A slim ribbon, ~70% narrower than the tile — it reads as a thread the
+      // finger follows rather than a slab covering the lane.
+      const halfWidth = LANE_WIDTH * 0.09 * curveWidth(z);
       const x = this.laneX(lane) * curveWidth(z);
       // Just above the floor and just below the note pills, so it reads as
       // lying on the track rather than floating over it.
@@ -1774,6 +1776,39 @@ export class Highway {
     }
   }
 
+  /**
+   * A gentle upward spray at the receptor while a hold is held — the reward for
+   * keeping it down. No shockwave or shake (that is for a hit); just a few
+   * short-lived embers in the lane colour, emitted intermittently by
+   * `updateHoldBodies` so a held note visibly fizzes.
+   */
+  private emitHoldSparkle(lane: number): void {
+    if (lane < 0 || lane >= this.laneCount) return;
+    this.color.setHex(laneColor(this.theme, lane));
+    const x = this.laneX(lane);
+
+    for (let i = 0; i < 2; i++) {
+      const p = this.particleCursor;
+      this.particleCursor = (this.particleCursor + 1) % MAX_PARTICLES;
+
+      this.particlePositions[p * 3] = x + (Math.random() - 0.5) * 0.35;
+      this.particlePositions[p * 3 + 1] = 0.1;
+      this.particlePositions[p * 3 + 2] = 0.1 + (Math.random() - 0.5) * 0.4;
+
+      // Mostly up, a little toward the camera, far slower than a hit burst.
+      this.particleVelocities[p * 3] = (Math.random() - 0.5) * 1.2;
+      this.particleVelocities[p * 3 + 1] = 1.6 + Math.random() * 1.3;
+      this.particleVelocities[p * 3 + 2] = 0.7 + Math.random() * 0.8;
+
+      this.particleColors[p * 3] = this.color.r;
+      this.particleColors[p * 3 + 1] = this.color.g;
+      this.particleColors[p * 3 + 2] = this.color.b;
+
+      // Shorter-lived than a burst ember, so it reads as a fizz, not a plume.
+      this.particleLife[p] = 0.6;
+    }
+  }
+
   private buildShockwaves(): void {
     for (let i = 0; i < MAX_SHOCKWAVES; i++) {
       // A thin flat annulus that starts small at the receptor and expands. Lies
@@ -1974,6 +2009,10 @@ export class Highway {
       mesh.material.color.setHex(laneColor(this.theme, state.note.lane));
       mesh.material.color.multiplyScalar(brightness * reveal);
       mesh.material.opacity = (held ? 0.95 : broken || missed ? 0.3 : 0.7) * reveal;
+
+      // Sparkle while held. Emitted probabilistically per frame so the fizz is
+      // irregular rather than a metronomic stream; cheap (2 short-lived points).
+      if (held && Math.random() < 0.3) this.emitHoldSparkle(state.note.lane);
 
       used++;
     }

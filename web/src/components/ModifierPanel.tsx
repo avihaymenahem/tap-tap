@@ -1,5 +1,5 @@
 import type { CSSProperties, JSX } from 'react';
-import type { Modifiers, Visibility } from '../game/modifiers.js';
+import { SPEED_CHOICES, type Modifiers, type Visibility } from '../game/modifiers.js';
 import { playUiSound } from '../uisfx.js';
 
 /** The visibility cycle and how each state reads on its chip. */
@@ -44,6 +44,13 @@ export function ModifierPanel({
     toggle({ visibility: next }, next !== 'normal');
   };
 
+  // Speed steps through the fixed choices; the cue rises when speeding up.
+  const cycleSpeed = (): void => {
+    const i = SPEED_CHOICES.indexOf(mods.speed);
+    const next = SPEED_CHOICES[(i + 1) % SPEED_CHOICES.length]!;
+    toggle({ speed: next }, next >= mods.speed);
+  };
+
   return (
     <div className="mod-panel rise" style={style}>
       <span className="mod-panel__label">Modifiers</span>
@@ -76,6 +83,15 @@ export function ModifierPanel({
         >
           <span aria-hidden>👁</span>
           <span>{VISIBILITY_LABEL[mods.visibility]}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mod-chip ${mods.speed !== 1 ? 'mod-chip--on' : ''}`}
+          onClick={cycleSpeed}
+        >
+          <span aria-hidden>⏩</span>
+          <span>{mods.speed.toFixed(2).replace(/0$/, '')}×</span>
         </button>
       </div>
     </div>
