@@ -73,8 +73,14 @@ export function generateChart(
     }
   }
 
-  // 2. Choose which onsets become notes, section by section.
-  const accepted = selectNotes([...byTime.values()], analysis.duration, params);
+  // 2. Choose which onsets become notes, section by section. When the grid is
+  //    trusted, first reward onsets on the song's *recurring* rhythmic positions
+  //    (§2.9), so the greedy selector locks onto the groove and develops motifs
+  //    instead of keeping a different subset of a steady pattern every bar —
+  //    repetition is most of what makes a chart feel handcrafted and learnable.
+  const pool = [...byTime.values()];
+  if (gridTrusted) assignPatternBonus(pool, analysis.beatGrid, params.subdivision);
+  const accepted = selectNotes(pool, analysis.duration, params);
 
   // 3. Assign lanes by frequency band, following the music's contour within
   //    each band. The centroid is ranked within the band's own accepted onsets
@@ -93,38 +99,44 @@ export function generateChart(
   const ranges = laneRangesByPopulation(params.laneCount, bandCounts);
   const contours = contoursByBand(accepted, bands);
 
+  // Chords are placed deterministically on the strongest eligible hits of each
+  // section, not by a per-note coin flip. `chordChance` is now the *share* of
+  // eligible onsets that get a chord, so the two-hand accents land on the
+  // biggest hits — the ones a human charter would pick — and two equally loud
+  // downbeats get equal treatment instead of one winning a dice roll. Only the
+  // lane pick below still uses the RNG. (§2.9)
+  const chordSet = chooseChords(accepted, bands, params, gridTrusted);
+
   const notes: Note[] = [];
   let previousLane: number | null = null;
+  let previousTime = Number.NEGATIVE_INFINITY;
   const motion = { direction: 1 as 1 | -1 };
 
   for (let i = 0; i < accepted.length; i++) {
     const onset = accepted[i]!;
     const band = bands[i]!;
-    const lane = pickLaneContour(ranges[band], previousLane, contours[i]!, motion);
+    // When two notes fall close in time, a big contour jump is a physical leap
+    // the hand cannot make at speed, so cap the lane movement to a single step
+    // (a roll) below ~1.5× the spacing floor; slower phrases sweep freely.
+    const closeInTime =
+      previousLane !== null && onset.t - previousTime < params.minGapSec * LANE_STEP_GAP_FACTOR;
+    const maxStep = closeInTime ? 1 : Number.POSITIVE_INFINITY;
+    const lane = pickLaneContour(ranges[band], previousLane, contours[i]!, motion, maxStep);
     notes.push({ t: round(onset.t), lane, type: 'tap' });
     previousLane = lane;
+    previousTime = onset.t;
 
-    if (!params.chords) continue;
-    // Chords go to strong onsets with real energy outside their dominant band,
-    // so they land on hits that genuinely sound "bigger" — and, when the grid
-    // is trusted, only on the grid. An off-beat two-hand hit is something a
-    // human charter essentially never writes; on the beat it reads as an
-    // accent, off it it reads as a mistake.
+    if (!chordSet.has(i)) continue;
+    // Eligibility (strength, a real secondary band, on-grid when the grid is
+    // trusted) was already decided in chooseChords; here we only place the
+    // second note. It goes to the secondary band's lanes, unless that band was
+    // allocated none (a single-band song), in which case it falls to another
+    // lane of the primary band — which now spans several — so the accent still
+    // lands rather than being dropped.
     const secondary = secondaryBand(onset, band);
-    const onAccent = !gridTrusted || onset.onGrid;
-    // The chord goes to the secondary band's lanes, unless that band carried no
-    // dominant onsets of its own and so was allocated none (a single-band song).
-    // Then it falls to another lane of the primary band, which now spans
-    // several — so the two-hand accent still lands rather than being dropped.
     const chordRange =
       secondary && ranges[secondary].length > 0 ? ranges[secondary] : ranges[band];
-    if (
-      secondary &&
-      chordRange.length > 0 &&
-      onAccent &&
-      onset.strength > 0.55 &&
-      rand() < params.chordChance
-    ) {
+    if (chordRange.length > 0) {
       const chordLane = pickLane(chordRange, lane, rand);
       if (chordLane !== lane) {
         notes.push({ t: round(onset.t), lane: chordLane, type: 'tap' });
@@ -268,17 +280,43 @@ export function generateAllCharts(
 const MIN_GRID_CONFIDENCE = 0.5;
 
 /**
- * Selection multiplier for onsets sitting on a trusted grid. Strength still
- * dominates — this only breaks ties in a crowded neighbourhood — but when a
- * beat and a nearby off-beat scuffle both cannot fit inside `minGapSec`, the
- * note the player gets should be the one on the pulse they are nodding to.
- * That choice is most of what "feels handcrafted" means at selection time.
+ * Onsets below this strength are never chorded — a two-hand accent belongs on a
+ * hit that genuinely sounds big, and a quiet onset with incidental energy in a
+ * second band is not one.
  */
-const ON_GRID_BONUS = 1.2;
+const CHORD_MIN_STRENGTH = 0.55;
+
+/**
+ * Bar length assumed when scoring rhythmic repetition. The absolute downbeat is
+ * unknown, but a constant cycle length is all the popularity histogram needs:
+ * a figure that recurs every bar lands in the same phase bucket regardless of
+ * where beat 0 actually sits, so the reinforcement works without knowing it.
+ */
+const BEATS_PER_BAR = 4;
+
+/**
+ * How much the recurring-position bonus can lift an onset's selection score, at
+ * the most popular phase. Small on purpose — it reinforces a groove the strength
+ * ranking already mostly agrees with; it must not override genuine dynamics.
+ */
+const PATTERN_WEIGHT = 0.5;
+
+/**
+ * A contour lane jump is clamped to a single step when two notes are closer in
+ * time than this multiple of the spacing floor. Above it, the melody sweeps
+ * freely; below it, a wide jump would be a leap the hand cannot make at speed.
+ */
+const LANE_STEP_GAP_FACTOR = 1.5;
 
 /** An onset routed through snapping, remembering whether it landed on the grid. */
 interface PoolOnset extends Onset {
   onGrid: boolean;
+  /**
+   * Selection multiplier for sitting on a recurring rhythmic position, 1 when
+   * off any recurring phase or when the grid is untrusted. Assigned before
+   * selection by `assignPatternBonus`.
+   */
+  patternBonus?: number;
 }
 
 /** Length of each budgeting section, in seconds. */
@@ -347,11 +385,15 @@ function selectNotes(pool: PoolOnset[], duration: number, params: DifficultyPara
     const quota = Math.min(bucket.length, floors[w]! + Math.round(discretionary * share));
 
     // Strongest first within the section, so the notes that survive are the
-    // ones a listener would pick out as beats — with a thumb on the scale for
-    // onsets on a trusted grid, so when a beat and an off-beat neighbour fight
-    // over the same `minGapSec`, the beat wins. (`onGrid` is only ever set when
-    // the grid cleared MIN_GRID_CONFIDENCE, so no gate is needed here.)
-    const score = (o: PoolOnset): number => o.strength * (o.onGrid ? ON_GRID_BONUS : 1);
+    // ones a listener would pick out as beats — with two thumbs on the scale:
+    // a per-difficulty bonus for onsets on a trusted grid (so when a beat and
+    // an off-beat neighbour fight over the same `minGapSec`, the beat wins, and
+    // beginner charts stay far more on-beat than expert ones), and a bonus for
+    // onsets on the song's recurring rhythmic positions (so the groove repeats
+    // rather than reshuffling every bar). Both are only ever non-trivial when
+    // the grid cleared MIN_GRID_CONFIDENCE, so no gate is needed here.
+    const score = (o: PoolOnset): number =>
+      o.strength * (o.onGrid ? params.onGridBonus : 1) * (o.patternBonus ?? 1);
     bucket.sort((a, b) => score(b) - score(a));
 
     let taken = 0;
@@ -396,6 +438,107 @@ function contoursByBand(onsets: readonly Onset[], bands: readonly Band[]): numbe
     });
   }
   return contours;
+}
+
+/**
+ * Reward onsets that fall on the song's recurring rhythmic positions, in place.
+ *
+ * Builds a histogram of onset strength by bar-phase bucket (beat-in-bar ×
+ * subdivision slot), then scales each onset's `patternBonus` by how popular its
+ * own bucket is. A groove that repeats — a kick on every downbeat, a snare on 2
+ * and 4 — piles strength onto a handful of buckets, so notes on those positions
+ * get boosted and the greedy selector keeps the figure bar after bar. One-off,
+ * non-recurring hits sit in sparse buckets and stay at 1, so they are the first
+ * to lose a crowded `minGapSec` contest. Only meaningful with a trusted grid,
+ * which the caller gates on; bar phase is noise otherwise.
+ */
+function assignPatternBonus(pool: PoolOnset[], beatGrid: number[], subdivision: number): void {
+  if (beatGrid.length < 2) return;
+
+  const bucketCount = BEATS_PER_BAR * subdivision;
+  const popularity = new Float64Array(bucketCount);
+  const buckets = new Array<number>(pool.length).fill(-1);
+
+  for (let i = 0; i < pool.length; i++) {
+    const bucket = barPhaseBucket(pool[i]!.t, beatGrid, subdivision);
+    if (bucket === null) continue;
+    buckets[i] = bucket;
+    popularity[bucket] = popularity[bucket]! + pool[i]!.strength;
+  }
+
+  let max = 0;
+  for (const p of popularity) if (p > max) max = p;
+  if (max <= 0) return;
+
+  for (let i = 0; i < pool.length; i++) {
+    const bucket = buckets[i]!;
+    if (bucket < 0) continue;
+    pool[i]!.patternBonus = 1 + PATTERN_WEIGHT * (popularity[bucket]! / max);
+  }
+}
+
+/**
+ * The bar-phase bucket an onset time falls in, or null when it is outside the
+ * tracked grid. The bucket is `(beat mod BEATS_PER_BAR) * subdivision + slot`,
+ * where `slot` quantizes the fractional position within the beat. The grid is
+ * tracked (non-uniform), so the enclosing beat is a search, not arithmetic.
+ */
+function barPhaseBucket(t: number, beatGrid: number[], subdivision: number): number | null {
+  const i = insertionPoint(beatGrid, t) - 1; // last beat at or before t
+  if (i < 0 || i >= beatGrid.length - 1) return null;
+  const b0 = beatGrid[i]!;
+  const b1 = beatGrid[i + 1]!;
+  if (b1 <= b0) return null;
+
+  const f = (t - b0) / (b1 - b0);
+  let slot = Math.round(f * subdivision);
+  let beat = i;
+  // A fraction rounding up to a whole beat belongs to the next beat's slot 0.
+  if (slot >= subdivision) {
+    slot = 0;
+    beat = i + 1;
+  }
+  return (beat % BEATS_PER_BAR) * subdivision + slot;
+}
+
+/**
+ * Pick which onsets get a chord: the strongest eligible ones in each section,
+ * up to `chordChance` as a share. Deterministic — no RNG — so the two-hand
+ * accents land on a section's biggest hits and equally loud onsets are treated
+ * equally, rather than one winning a coin flip the other loses.
+ */
+function chooseChords(
+  accepted: PoolOnset[],
+  bands: Band[],
+  params: DifficultyParams,
+  gridTrusted: boolean,
+): Set<number> {
+  const chosen = new Set<number>();
+  if (!params.chords || params.chordChance <= 0) return chosen;
+
+  const byWindow = new Map<number, number[]>();
+  for (let i = 0; i < accepted.length; i++) {
+    const onset = accepted[i]!;
+    if (onset.strength <= CHORD_MIN_STRENGTH) continue;
+    if (!secondaryBand(onset, bands[i]!)) continue;
+    // On a trusted grid an off-beat two-hand hit reads as a mistake, not an
+    // accent, so only on-grid onsets are eligible there.
+    if (gridTrusted && !onset.onGrid) continue;
+
+    const w = Math.floor(onset.t / SELECTION_WINDOW_SEC);
+    const list = byWindow.get(w);
+    if (list) list.push(i);
+    else byWindow.set(w, [i]);
+  }
+
+  for (const indices of byWindow.values()) {
+    // Strongest first, then take the top share. Ties broken by index so the
+    // result stays deterministic for a given pool.
+    indices.sort((a, b) => accepted[b]!.strength - accepted[a]!.strength || a - b);
+    const take = Math.round(indices.length * params.chordChance);
+    for (let k = 0; k < take; k++) chosen.add(indices[k]!);
+  }
+  return chosen;
 }
 
 function round(t: number): number {

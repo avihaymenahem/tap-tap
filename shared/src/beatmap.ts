@@ -114,10 +114,12 @@ export interface Onset {
   /**
    * Relative band prominence at the onset. Sums to 1. Drives lane assignment.
    *
-   * These are each band's energy divided by that band's typical level across
-   * the track — "how unusually loud is this band right now", not "how loud".
-   * Raw shares would just describe the mix, and a bright or bass-heavy master
-   * would push every note into a single lane.
+   * These rank each band's spectral *flux* (its energy rise at the attack)
+   * against that band's typical rise across the track — "how unusually hard
+   * did this band attack", not "how loud is it". Flux rather than standing
+   * energy so a transient over a sustained tone is credited to the band that
+   * actually hit; ranks rather than raw shares because a bright or bass-heavy
+   * master would otherwise push every note into a single lane.
    */
   low: number;
   mid: number;

@@ -194,6 +194,28 @@ export function accuracyOf(counts: Record<Tier, number>): number {
   return earned / (judged * SCORE_VALUES.perfect);
 }
 
+/**
+ * Fold every note the run never reached into the miss count.
+ *
+ * The live HUD accuracy divides by the notes *faced so far* — a running read of
+ * current form, which is what you want while playing. But the run that gets
+ * saved as a personal best, and the grade on the results card, must be scored
+ * over the *whole* chart: bailing out of the pause menu after three clean taps
+ * is not a flawless run, and without this it read as 100% / S and was crowned a
+ * new best. Any note the engine never judged (the player quit early) counts as a
+ * miss here, so the final accuracy, grade and tier breakdown all agree and
+ * reflect the entire song. On a natural finish every note is already judged, so
+ * this is a no-op.
+ */
+export function foldUnreached(
+  counts: Record<Tier, number>,
+  totalNotes: number,
+): Record<Tier, number> {
+  const judged = TIERS.reduce((sum, tier) => sum + counts[tier], 0);
+  const unreached = Math.max(0, totalNotes - judged);
+  return { ...counts, miss: counts.miss + unreached };
+}
+
 /** Letter grade for the results screen. */
 export function gradeFor(accuracy: number): string {
   if (accuracy >= 0.95) return 'S';

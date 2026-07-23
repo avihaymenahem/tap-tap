@@ -17,8 +17,12 @@ export { FFT, hannWindow } from './fft.js';
  *   2  sub-hop tempo refinement + alignment-checked confidence. Grids from
  *      version 1 (or unstamped files, which predate the stamp) are quantized
  *      to whole ODF hops and can drift a beat or more over a song.
+ *   3  band classification by spectral *flux* (the rise) rather than standing
+ *      energy, so a transient over a sustained tone lands in the band that
+ *      actually attacked. Version 2 onsets misclassify hits over a ringing
+ *      bass or pad, which skews lane assignment on most real mixes.
  */
-export const ANALYSIS_VERSION = 2;
+export const ANALYSIS_VERSION = 3;
 
 /** Full offline analysis of a decoded mono track. */
 export function analyze(

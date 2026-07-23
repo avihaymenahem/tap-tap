@@ -33,3 +33,5 @@ export {
   snapNear,
   snapToGrid,
 } from './charts/generate.js';
+
+export { chartMetrics, type ChartMetrics } from './charts/metrics.js';

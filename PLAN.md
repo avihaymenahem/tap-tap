@@ -109,6 +109,13 @@ Measured lane spread on the starter library after the change (easy, 3 lanes):
 every song uses every lane, worst case 47% in one lane, against several songs
 that previously left a lane completely unused.
 
+**The ranked quantity is spectral *flux*, not standing energy** (`ANALYSIS_VERSION`
+3). Energy at the onset frame includes everything sustained through that instant,
+so a hi-hat over a ringing bass note carried huge low-band energy that never
+changed and the hat classified as "low". Ranking each band's half-wave-rectified
+*rise* instead credits only the band that actually attacked — the same
+scale-free percentile machinery, fed the attack rather than the level.
+
 **But classification is only half of it — the lane *widths* have to follow the
 song too.** Percentile ranking fixes "which band", not "how many lanes that band
 gets". The board was a fixed split — `low[0] mid[1,2] high[3]` on four lanes —
@@ -347,17 +354,46 @@ Three causes, all fixed in generation, all keyed off the (now meaningful)
   walks back. Flat stretches step in the current sweep direction and bounce at
   the edges, so a same-pitch stream becomes a roll rather than a jackhammer or
   a zigzag. Easy is untouched by construction: its bands are single lanes.
-- **On-beat onsets win crowded neighbourhoods.** Selection ranked purely by
-  strength, so when a beat and a slightly-louder off-beat scuffle both could
-  not fit inside `minGapSec`, the player got the scuffle. On a trusted grid,
-  grid-aligned onsets get a 1.2× selection multiplier — strength still
-  dominates, but ties inside a spacing conflict now resolve to the pulse.
-- **Chords only land on the grid.** An off-beat two-hand hit is something a
-  human charter essentially never writes; on the beat it reads as an accent,
-  off it it reads as a mistake.
+- **On-beat onsets win crowded neighbourhoods, more so on easier charts.**
+  Selection ranked purely by strength, so when a beat and a slightly-louder
+  off-beat scuffle both could not fit inside `minGapSec`, the player got the
+  scuffle. On a trusted grid, grid-aligned onsets get a selection multiplier —
+  strength still dominates, but ties inside a spacing conflict now resolve to
+  the pulse. The multiplier is **per difficulty** (`onGridBonus`: easy 2.5 →
+  medium 1.6 → hard 1.2 → extreme 1.1): syncopation is the hardest thing to
+  read, so a beginner chart should be nearly all on-beat while an extreme chart
+  keeps off-beat texture. A flat bonus made easy "hard, but sparser".
+- **The groove repeats.** Selection is greedy strongest-first, with no memory,
+  so a steady figure could survive as a different subset of itself each bar —
+  rhythmically fine per note, but the *pattern* never recurred, and repetition
+  is most of what makes a chart learnable. `assignPatternBonus` builds a
+  histogram of onset strength by bar-phase bucket (beat-in-bar × subdivision
+  slot; the absolute downbeat is unknown but irrelevant — a recurring figure
+  lands in a constant bucket regardless) and lifts each onset's score by how
+  popular its own phase is. Recurring positions reinforce; one-off hits stay put
+  and are the first to lose a spacing contest.
+- **Chords land deterministically on a section's biggest hits.** They were a
+  per-note `rand() < chordChance` coin flip, so two equally loud downbeats got
+  different treatment and a phrase-defining hit could go un-chorded. `chordChance`
+  is now the *share* of eligible onsets (strong, with a real secondary band,
+  on-grid when the grid is trusted) that get a chord, taken strongest-first per
+  8s section — the accents land where a human would put them, and generation
+  stays fully deterministic. Only the second note's lane still uses the RNG.
+- **Fast contour jumps become rolls.** `pickLaneContour` followed the melody
+  regardless of timing, so at extreme's 140ms spacing a lane-0→lane-3 leap was
+  an index→pinky jump the hand cannot make. When two notes fall within ~1.5×
+  the spacing floor the lane movement is clamped to a single step; slower
+  phrases still sweep the whole band freely.
 
-Below the confidence line all of it disarms — no snapping, no bonus, no chord
-gate — and the chart is pure measured onsets, exactly as before.
+Below the confidence line the grid-keyed parts disarm — no snapping, no on-grid
+bonus, no pattern bonus, no on-grid chord gate — and the chart is pure measured
+onsets, exactly as before. The lane-jump clamp is timing-only and always on.
+
+Chart quality is checked with numbers, not ears: `chartMetrics` (charts/
+metrics.ts) reports density↔intensity correlation, lane-share entropy, the
+busiest-lane share, chord rate, on-grid share, longest stream and bar-phase
+concentration, and `metrics.test.ts` asserts regression floors on generated
+charts (correlation > 0.4, no lane over 0.6 of the chart, on-grid share > 0.7).
 
 ---
 
@@ -1705,6 +1741,26 @@ the moment it is deployed publicly or shared. Do not deploy this.
   sheen; and the display font was swapped from Archivo Black (too heavy/blocky)
   to **Space Grotesk Bold** — sleeker, modern, with a subtle techy edge; one
   bundled weight mapped over the 400–700 range so no display CSS changed.
+
+- **2026-07-23 — Map-building pass: six improvements to analysis + generation.**
+  A read of the whole pipeline found it correct but memoryless and
+  structure-blind; every note was chosen independently. Six changes, in order of
+  impact (§2.1/§2.9): **(1)** band classification now ranks per-band spectral
+  *flux* — the energy *rise* at the attack — rather than standing energy, so a
+  transient over a ringing bass or pad lands in the band that actually hit;
+  `ANALYSIS_VERSION` 2→3, so the existing library re-analyzes on regenerate.
+  **(2)** `assignPatternBonus` reinforces recurring bar-phase positions so the
+  groove repeats bar to bar instead of reshuffling. **(3)** the on-grid selection
+  bonus moved into `DifficultyParams.onGridBonus`, steep on easy (2.5) and flat
+  on extreme (1.1), so beginner charts are near-all-on-beat. **(4)** chords are
+  placed deterministically on each section's strongest eligible hits (share =
+  `chordChance`) rather than by a per-note coin flip. **(5)** `pickLaneContour`
+  clamps a contour jump to one lane when notes are closer than ~1.5× the spacing
+  floor, turning physically impossible fast leaps into rolls. **(6)** a pure
+  `chartMetrics` scorecard + regression-floor tests, so future tuning is measured
+  not guessed. 337 tests green (+7), `tsc -b` and the production build clean.
+  Regenerating charts invalidates stored scores, and because of (1) a plain
+  Regenerate now re-decodes each song once to pick up the new classification.
 
 ## 10. Open
 

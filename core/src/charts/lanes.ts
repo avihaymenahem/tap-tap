@@ -143,18 +143,36 @@ export interface LaneMotion {
  * steps in the current sweep direction and bounces at the range edges, so a
  * same-pitch stream becomes a roll — the other pattern human charts reach for
  * — rather than either a jackhammer or a random zigzag.
+ *
+ * `maxStep` caps how far the lane may move from `previousLane`. The caller sets
+ * it to 1 when two notes are so close in time that a wide contour jump would be
+ * a physical leap the hand cannot make at speed (turning the jump into a roll),
+ * and leaves it at ∞ for slower phrases, which sweep freely. Clamping the
+ * *target* rather than the returned lane keeps the roll/bounce logic below
+ * intact and never pushes a note outside its band's range.
  */
 export function pickLaneContour(
   range: readonly number[],
   previousLane: number | null,
   contour: number,
   motion: LaneMotion,
+  maxStep: number = Number.POSITIVE_INFINITY,
 ): number {
   if (range.length === 0) return 0;
   if (range.length === 1) return range[0]!;
 
   const slot = Math.min(range.length - 1, Math.max(0, Math.floor(contour * range.length)));
-  const ideal = range[slot]!;
+  let ideal = range[slot]!;
+
+  if (previousLane !== null && Number.isFinite(maxStep)) {
+    // Clamp toward the previous lane, then back into the band. `previousLane`
+    // may belong to another band entirely (a different frequency range), so the
+    // clamp is numeric across the whole board; if the band lies wholly outside
+    // the step window the intersection is empty and the target is left as-is.
+    const lo = Math.max(range[0]!, previousLane - maxStep);
+    const hi = Math.min(range[range.length - 1]!, previousLane + maxStep);
+    if (lo <= hi) ideal = Math.max(lo, Math.min(hi, ideal));
+  }
 
   if (ideal !== previousLane) {
     // Remember which way the contour moved, so a flat stretch that follows
