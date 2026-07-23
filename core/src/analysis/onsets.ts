@@ -100,10 +100,15 @@ export function detectOnsets(
   const midHi = binAt(MID_MAX_HZ);
   const highHi = binAt(HIGH_MAX_HZ);
 
-  // Bands are compared as energy *density*, not as summed magnitude. The bands
-  // cover wildly different bin counts — roughly 12 bins below 250Hz against
-  // ~650 above 2kHz — so summing raw magnitude measures bandwidth rather than
-  // tone, and the widest band wins even for a pure bass note.
+  // Bands carry each onset's *flux density* — rectified spectral rise per bin,
+  // not standing magnitude. Two reasons, one per term. Density (÷ bin count),
+  // because the bands cover wildly different bin counts — ~12 below 250Hz
+  // against ~650 above 2kHz — so a raw sum measures bandwidth and the widest
+  // band wins even a pure bass note. Flux (the *rise*, not the level), because
+  // energy at the peak frame includes everything sustained through that
+  // instant: a hi-hat tick over a ringing bass note carries huge low-band
+  // energy that never changed, and classifying by energy put that hat on the
+  // left lane. Crediting only the band that actually attacked fixes it. (§2.1)
   const lowBins = Math.max(1, lowHi - lowLo + 1);
   const midBins = Math.max(1, midHi - lowHi);
   const highBins = Math.max(1, highHi - midHi);
@@ -137,11 +142,14 @@ export function detectOnsets(
 
       // Half-wave rectified difference: only energy *increases* signal an onset.
       const d = m - prevMag[b]!;
-      if (d > 0) flux += d;
-
-      if (b >= lowLo && b <= lowHi) low += m;
-      else if (b > lowHi && b <= midHi) mid += m;
-      else if (b > midHi && b <= highHi) high += m;
+      if (d > 0) {
+        flux += d;
+        // Attribute the rise to its band. See the band-density note above:
+        // this is what makes the classification track the attack, not the mix.
+        if (b >= lowLo && b <= lowHi) low += d;
+        else if (b > lowHi && b <= midHi) mid += d;
+        else if (b > midHi && b <= highHi) high += d;
+      }
     }
 
     odf[f] = flux;
@@ -170,13 +178,14 @@ export function detectOnsets(
   // Each onset is ranked within its OWN band's distribution across the track,
   // then the three ranks are compared.
   //
-  // Comparing band energies directly asks "which band is loudest?", and the
-  // answer is a property of the mix, not of the moment — a bright, hat-forward
-  // master answers "high" on essentially every onset and collapses the whole
-  // chart into one lane. Ranking asks "which band is this hit most exceptional
-  // in, relative to every other hit in this song?", which is invariant to
-  // overall brightness, per-band scaling, and bin counts alike, and cannot
-  // degenerate to a constant answer the way an absolute comparison can.
+  // Comparing band flux directly asks "which band rose most?", and the answer
+  // is still partly a property of the mix, not of the moment — a bright,
+  // hat-forward master rises hardest in the high band on essentially every
+  // onset and collapses the whole chart into one lane. Ranking asks "which
+  // band is this hit most exceptional in, relative to every other hit in this
+  // song?", which is invariant to overall brightness, per-band scaling, and
+  // bin counts alike, and cannot degenerate to a constant answer the way an
+  // absolute comparison can.
   const lowRanks = percentileRanks(peaks.map((f) => bandLow[f]!));
   const midRanks = percentileRanks(peaks.map((f) => bandMid[f]!));
   const highRanks = percentileRanks(peaks.map((f) => bandHigh[f]!));

@@ -17,6 +17,22 @@ export interface DifficultyParams {
   approachSec: number;
 
   /**
+   * Selection multiplier for onsets sitting on a trusted beat grid, per
+   * difficulty. Strength still dominates; this only breaks ties when a beat and
+   * a nearby off-beat both want the same `minGapSec` slot, tipping the note the
+   * player gets toward the pulse.
+   *
+   * Higher on the easy end on purpose. Syncopation is the single hardest thing
+   * to read, so a beginner chart should be nearly all on-beat notes, while an
+   * extreme chart wants the off-beat texture. A flat bonus gave a novice the
+   * same off-grid rate as an expert — "hard, but sparser" rather than
+   * "designed for beginners". Only ever applied when the grid cleared
+   * `MIN_GRID_CONFIDENCE`; below that `onGrid` is never set, so the bonus is a
+   * no-op and the value is moot.
+   */
+  onGridBonus: number;
+
+  /**
    * 0..1 — the most of a chart's notes that may become holds.
    *
    * A ceiling, not a target: a song with no sustained sounds gets no holds, and
@@ -75,6 +91,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     chordChance: 0,
     targetNps: 1.2,
     approachSec: 1.9,
+    // Strongly on-beat: a beginner should almost never face a syncopated note.
+    onGridBonus: 2.5,
     // Holds off; 0.1 when enabled. Few and long — on easy a hold is a rest,
     // not a demand.
     holdShare: 0,
@@ -92,6 +110,7 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     chordChance: 0.05,
     targetNps: 2,
     approachSec: 1.6,
+    onGridBonus: 1.6,
     // Holds off; 0.14 when enabled.
     holdShare: 0,
     minHoldSec: 0.5,
@@ -108,6 +127,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     chordChance: 0.15,
     targetNps: 3.6,
     approachSec: 1.3,
+    // The old flat value; hard is where off-beat detail starts to belong.
+    onGridBonus: 1.2,
     // Holds off; 0.18 when enabled. More and shorter than easy/medium.
     holdShare: 0,
     minHoldSec: 0.4,
@@ -143,6 +164,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     chordChance: 0.32,
     targetNps: 5.4,
     approachSec: 0.95,
+    // Barely tips toward the grid: extreme should keep syncopation as texture.
+    onGridBonus: 1.1,
     // Holds off; 0.2 when enabled. Same shape as hard, a touch shorter.
     holdShare: 0,
     minHoldSec: 0.35,
