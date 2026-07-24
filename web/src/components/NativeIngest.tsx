@@ -15,7 +15,8 @@ interface NativeIngestProps {
   /** Prefill the field — e.g. a YouTube link shared into the app. */
   initialUrl?: string | null;
   onClose: () => void;
-  onDone: () => void;
+  /** Reports the id of the freshly ingested song, so the menu can jump to it. */
+  onDone: (songId: string) => void;
 }
 
 interface Progress {
@@ -50,11 +51,11 @@ export function NativeIngest({ open, initialUrl, onClose, onDone }: NativeIngest
     setError(null);
     setProgress({ message: 'Starting…', fraction: 0.02 });
     ingestFromUrl(trimmed, (message, fraction) => setProgress({ message, fraction }))
-      .then(() => {
+      .then((songId) => {
         setBusy(false);
         reset();
         playUiSound('newBest');
-        onDone();
+        onDone(songId);
       })
       .catch((e: unknown) => {
         setBusy(false);

@@ -93,6 +93,9 @@ export async function ingestSong(url: string, onProgress: ProgressFn = () => {})
     artist: keepName ? previous.artist : meta.artist,
     ...(keepName ? { customName: true } : {}),
     ...(keepTheme ? { themeId: keepTheme } : {}),
+    // Preserve the original add time across re-ingest (regenerate spreads
+    // `...existing`, so it inherits this for free).
+    createdAt: previous?.createdAt ?? Date.now(),
     duration: analysis.duration || meta.duration,
     audioUrl: `/media/${songId}/${AUDIO_FILE}`,
     thumbnailUrl: hasThumb ? `/media/${songId}/${THUMB_FILE}` : null,

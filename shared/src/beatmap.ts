@@ -93,6 +93,14 @@ export interface Beatmap {
    */
   chartVersion?: number;
 
+  /**
+   * Epoch millis when the song was first added. Optional: everything ingested
+   * before the field existed has none, which sorts oldest under "recently
+   * added". Preserved across re-ingest and regenerate, so it means *added*, not
+   * *last touched*.
+   */
+  createdAt?: number;
+
   bpm: number;
   /** 0..1. Below ~0.5 the beat grid is probably wrong — the admin UI warns. */
   bpmConfidence: number;
@@ -114,6 +122,8 @@ export interface SongSummary {
   noteCounts: Record<DifficultyName, number>;
   /** Carried so admin can show the current theme without fetching each beatmap. */
   themeId?: string;
+  /** Epoch millis the song was added; drives the "recently added" sort. */
+  createdAt?: number;
   /**
    * Carried on the summary so the menu can start warming the audio into the
    * HTTP cache the moment a song is selected, rather than waiting for the play

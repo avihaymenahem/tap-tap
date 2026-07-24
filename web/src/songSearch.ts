@@ -33,10 +33,11 @@ export function filterFavorites(
   return songs.filter((song) => favorites.has(song.songId));
 }
 
-export type SongSort = 'favorite' | 'title' | 'artist' | 'bpm' | 'confidence' | 'notes';
+export type SongSort = 'favorite' | 'recent' | 'title' | 'artist' | 'bpm' | 'confidence' | 'notes';
 
 export const SONG_SORT_LABELS: Record<SongSort, string> = {
   favorite: 'Favorites first',
+  recent: 'Recently added',
   title: 'Title A–Z',
   artist: 'Artist A–Z',
   bpm: 'BPM (slowest first)',
@@ -51,7 +52,7 @@ export const SONG_SORTS = Object.keys(SONG_SORT_LABELS) as SongSort[];
  * the badly detected tempos and regenerate them" — and means nothing to someone
  * choosing a song, so it stays on the admin screen.
  */
-export const MENU_SORTS: SongSort[] = ['favorite', 'title', 'artist', 'bpm'];
+export const MENU_SORTS: SongSort[] = ['favorite', 'recent', 'title', 'artist', 'bpm'];
 
 /** Case- and accent-aware, so "Ä" sorts next to "A" rather than after "Z". */
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
@@ -60,6 +61,9 @@ const COMPARATORS: Record<SongSort, (a: SongSummary, b: SongSummary) => number> 
   // Replaced in `sortSongs`, which is the only place that knows what is
   // starred. Present so the record stays exhaustive over `SongSort`.
   favorite: (a, b) => collator.compare(a.title, b.title),
+  // Newest first. Songs added before the timestamp existed have no `createdAt`
+  // and fall to the bottom (treated as time 0), which is where "oldest" belongs.
+  recent: (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0),
   title: (a, b) => collator.compare(a.title, b.title),
   artist: (a, b) => collator.compare(a.artist, b.artist) || collator.compare(a.title, b.title),
   bpm: (a, b) => a.bpm - b.bpm,

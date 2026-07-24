@@ -227,6 +227,21 @@ export function MenuScreen({
     document.querySelector('.song-card--active')?.scrollIntoView({ block: 'nearest' });
   }, [songs]);
 
+  // After adding a track, scroll it into view once the reloaded list contains
+  // it. Held in a ref so a re-render cannot re-fire the jump; cleared once done.
+  const pendingScrollRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = pendingScrollRef.current;
+    if (!id || !songs || !songs.some((s) => s.songId === id)) return;
+    pendingScrollRef.current = null;
+    // Next frame, so the new row has been laid out before we scroll to it.
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-song-id="${CSS.escape(id)}"]`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, [songs]);
+
   // All derived, not stored: no effect needed to keep any of it in sync.
 
   // Search, then the favourites filter, then sort. All derived during render —
@@ -304,9 +319,17 @@ export function MenuScreen({
               setIngestOpen(false);
               setIngestUrl(null);
             }}
-            onDone={() => {
+            onDone={(newSongId) => {
               setIngestOpen(false);
               setIngestUrl(null);
+              // Clear any filter so the new track is guaranteed to be in the
+              // list, select it, then scroll to it once the reload renders.
+              setQuery('');
+              setFavoritesOnly(false);
+              setSelected(newSongId);
+              setLastSong(newSongId);
+              setSheetOpen(true);
+              pendingScrollRef.current = newSongId;
               setReloadKey((k) => k + 1);
             }}
           />
@@ -618,6 +641,7 @@ export function MenuScreen({
                     </button>
                     <button
                       type="button"
+                      data-song-id={song.songId}
                       className={[
                         'song-card',
                         selectedSong?.songId === song.songId ? 'song-card--active' : '',

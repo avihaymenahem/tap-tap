@@ -2,11 +2,16 @@ package com.taptap.game;
 
 import android.content.Intent;
 import android.os.Bundle;
+import androidx.core.splashscreen.SplashScreen;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Show the splash. Must run before super.onCreate. On Android 12+ the
+        // system splash is theme-driven; this call backports it to older phones
+        // and applies postSplashScreenTheme once the WebView takes over.
+        SplashScreen.installSplashScreen(this);
         // Local plugins must be registered before the bridge starts.
         registerPlugin(YoutubeDlPlugin.class);
         registerPlugin(SharePlugin.class);

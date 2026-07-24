@@ -132,6 +132,9 @@ export async function ingestFromUrl(url: string, onProgress: IngestProgress = ()
     artist: keepName ? previous.artist : meta.artist,
     ...(keepName ? { customName: true } : {}),
     ...(keepTheme ? { themeId: keepTheme } : {}),
+    // Keep the original add time across re-ingest so "recently added" means
+    // when the song first arrived, not when it was last rebuilt.
+    createdAt: previous?.createdAt ?? Date.now(),
     duration: bundle.analysis.duration || meta.duration,
     audioUrl: `/media/${songId}/${AUDIO_FILE}`,
     thumbnailUrl: hasThumb ? `/media/${songId}/${THUMB_FILE}` : null,

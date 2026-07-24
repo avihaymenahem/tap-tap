@@ -159,5 +159,6 @@ export function toSummary(beatmap: Beatmap): SongSummary {
     // Spread conditionally rather than passing `undefined`: `exactOptionalPropertyTypes`
     // treats an explicit undefined as a different thing from an absent key.
     ...(beatmap.themeId ? { themeId: beatmap.themeId } : {}),
+    ...(beatmap.createdAt !== undefined ? { createdAt: beatmap.createdAt } : {}),
   };
 }

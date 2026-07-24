@@ -16,7 +16,14 @@
     </style>
 
 
+    <!-- The launch/splash theme. Android 12+ shows the system splash from these
+         `windowSplashScreen*` attributes; the old `android:background=@drawable/splash`
+         was silently ignored by that API, which is why the splash never appeared
+         on modern phones. Backed by installSplashScreen() in MainActivity so
+         pre-12 devices get the same treatment. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/splashBackground</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

@@ -67,6 +67,26 @@ describe('sortSongs', () => {
     expect(sortSongs(library, 'bpm').map((s) => s.bpm)).toEqual([79, 126, 171]);
   });
 
+  it('sorts recently added newest first', () => {
+    const dated = [
+      song({ title: 'Old', createdAt: 1000 }),
+      song({ title: 'New', createdAt: 3000 }),
+      song({ title: 'Mid', createdAt: 2000 }),
+    ];
+    expect(sortSongs(dated, 'recent').map((s) => s.title)).toEqual(['New', 'Mid', 'Old']);
+  });
+
+  it('sinks songs with no add time to the bottom of "recently added"', () => {
+    // Songs ingested before the timestamp existed have no `createdAt`; they
+    // belong after everything with a real one, in a stable (title) order.
+    const mixed = [
+      song({ title: 'Timestamped', createdAt: 5000 }),
+      song({ title: 'Bravo' }),
+      song({ title: 'Alpha' }),
+    ];
+    expect(sortSongs(mixed, 'recent').map((s) => s.title)).toEqual(['Timestamped', 'Alpha', 'Bravo']);
+  });
+
   it('puts the worst tempo confidence first', () => {
     // The admin workflow is finding broken detections to regenerate, so the
     // least trustworthy has to surface rather than sink.

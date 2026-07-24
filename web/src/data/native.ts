@@ -97,6 +97,7 @@ function toSummary(beatmap: Beatmap): SongSummary {
     noteCounts,
     audioUrl: beatmap.audioUrl,
     ...(beatmap.themeId ? { themeId: beatmap.themeId } : {}),
+    ...(beatmap.createdAt !== undefined ? { createdAt: beatmap.createdAt } : {}),
   };
 }
 

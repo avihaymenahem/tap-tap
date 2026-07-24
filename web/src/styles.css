@@ -3702,6 +3702,10 @@ kbd {
     position: absolute;
     top: 0.35rem;
     right: 0.5rem;
+    /* Above the title. `.menu__detail > *` gives every child z-index 1, and the
+       full-width <h2> comes after this button in the DOM, so at equal z-index it
+       painted on top and swallowed the tap — the button did nothing. */
+    z-index: 2;
     display: grid;
     place-items: center;
     width: 40px;
