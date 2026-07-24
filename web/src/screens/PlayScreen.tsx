@@ -5,13 +5,13 @@ import { getBeatmap, listCustomThemes } from '../data/index.js';
 import { AudioClock, bandLevel } from '../game/clock.js';
 import { comboMilestone, comboTier } from '../game/combo.js';
 import { GameEngine, type GameSnapshot } from '../game/engine.js';
-import { accuracyOf, foldUnreached, gradeFor, type Tier, type Timing } from '../game/judge.js';
+import { accuracyOf, foldUnreached, gradeFor, type Tier } from '../game/judge.js';
 import { playUiSound } from '../uisfx.js';
 import type { RunResult } from '../game/run.js';
 import { cancelHaptics, vibrateHold, vibrateMiss, vibrateTap } from '../haptics.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
-import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
+import { TIER_COLORS, TIER_LABELS } from '../render/palette.js';
 import { HapticToggle } from '../components/HapticToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
 import { ModifierPanel } from '../components/ModifierPanel.js';
@@ -209,7 +209,6 @@ export function PlayScreen({
   /** Health bar fill; width + colour written from the render loop. */
   const healthRef = useRef<HTMLDivElement>(null);
   const judgementRef = useRef<HTMLDivElement>(null);
-  const timingRef = useRef<HTMLDivElement>(null);
   const countdownRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   /** Combo-milestone banner ("50 COMBO"), flashed and animated imperatively. */
@@ -445,17 +444,11 @@ export function PlayScreen({
     const lastNoteAt = chartRef.current?.notes.at(-1)?.t ?? 0;
     const introOffset = introOffsetRef.current;
 
-    const showJudgement = (tier: Tier, timing: Timing | null): void => {
+    const showJudgement = (tier: Tier): void => {
       const el = judgementRef.current;
       if (el) {
         el.textContent = TIER_LABELS[tier];
         el.style.color = TIER_COLORS[tier];
-      }
-      // The early/late tag is the feedback that actually teaches timing.
-      const tag = timingRef.current;
-      if (tag) {
-        tag.textContent = timing ? TIMING_LABELS[timing] : '';
-        tag.style.color = timing ? TIMING_COLORS[timing] : '#fff';
       }
       // A quick pop on each new judgement, on top of the alpha decay below.
       restartAnim(el, 'play__judgement--pop');
@@ -601,7 +594,7 @@ export function PlayScreen({
 
       for (const missed of engine.update(songTime)) {
         highway.burst(missed.note.lane, 'miss');
-        showJudgement('miss', null);
+        showJudgement('miss');
         vibrateMiss();
       }
 
@@ -701,7 +694,6 @@ export function PlayScreen({
 
       judgementAlpha = Math.max(0, judgementAlpha - dt * 2.2);
       if (judgementRef.current) judgementRef.current.style.opacity = String(judgementAlpha);
-      if (timingRef.current) timingRef.current.style.opacity = String(judgementAlpha * 0.9);
 
       const finishAt = lastNoteAt + OUTRO_SEC;
 
@@ -864,7 +856,7 @@ export function PlayScreen({
       if (result) {
         // Combo drives how hard the impact shakes — a long streak hits heavier.
         highway.burst(lane, result.tier, result.combo);
-        showJudgement(result.tier, result.timing);
+        showJudgement(result.tier);
         autoCalibrate(engine, result.tier, result.delta);
       }
     };
@@ -1147,7 +1139,6 @@ export function PlayScreen({
 
       <div ref={milestoneRef} className="play__milestone" aria-hidden />
       <div ref={judgementRef} className="play__judgement" style={{ opacity: 0 }} />
-      <div ref={timingRef} className="play__timing" style={{ opacity: 0 }} />
       <div ref={countdownRef} className="play__countdown" style={{ opacity: 0 }} />
       <div ref={calibToastRef} className="play__calib" style={{ opacity: 0 }}>
         ⏱ timing synced

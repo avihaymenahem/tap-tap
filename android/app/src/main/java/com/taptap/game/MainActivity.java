@@ -3,6 +3,9 @@ package com.taptap.game;
 import android.content.Intent;
 import android.os.Bundle;
 import androidx.core.splashscreen.SplashScreen;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -16,9 +19,33 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(YoutubeDlPlugin.class);
         registerPlugin(SharePlugin.class);
         super.onCreate(savedInstanceState);
+        hideSystemBars();
         // Cold start via the share sheet: the WebView is not loaded yet, so just
         // park the link; the web reads it once it mounts.
         handleShareIntent(getIntent());
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // Immersive mode is not sticky: the status/nav bars come back after a
+        // system dialog, a swipe, or returning from background. Re-hide them
+        // whenever we regain focus so the game stays full-bleed.
+        if (hasFocus) hideSystemBars();
+    }
+
+    /**
+     * Go edge-to-edge and hide both the top status/notification bar and the
+     * bottom navigation buttons — they overlap the HUD and the lanes otherwise.
+     * A swipe from an edge reveals them transiently, then they auto-hide again.
+     */
+    private void hideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        WindowInsetsControllerCompat controller =
+            WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        controller.hide(WindowInsetsCompat.Type.systemBars());
+        controller.setSystemBarsBehavior(
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
     }
 
     @Override

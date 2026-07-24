@@ -1584,24 +1584,7 @@ kbd {
   }
 }
 
-/* Native "add a song" FAB + modal (MC2). Only rendered in the Capacitor app. */
-.ingest-fab {
-  position: fixed;
-  right: 1.1rem;
-  bottom: 1.1rem;
-  z-index: 30;
-  width: 3.4rem;
-  height: 3.4rem;
-  border-radius: 50%;
-  border: none;
-  display: grid;
-  place-items: center;
-  color: #1a1206;
-  background: linear-gradient(135deg, var(--gold-bright, #ffe487), #edbe42);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5), 0 0 20px rgba(245, 209, 82, 0.5);
-  cursor: pointer;
-}
-
+/* Native "add a song" modal (MC2). Only rendered in the Capacitor app. */
 .ingest-overlay {
   position: fixed;
   inset: 0;
@@ -1843,17 +1826,6 @@ kbd {
   .play__judgement--pop {
     animation: none;
   }
-}
-
-.play__timing {
-  position: absolute;
-  top: 47.5%;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.95rem;
-  font-weight: 800;
-  letter-spacing: 0.3em;
-  pointer-events: none;
 }
 
 /* Auto-calibration confirmation. Low and unobtrusive — it acknowledges the

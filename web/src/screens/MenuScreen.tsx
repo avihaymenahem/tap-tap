@@ -1,6 +1,6 @@
 import type { DifficultyName, SongSummary, Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-tap/shared';
-import { ChevronDown, Download, Play, Plus, Star, WifiOff } from 'lucide-react';
+import { ChevronDown, Download, Play, Star, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { accentVars } from '../accent.js';
 import { isNativePlatform, listCustomThemes, listSongs } from '../data/index.js';
@@ -302,17 +302,8 @@ export function MenuScreen({
     <div className="menu">
       {native && (
         <>
-          <button
-            type="button"
-            className="ingest-fab"
-            aria-label="Add song"
-            onClick={() => {
-              setIngestOpen(true);
-              playUiSound('tick');
-            }}
-          >
-            <Plus size={26} />
-          </button>
+          {/* No FAB — "Add songs" in the menu dropdown opens this same ingest
+              dialog, so a floating button was a redundant second entry point. */}
           <NativeIngest
             open={ingestOpen}
             initialUrl={ingestUrl}

@@ -13,10 +13,12 @@
 
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import type { Beatmap } from '@tap-tap/shared';
-import { BEATMAP_VERSION, CHART_VERSION } from '@tap-tap/shared';
+import { BEATMAP_VERSION, BUILTIN_THEMES, CHART_VERSION } from '@tap-tap/shared';
 import { analyzeInWorker, decodeAudioToMonoPcm } from '../ingest/index.js';
 import { YoutubeDl } from '../plugins/youtubedl.js';
 import { base64ToArrayBuffer } from './base64.js';
+import { cleanTrackMeta } from './clean-title.js';
+import { dominantColor, nearestThemeByColor, randomThemeId, type Rgb } from './theme-pick.js';
 
 const DIR = Directory.Data;
 const ANALYSIS_SAMPLE_RATE = 44100;
@@ -48,6 +50,52 @@ async function readBeatmap(songId: string): Promise<Beatmap | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Sample the stored cover's dominant colour, for auto-theming. Decodes the JPEG
+ * onto a tiny canvas and hands the pixels to the pure `dominantColor`. Wholly
+ * best-effort: any failure (missing file, decode error, no canvas) returns null
+ * and the caller falls back to a random theme.
+ */
+async function coverDominantColor(songId: string): Promise<Rgb | null> {
+  try {
+    const { data } = await Filesystem.readFile({ directory: DIR, path: `media/${songId}/${THUMB_FILE}` });
+    return await new Promise<Rgb | null>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const size = 24; // enough to average colour; cheap to decode
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(null);
+          ctx.drawImage(img, 0, 0, size, size);
+          resolve(dominantColor(ctx.getImageData(0, 0, size, size).data));
+        } catch {
+          resolve(null); // a tainted or undecodable cover just skips matching
+        }
+      };
+      img.onerror = () => resolve(null);
+      // A data URI is same-origin, so the canvas stays untainted and readable.
+      img.src = `data:image/jpeg;base64,${data as string}`;
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Choose a theme for a newly ingested song. A re-ingest keeps whatever theme was
+ * set before; a brand-new song (or one that never had a theme) is auto-assigned
+ * — matched to the cover's dominant colour when there is one, random otherwise —
+ * so the library isn't a wall of the default palette.
+ */
+async function chooseTheme(songId: string, keepTheme: string | undefined, hasThumb: boolean): Promise<string> {
+  if (keepTheme) return keepTheme;
+  const cover = hasThumb ? await coverDominantColor(songId) : null;
+  return cover ? nearestThemeByColor(BUILTIN_THEMES, cover) : randomThemeId(BUILTIN_THEMES);
 }
 
 async function writeJson(songId: string, file: string, value: unknown): Promise<void> {
@@ -124,14 +172,21 @@ export async function ingestFromUrl(url: string, onProgress: IngestProgress = ()
   const keepName = previous?.customName === true;
   const keepTheme = previous?.themeId;
 
+  // Auto-assign a theme so new tracks don't all land on the default palette.
+  const themeId = await chooseTheme(songId, keepTheme, hasThumb);
+
+  // YouTube titles come laden with "(Official Music Video)" / "[HD]" / VEVO
+  // noise; tidy them into a song title + artist (a hand-set name is preserved).
+  const cleaned = cleanTrackMeta(meta.title, meta.artist);
+
   const beatmap: Beatmap = {
     version: BEATMAP_VERSION,
     chartVersion: CHART_VERSION,
     songId,
-    title: keepName ? previous.title : meta.title,
-    artist: keepName ? previous.artist : meta.artist,
+    title: keepName ? previous.title : cleaned.title,
+    artist: keepName ? previous.artist : cleaned.artist,
     ...(keepName ? { customName: true } : {}),
-    ...(keepTheme ? { themeId: keepTheme } : {}),
+    themeId,
     // Keep the original add time across re-ingest so "recently added" means
     // when the song first arrived, not when it was last rebuilt.
     createdAt: previous?.createdAt ?? Date.now(),
