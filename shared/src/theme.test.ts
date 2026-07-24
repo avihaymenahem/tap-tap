@@ -80,13 +80,14 @@ describe('themeCatalog', () => {
   });
 
   it('refuses to let a custom theme shadow a built-in', () => {
-    // Losing the guaranteed fallback is worse than ignoring a bad entry, so a
-    // hand-edited themes.json cannot displace DEFAULT_THEME.
+    // A hand-edited themes.json cannot displace a shipped theme — resolving the
+    // id still returns the genuine built-in, not the impostor.
+    const real = BUILTIN_THEMES.find((t) => t.id === 'synthwave') as Theme;
     const impostor = custom({ id: 'synthwave', name: 'Not The Real One' });
     const catalog = themeCatalog([impostor]);
 
     expect(catalog.filter((t) => t.id === 'synthwave')).toHaveLength(1);
-    expect(themeFor(catalog, 'synthwave')).toBe(DEFAULT_THEME);
+    expect(themeFor(catalog, 'synthwave')).toBe(real);
   });
 
   it('is empty-safe', () => {
@@ -212,10 +213,13 @@ describe('validateTheme', () => {
 });
 
 describe('DEFAULT_THEME', () => {
-  it('is the palette pre-theme songs already render with', () => {
-    // Changing these five recolours every song that never chose a theme, which
-    // is a migration rather than a tweak. Add a new theme instead.
-    expect(DEFAULT_THEME.id).toBe('synthwave');
-    expect(DEFAULT_THEME.lanes).toEqual([0xff2e88, 0x00e5ff, 0xffd60a, 0x9d4edd, 0x00ff9d]);
+  it('is the neon-arcade palette every un-themed song renders with', () => {
+    // The neon-arcade redesign made `neon` the default, deliberately recolouring
+    // every song that never chose a theme from the old synthwave palette to this
+    // one. Changing these values again is a migration, not a tweak — add a new
+    // theme instead.
+    expect(DEFAULT_THEME.id).toBe('neon');
+    expect(DEFAULT_THEME.accent).toBe(0xff3fa4);
+    expect(DEFAULT_THEME.lanes).toEqual([0xff2e9c, 0x2ee0ff, 0xffd23c, 0x8f5cff, 0x3cff9d]);
   });
 });

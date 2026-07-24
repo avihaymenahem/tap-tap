@@ -204,6 +204,8 @@ export function PlayScreen({
   const scoreRef = useRef<HTMLDivElement>(null);
   const comboRef = useRef<HTMLDivElement>(null);
   const accuracyRef = useRef<HTMLDivElement>(null);
+  /** Perfect-tier hit count (mid-right chip); written from the render loop. */
+  const perfectsRef = useRef<HTMLDivElement>(null);
   /** Health bar fill; width + colour written from the render loop. */
   const healthRef = useRef<HTMLDivElement>(null);
   const judgementRef = useRef<HTMLDivElement>(null);
@@ -636,12 +638,14 @@ export function PlayScreen({
       // HUD is written straight to the DOM — re-rendering React at 60fps would
       // cost more than the entire render loop.
       const snap = engine.snapshot;
-      if (scoreRef.current) scoreRef.current.textContent = snap.score.toLocaleString();
+      // Seven-segment digits: no thousands separators (DSEG7 has no comma) and
+      // the '%' lives in a separate span (DSEG7 has no percent glyph).
+      if (scoreRef.current) scoreRef.current.textContent = String(snap.score);
       if (comboRef.current) {
         const combo = snap.combo;
-        comboRef.current.textContent = combo > 2 ? `${combo}x` : '';
-        // Tier drives the readout's size and glow; only touch the DOM when it
-        // actually changes, since this runs every frame.
+        comboRef.current.textContent = String(combo);
+        // Tier drives the chip's glow; only touch the DOM when it actually
+        // changes, since this runs every frame.
         const tier = comboTier(combo);
         if (tier !== prevTier) {
           comboRef.current.dataset.tier = String(tier);
@@ -649,7 +653,10 @@ export function PlayScreen({
         }
       }
       if (accuracyRef.current) {
-        accuracyRef.current.textContent = `${(snap.accuracy * 100).toFixed(1)}%`;
+        accuracyRef.current.textContent = (snap.accuracy * 100).toFixed(1);
+      }
+      if (perfectsRef.current) {
+        perfectsRef.current.textContent = String(snap.counts.perfect);
       }
       if (healthRef.current) {
         healthRef.current.style.height = `${Math.max(0, snap.health * 100)}%`;
@@ -1084,14 +1091,37 @@ export function PlayScreen({
         <div ref={progressRef} className="play__progress-bar" />
       </div>
 
-      <div className="play__hud">
-        <div className="play__hud-left">
-          <div className="hud-label">SCORE</div>
-          <div ref={scoreRef} className="hud-score">0</div>
+      {/* Four corner HUD plaques: SCORE / ACCURACY top, COMBO / PERFECTS mid.
+          Values are seven-segment (DSEG7) over a faint "8888" ghost so they read
+          as a lit LCD; labels and the % suffix stay on the display face. All
+          written from the render loop, never React state. */}
+      <div className="hud-chip hud-chip--score">
+        <div className="hud-chip__label">SCORE</div>
+        <div className="hud-chip__seg">
+          <span className="hud-chip__ghost" aria-hidden>8888888</span>
+          <span ref={scoreRef} className="hud-chip__value">0</span>
         </div>
-        <div className="play__hud-right">
-          <div className="hud-label">ACCURACY</div>
-          <div ref={accuracyRef} className="hud-accuracy">100.0%</div>
+      </div>
+      <div className="hud-chip hud-chip--accuracy">
+        <div className="hud-chip__label">ACCURACY</div>
+        <div className="hud-chip__seg">
+          <span className="hud-chip__ghost" aria-hidden>888.8</span>
+          <span ref={accuracyRef} className="hud-chip__value">100.0</span>
+          <span className="hud-chip__suffix">%</span>
+        </div>
+      </div>
+      <div className="hud-chip hud-chip--combo">
+        <div className="hud-chip__label">COMBO</div>
+        <div className="hud-chip__seg">
+          <span className="hud-chip__ghost" aria-hidden>8888</span>
+          <span ref={comboRef} className="hud-chip__value" data-tier="0">0</span>
+        </div>
+      </div>
+      <div className="hud-chip hud-chip--perfects">
+        <div className="hud-chip__label">PERFECTS</div>
+        <div className="hud-chip__seg">
+          <span className="hud-chip__ghost" aria-hidden>8888</span>
+          <span ref={perfectsRef} className="hud-chip__value">0</span>
         </div>
       </div>
 
@@ -1106,7 +1136,6 @@ export function PlayScreen({
           HUD; the animation class is toggled from the render loop. */}
       <div ref={vignetteRef} className="play__vignette" aria-hidden />
 
-      <div ref={comboRef} className="play__combo" data-tier="0" />
       <div ref={milestoneRef} className="play__milestone" aria-hidden />
       <div ref={judgementRef} className="play__judgement" style={{ opacity: 0 }} />
       <div ref={timingRef} className="play__timing" style={{ opacity: 0 }} />

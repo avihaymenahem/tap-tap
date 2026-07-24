@@ -6,13 +6,16 @@
     <title>Tap-Tap</title>
 
     <!-- The display face paints titles on first render; preloading it avoids a
-         flash of the system font on the logo. -->
+         flash of the system font on the logo. The seven-segment HUD face is
+         preloaded too (font-display: block) so a score chip never flashes
+         fallback digits at the start of a run. -->
     <link rel="preload" href="/fonts/space-grotesk-700.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/dseg7-classic-bold.woff2" as="font" type="font/woff2" crossorigin />
 
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- Matches --bg, so the status bar blends into the app rather than
          bracketing it with a strip of browser chrome. -->
-    <meta name="theme-color" content="#07030f" />
+    <meta name="theme-color" content="#0a0a18" />
 
     <!-- iOS ignores the manifest for standalone launch and icons; these are the
          equivalent, and without them "Add to Home Screen" opens a Safari tab

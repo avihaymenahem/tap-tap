@@ -2,5 +2,5 @@
 <resources>
     <!-- The app's dark shell; matches capacitor.config android.backgroundColor so
          the splash, the window behind the WebView, and the game read as one. -->
-    <color name="splashBackground">#07030F</color>
+    <color name="splashBackground">#0A0A18</color>
 </resources>

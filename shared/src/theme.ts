@@ -95,8 +95,8 @@ export interface Theme {
   sky: SkyPalette;
 }
 
-/** Fallback accent when a theme (e.g. a custom one) doesn't set one — a warm gold. */
-export const DEFAULT_ACCENT = 0xf5d152;
+/** Fallback accent when a theme (e.g. a custom one) doesn't set one — electric pink. */
+export const DEFAULT_ACCENT = 0xff3fa4;
 
 export const MIN_THEME_LANES = 5;
 
@@ -133,6 +133,35 @@ export const MIN_LANE_LINEAR = 0.1;
  * after overwriting it. Admin offers Duplicate instead.
  */
 export const BUILTIN_THEMES: readonly Theme[] = [
+  {
+    id: 'neon',
+    name: 'Neon Arcade',
+    // The flagship of the redesign and the new default: a deep navy starfield
+    // over a neon city, electric pink for the gems and the hit bar. Gold in the
+    // shell is fixed metallic trim (see accent.ts) — the accent here is the
+    // pink that the whole flow follows.
+    accent: 0xff3fa4,
+    // Five jewel tones a full step apart on the wheel: pink, cyan, gold, violet,
+    // mint. Cyan and mint are the danger pair (both cool-bright), so they sit at
+    // opposite ends of the ramp rather than adjacent.
+    lanes: [0xff2e9c, 0x2ee0ff, 0xffd23c, 0x8f5cff, 0x3cff9d],
+    hitLine: 0xe8f4ff,
+    // Navy night behind a neon skyline. `sun`/`sunCrown` are the city glow and
+    // the lit windows; `horizon`/`horizonAlt` are the building silhouettes;
+    // `glow` is the vanishing-point swell. Every channel ≤ 0xE0 so nothing
+    // crosses the bloom threshold and competes with the gems.
+    sky: {
+      top: 0x0a0a1e,
+      horizon: 0x2a1a5e,
+      horizonAlt: 0x3a1450,
+      below: 0x08081a,
+      sun: 0xc03a8e,
+      sunCrown: 0xd88ab8,
+      haze: 0x6a3a9a,
+      glow: 0x4a3ac0,
+    },
+    style: 'stage',
+  },
   {
     id: 'synthwave',
     name: 'Synthwave',
@@ -385,7 +414,7 @@ export const BUILTIN_THEMES: readonly Theme[] = [
   },
 ];
 
-export const DEFAULT_THEME_ID = 'synthwave';
+export const DEFAULT_THEME_ID = 'neon';
 
 export const DEFAULT_THEME: Theme =
   BUILTIN_THEMES.find((theme) => theme.id === DEFAULT_THEME_ID) ?? (BUILTIN_THEMES[0] as Theme);
