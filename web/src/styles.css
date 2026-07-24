@@ -15,44 +15,75 @@
 
 :root {
   /*
-   * Redesign: the whole shell now matches the game's "stage" look — a dark,
-   * warm scene lit by a gold glow, with the same premium metal/firework vibe as
-   * the play screen. The old neon palette names are repointed to warm golds so
-   * every `var()` recolours at once; new work should prefer the semantic
-   * `--gold` / `--amber` names.
+   * "Neon Arcade" redesign: a deep navy/indigo starfield lit by electric pink,
+   * with gold as fixed metallic trim (bezels, frames) rather than the accent.
+   * The old palette names are repointed so every `var()` recolours at once; new
+   * work should prefer the semantic names (`--pink` accent, `--gold` trim,
+   * `--cyan` tertiary).
+   *
+   * Two families that must NOT be conflated: the ACCENT (--accent-rgb / --pink
+   * / --violet / --amber) follows the playing song's theme colour — accent.ts
+   * overrides it on the detail panel and results. TRIM (--gold family) is fixed
+   * brand chrome and stays gold everywhere, even when the accent moves.
    */
-  --bg: #0a0805;
-  --bg-raised: #191207;
-  --bg-card: #1f1709;
-  --text: #f6efe0;
-  --muted: #b8a883;
+  --bg: #0a0a18;
+  --bg-raised: #12122a;
+  --bg-card: #161634;
+  --text: #f2f0ff;
+  --muted: #8f8fb8;
 
-  --gold: #f5d152;
-  --gold-bright: #ffe487;
+  /* Gold metallic trim — fixed brand chrome, never follows the song accent. */
+  --gold: #f5c04a;
+  --gold-bright: #ffdf8a;
   --amber: #e0972c;
+  --trim: #f5c04a;
 
-  /* The accent, as an "r, g, b" triple for rgba(). Defaults to gold; the ready
-     and results screens override it (and the golds above) with the playing
-     song's theme colour, so the whole flow keeps one palette. */
-  --accent-rgb: 245, 209, 82;
+  /* The accent, as an "r, g, b" triple for rgba(). Defaults to electric pink;
+     the ready and results screens override it (and the --pink/--violet/--amber
+     family) with the playing song's theme colour, so the whole flow keeps one
+     palette. --gold is deliberately NOT in that override set. */
+  --accent-rgb: 255, 63, 164;
 
-  --pink: #f5d152; /* → gold (primary accent) */
-  --cyan: #f0b64a; /* → warm amber (secondary accent) */
+  --pink: #ff3fa4; /* primary electric-pink accent */
+  --cyan: #35e0ff; /* tertiary electric cyan */
   --yellow: #ffd60a;
-  --violet: #d8a94a; /* → warm */
-  --mint: #f2dc94; /* → warm cream (success) */
-  --danger: #ff5a4d;
+  --violet: #7a4fff;
+  --mint: #46e6a0; /* success */
+  --danger: #ff5a5d;
+
+  /* Crimson HUD label text (SCORE / ACCURACY / COMBO / PERFECTS plaques). */
+  --hud-label: #ff5a6e;
 
   --radius: 18px;
   --radius-sm: 12px;
   --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-display: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+  /* Seven-segment digits for HUD/results numeric readouts. The 'DSEG7 Classic'
+     face is bundled in Phase 3 (the HUD); until then this resolves to the
+     monospace fallback, which already keeps digit widths from wobbling. DSEG7
+     carries only digits and . : - — labels and % suffixes render in a separate
+     --font span. */
+  --font-seg: 'DSEG7 Classic', 'Consolas', ui-monospace, monospace;
 
-  /* Panels float over the dark stage rather than hiding it, so their fill is a
-     translucent warm tint. Named because a dozen surfaces need to agree. */
-  --panel: rgba(28, 21, 10, 0.68);
-  --panel-solid: rgba(20, 15, 8, 0.95);
+  /* Panels float over the dark starfield rather than hiding it, so their fill is
+     a translucent navy tint. Named because a dozen surfaces need to agree. */
+  --panel: rgba(18, 18, 42, 0.68);
+  --panel-solid: rgba(12, 12, 28, 0.95);
   --edge: rgba(var(--accent-rgb), 0.18);
+}
+
+/* Seven-segment display face for the HUD/results numeric readouts (DSEG7
+   Classic Bold, SIL OFL — see fonts/DSEG-LICENSE.txt). font-display: block gives
+   a short invisible window so a digit chip never flashes fallback glyphs (which
+   have different widths) mid-run; it is preloaded in index.html so the window is
+   near-zero in practice. DSEG7 carries only digits and . : - — labels and %
+   suffixes render in a separate --font span. */
+@font-face {
+  font-family: 'DSEG7 Classic';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('/fonts/dseg7-classic-bold.woff2') format('woff2');
 }
 
 * {
@@ -78,11 +109,12 @@ button {
   font-family: inherit;
 }
 
-/* --- stage backdrop -------------------------------------------------------
-   The dark, gold-lit stage behind every screen except play and edit — the same
-   vibe as the in-game highway. One fixed layer, pure CSS, no assets. Everything
-   here is decoration: it never takes pointer events, and the scrim on top keeps
-   it from competing with the content. */
+/* --- neon-arcade backdrop --------------------------------------------------
+   The deep navy night-sky behind every screen except play and edit — the DOM
+   echo of the in-game highway: a starfield, a magenta glow pooled overhead, a
+   neon city skyline along the bottom. One fixed layer, pure CSS, no assets.
+   Everything here is decoration: it never takes pointer events, and the scrim on
+   top keeps it from competing with the content. */
 
 .retro-bg {
   position: fixed;
@@ -90,12 +122,21 @@ button {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  /* Dark warm stage lit by a gold glow pooled overhead — the same light the
-     play screen pools behind the vanishing point. */
+  /* Deep navy night lit by a magenta glow pooled overhead, over a static
+     starfield (the two fine radial tiles). The play screen pools the same light
+     behind its vanishing point. */
   background:
-    radial-gradient(130% 80% at 50% -14%, rgba(245, 190, 92, 0.3), transparent 55%),
-    radial-gradient(80% 55% at 50% 4%, rgba(255, 214, 128, 0.18), transparent 60%),
-    linear-gradient(to bottom, #14100a 0%, #0b0805 52%, #060402 100%);
+    radial-gradient(2px 2px at 12% 18%, rgba(210, 225, 255, 0.9), transparent),
+    radial-gradient(1.5px 1.5px at 74% 12%, rgba(150, 200, 255, 0.7), transparent),
+    radial-gradient(1.3px 1.3px at 46% 26%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1.6px 1.6px at 88% 22%, rgba(120, 220, 255, 0.6), transparent),
+    radial-gradient(1.2px 1.2px at 30% 8%, rgba(255, 220, 245, 0.6), transparent),
+    radial-gradient(130% 80% at 50% -14%, rgba(255, 63, 164, 0.26), transparent 55%),
+    radial-gradient(80% 55% at 50% 4%, rgba(122, 79, 255, 0.18), transparent 60%),
+    linear-gradient(to bottom, #0d0d22 0%, #0a0a18 52%, #060610 100%);
+  background-size:
+    520px 520px, 520px 520px, 520px 520px, 520px 520px, 520px 520px,
+    auto, auto, auto;
 }
 
 .retro-bg__glow {
@@ -105,11 +146,11 @@ button {
   transform: translateX(-50%);
   width: min(130vw, 64rem);
   aspect-ratio: 2 / 1;
-  /* The overhead stage lamp: a warm gold pool that breathes with a slow pulse. */
+  /* The overhead lamp: an electric-pink pool that breathes with a slow pulse. */
   background: radial-gradient(
     closest-side,
-    rgba(255, 224, 140, 0.34),
-    rgba(245, 182, 74, 0.14) 46%,
+    rgba(255, 63, 164, 0.32),
+    rgba(122, 79, 255, 0.14) 46%,
     transparent 72%
   );
   filter: blur(14px);
@@ -119,49 +160,76 @@ button {
 .retro-bg__sparks {
   position: absolute;
   inset: 0;
-  /* Gold embers drifting up from the stage — the firework vibe, one repeated
-     tile so it costs almost nothing. */
+  /* Pink/cyan embers drifting up — one repeated tile so it costs almost
+     nothing. */
   background-image:
-    radial-gradient(2px 2px at 18% 82%, rgba(255, 224, 150, 0.9), transparent),
-    radial-gradient(1.5px 1.5px at 68% 66%, rgba(245, 205, 120, 0.7), transparent),
-    radial-gradient(1.6px 1.6px at 42% 40%, rgba(255, 214, 130, 0.75), transparent),
-    radial-gradient(1.2px 1.2px at 86% 30%, rgba(245, 190, 100, 0.6), transparent),
-    radial-gradient(2px 2px at 30% 18%, rgba(255, 230, 160, 0.7), transparent),
-    radial-gradient(1.3px 1.3px at 60% 90%, rgba(245, 200, 110, 0.55), transparent);
+    radial-gradient(2px 2px at 18% 82%, rgba(255, 120, 200, 0.9), transparent),
+    radial-gradient(1.5px 1.5px at 68% 66%, rgba(120, 220, 255, 0.7), transparent),
+    radial-gradient(1.6px 1.6px at 42% 40%, rgba(255, 90, 180, 0.75), transparent),
+    radial-gradient(1.2px 1.2px at 86% 30%, rgba(150, 200, 255, 0.6), transparent),
+    radial-gradient(2px 2px at 30% 18%, rgba(255, 150, 220, 0.7), transparent),
+    radial-gradient(1.3px 1.3px at 60% 90%, rgba(120, 230, 255, 0.55), transparent);
   background-size: 340px 340px;
   opacity: 0.5;
   animation: stage-sparks 22s linear infinite;
 }
 
+/* The neon city skyline along the bottom edge: a flat silhouette of building
+   blocks with a few lit windows, drawn once as an inline SVG data-URI so it
+   costs no request and scales to any width. It sits behind the scrim so it fades
+   into the vignette rather than framing the content. */
+.retro-bg__skyline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: min(38vh, 22rem);
+  background-repeat: repeat-x;
+  background-position: bottom center;
+  background-size: auto 100%;
+  opacity: 0.85;
+  -webkit-mask-image: linear-gradient(to top, #000 62%, transparent);
+  mask-image: linear-gradient(to top, #000 62%, transparent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='260' viewBox='0 0 600 260'%3E%3Cg fill='%231a1140'%3E%3Crect x='0' y='150' width='54' height='110'/%3E%3Crect x='60' y='96' width='42' height='164'/%3E%3Crect x='108' y='170' width='60' height='90'/%3E%3Crect x='176' y='120' width='40' height='140'/%3E%3Crect x='222' y='60' width='50' height='200'/%3E%3Crect x='280' y='140' width='58' height='120'/%3E%3Crect x='344' y='100' width='38' height='160'/%3E%3Crect x='388' y='176' width='64' height='84'/%3E%3Crect x='458' y='118' width='44' height='142'/%3E%3Crect x='510' y='150' width='40' height='110'/%3E%3Crect x='556' y='90' width='44' height='170'/%3E%3C/g%3E%3Cg fill='%23ff3fa4' opacity='0.55'%3E%3Crect x='70' y='110' width='6' height='8'/%3E%3Crect x='84' y='110' width='6' height='8'/%3E%3Crect x='70' y='128' width='6' height='8'/%3E%3Crect x='232' y='78' width='7' height='9'/%3E%3Crect x='248' y='78' width='7' height='9'/%3E%3Crect x='232' y='100' width='7' height='9'/%3E%3Crect x='248' y='100' width='7' height='9'/%3E%3Crect x='354' y='116' width='6' height='8'/%3E%3Crect x='354' y='134' width='6' height='8'/%3E%3Crect x='566' y='106' width='7' height='9'/%3E%3Crect x='582' y='106' width='7' height='9'/%3E%3C/g%3E%3Cg fill='%2335e0ff' opacity='0.5'%3E%3Crect x='16' y='166' width='7' height='9'/%3E%3Crect x='32' y='166' width='7' height='9'/%3E%3Crect x='190' y='138' width='6' height='8'/%3E%3Crect x='294' y='158' width='7' height='9'/%3E%3Crect x='310' y='158' width='7' height='9'/%3E%3Crect x='470' y='136' width='6' height='8'/%3E%3Crect x='486' y='136' width='6' height='8'/%3E%3C/g%3E%3C/svg%3E");
+}
+
 /*
  * A soft vignette that darkens the edges and floor so panels read cleanly over
- * the stage — the backdrop sets a mood, it is not meant to be stared at.
+ * the night — the backdrop sets a mood, it is not meant to be stared at.
  */
 .retro-bg__scrim {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(140% 100% at 50% 22%, transparent 0%, rgba(5, 3, 1, 0.5) 100%),
-    linear-gradient(to bottom, rgba(5, 3, 1, 0.05), rgba(5, 3, 1, 0.45));
+    radial-gradient(140% 100% at 50% 22%, transparent 0%, rgba(4, 4, 14, 0.5) 100%),
+    linear-gradient(to bottom, rgba(4, 4, 14, 0.05), rgba(4, 4, 14, 0.5));
 }
 
 /* Recoloured to the finished run's theme accent on the results screen, so the
-   light behind the card matches it. Only the warm layers move to the accent;
-   the dark base of the stage stays put. (The menu deliberately does not use
-   this — tinting to the current selection mixed badly with the gold stage.) */
+   light behind the card matches it. Only the glow layers move to the accent;
+   the dark base and starfield stay put. (The menu deliberately does not use
+   this — tinting to the current selection mixed badly with the night.) */
 .retro-bg--accent {
   transition: background 0.4s ease;
   background:
-    radial-gradient(130% 80% at 50% -14%, rgba(var(--accent-rgb), 0.3), transparent 55%),
-    radial-gradient(80% 55% at 50% 4%, rgba(var(--accent-rgb), 0.18), transparent 60%),
-    linear-gradient(to bottom, #14100a 0%, #0b0805 52%, #060402 100%);
+    radial-gradient(2px 2px at 12% 18%, rgba(210, 225, 255, 0.9), transparent),
+    radial-gradient(1.5px 1.5px at 74% 12%, rgba(150, 200, 255, 0.7), transparent),
+    radial-gradient(1.3px 1.3px at 46% 26%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1.6px 1.6px at 88% 22%, rgba(120, 220, 255, 0.6), transparent),
+    radial-gradient(1.2px 1.2px at 30% 8%, rgba(255, 220, 245, 0.6), transparent),
+    radial-gradient(130% 80% at 50% -14%, rgba(var(--accent-rgb), 0.28), transparent 55%),
+    radial-gradient(80% 55% at 50% 4%, rgba(var(--accent-rgb), 0.16), transparent 60%),
+    linear-gradient(to bottom, #0d0d22 0%, #0a0a18 52%, #060610 100%);
+  background-size:
+    520px 520px, 520px 520px, 520px 520px, 520px 520px, 520px 520px,
+    auto, auto, auto;
 }
 
 .retro-bg--accent .retro-bg__glow {
   transition: background 0.4s ease;
   background: radial-gradient(
     closest-side,
-    rgba(var(--accent-rgb), 0.34),
+    rgba(var(--accent-rgb), 0.32),
     rgba(var(--accent-rgb), 0.14) 46%,
     transparent 72%
   );
@@ -173,6 +241,10 @@ button {
 
 .retro-bg--dim .retro-bg__sparks {
   opacity: 0.3;
+}
+
+.retro-bg--dim .retro-bg__skyline {
+  opacity: 0.55;
 }
 
 @keyframes stage-glow {
@@ -290,6 +362,64 @@ button {
   .rise,
   .pop {
     animation: none;
+  }
+}
+
+/* --- neon ornament ---------------------------------------------------------
+   Shared arcade chrome: electric arcs overlaid on live neon elements, and a
+   gold gradient trim used by cards, chips and plaques. The trim is drawn with
+   the "double background" technique (a fill on padding-box, a gradient on
+   border-box) rather than border-image, which sizes cleanly at any radius and
+   costs nothing extra to composite — the win that matters across ~30 scrolling
+   song cards. */
+
+.arcs {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.arcs__bolt {
+  fill: none;
+  stroke: rgb(var(--accent-rgb));
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgba(var(--accent-rgb), 0.9));
+  opacity: 0;
+}
+
+/* Three bolts flicker out of phase on a stepped cycle, so the arc looks like it
+   jumps between paths rather than fading. Cheap: no JS, one keyframe each. */
+.arcs__bolt--a {
+  animation: arc-flick 0.9s steps(1, jump-none) infinite;
+}
+.arcs__bolt--b {
+  animation: arc-flick 0.9s steps(1, jump-none) infinite;
+  animation-delay: 0.3s;
+}
+.arcs__bolt--c {
+  animation: arc-flick 0.9s steps(1, jump-none) infinite;
+  animation-delay: 0.6s;
+}
+
+@keyframes arc-flick {
+  0%,
+  33% {
+    opacity: 0.85;
+  }
+  34%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arcs {
+    display: none;
   }
 }
 
@@ -411,18 +541,18 @@ kbd {
 
 .btn--primary:hover:not(:disabled) {
   background: linear-gradient(120deg, var(--pink), var(--cyan));
-  box-shadow: 0 0 26px rgba(240, 182, 74, 0.55), 0 14px 40px rgba(var(--accent-rgb), 0.4);
+  box-shadow: 0 0 26px rgba(var(--accent-rgb), 0.55), 0 14px 40px rgba(var(--accent-rgb), 0.4);
 }
 
 .btn--ghost {
   background: transparent;
-  border: 2px solid rgba(240, 182, 74, 0.35);
+  border: 2px solid rgba(245, 192, 74, 0.4);
 }
 
 .btn--ghost:hover:not(:disabled) {
   border-color: var(--cyan);
-  background: rgba(240, 182, 74, 0.1);
-  box-shadow: 0 0 18px rgba(240, 182, 74, 0.25);
+  background: rgba(53, 224, 255, 0.1);
+  box-shadow: 0 0 18px rgba(53, 224, 255, 0.25);
 }
 
 .btn--danger {
@@ -433,27 +563,61 @@ kbd {
 /* --- header menu ---------------------------------------------------------- */
 
 .icon-btn {
+  position: relative;
   display: grid;
   place-items: center;
   width: 2.9rem;
   height: 2.9rem;
-  border: 2px solid rgba(255, 255, 255, 0.18);
+  border: none;
   border-radius: 50%;
-  background: transparent;
+  /* A gold trim ring with an electric-pink glint, drawn as a conic ring in a
+     pseudo-element so the glyph stays crisp above it. */
+  background: rgba(14, 14, 34, 0.6);
   color: var(--text);
   font-size: 1.1rem;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.12s ease;
 }
 
+.icon-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  padding: 2px;
+  background: conic-gradient(
+    from 210deg,
+    var(--gold),
+    var(--pink) 40%,
+    var(--cyan) 55%,
+    var(--gold) 75%,
+    var(--gold)
+  );
+  /* Mask out the interior so the gradient reads as a ring, not a disc. */
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
 .icon-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 63, 164, 0.12);
   transform: translateY(-2px);
 }
 
+.icon-btn:hover::before {
+  opacity: 1;
+}
+
 .icon-btn[aria-expanded='true'] {
-  border-color: var(--pink);
-  background: rgba(var(--accent-rgb), 0.16);
+  background: rgba(var(--accent-rgb), 0.18);
+}
+
+.icon-btn[aria-expanded='true']::before {
+  opacity: 1;
 }
 
 .dropdown {
@@ -467,7 +631,7 @@ kbd {
   padding: 0.4rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-sm);
-  background: rgba(28, 21, 10, 0.97);
+  background: rgba(14, 14, 34, 0.97);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(12px);
 }
@@ -672,12 +836,13 @@ kbd {
   width: 0.6em;
   height: 0.6em;
   border-radius: 0.17em;
-  /* The same warm metal as a note tile: a lit top edge over a deeper base. */
-  background: linear-gradient(150deg, #fff3cc 0%, #f6c94a 46%, #b9842a 100%);
+  /* A neon gem tile: a lit cyan top edge falling into a deep violet base — the
+     same blue→purple the play scene's gems catch. */
+  background: linear-gradient(150deg, #9be8ff 0%, #35e0ff 34%, #7a4fff 78%, #4a2ba0 100%);
   box-shadow:
-    inset 0 0.06em 0.02em rgba(255, 255, 255, 0.65),
-    inset 0 -0.06em 0.05em rgba(90, 50, 0, 0.45),
-    0 0.04em 0.1em rgba(0, 0, 0, 0.4);
+    inset 0 0.06em 0.02em rgba(255, 255, 255, 0.75),
+    inset 0 -0.06em 0.05em rgba(30, 12, 70, 0.55),
+    0 0.04em 0.12em rgba(0, 0, 0, 0.45);
   animation: logo-tile 2.4s ease-in-out infinite;
 }
 
@@ -710,23 +875,26 @@ kbd {
   font-family: var(--font-display);
   font-weight: 400;
   letter-spacing: -0.01em;
+  /* Electric pink melting into gold — the two brand colours in one sheet, with
+     a bright band swept across on a long idle loop (the shine lives in the
+     gradient because there is nothing but the text to clip a pseudo-element to). */
   background: linear-gradient(
     100deg,
-    #cf9c2c 0%,
-    #f6c94a 28%,
-    #fff4cc 46%,
-    #ffe487 52%,
-    #edbe42 68%,
-    #cf9c2c 100%
+    #ff3fa4 0%,
+    #ff8fd0 26%,
+    #ffffff 44%,
+    #ffe487 56%,
+    #f5c04a 72%,
+    #ff3fa4 100%
   );
   background-size: 250% 100%;
   background-position: 120% 0;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 1px 0 rgba(60, 28, 0, 0.5))
-    drop-shadow(0 0 16px rgba(var(--accent-rgb), 0.5))
-    drop-shadow(0 0 34px rgba(240, 182, 74, 0.26));
+  filter: drop-shadow(0 1px 0 rgba(40, 8, 30, 0.5))
+    drop-shadow(0 0 16px rgba(var(--accent-rgb), 0.55))
+    drop-shadow(0 0 34px rgba(245, 192, 74, 0.24));
   animation: logo-sheen 9s ease-in-out infinite;
 }
 
@@ -794,12 +962,14 @@ kbd {
 .search__input {
   width: 100%;
   padding: 0.7rem 2.4rem 0.7rem 1.1rem;
-  border: 2px solid rgba(255, 255, 255, 0.14);
+  border: 1.5px solid transparent;
   border-radius: 999px;
-  /* Dark and opaque, not a white wash. A see-through field lets the stage glow
-     through the text, which looks like a bug rather than a theme. */
-  background: rgba(10, 4, 24, 0.66);
-  backdrop-filter: blur(8px);
+  /* Dark and opaque, not a white wash — a see-through field lets the starfield
+     show through the text, which looks like a bug rather than a theme. The gold
+     trim is the same double-background technique the cards use. */
+  background:
+    linear-gradient(rgba(10, 10, 28, 0.82), rgba(10, 10, 28, 0.82)) padding-box,
+    linear-gradient(120deg, #6a4718, #f5c04a 50%, #6a4718) border-box;
   color: var(--text);
   font-family: inherit;
   font-size: 0.95rem;
@@ -811,7 +981,10 @@ kbd {
 
 .search__input:focus {
   outline: none;
-  border-color: var(--cyan);
+  background:
+    linear-gradient(rgba(10, 10, 28, 0.82), rgba(10, 10, 28, 0.82)) padding-box,
+    linear-gradient(120deg, var(--pink), var(--cyan)) border-box;
+  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.25);
 }
 
 /* Hide the browser's own clear affordance; we render our own. */
@@ -851,34 +1024,60 @@ kbd {
 }
 
 .song-card {
+  position: relative;
   display: flex;
   gap: 1rem;
   align-items: center;
   width: 100%;
   margin-bottom: 0.7rem;
-  padding: 0.7rem;
-  border: 2px solid var(--edge);
+  padding: 0.7rem 0.7rem 0.7rem 1rem;
+  border: 1.5px solid transparent;
   border-radius: var(--radius);
-  background: var(--panel);
-  backdrop-filter: blur(10px);
+  /* Double background: a near-opaque navy fill on padding-box keeps the title
+     readable over the busy starfield, and a gold gradient on border-box is the
+     metallic trim. No backdrop-filter — it would cost a full-card blur on every
+     one of ~30 scrolling rows. */
+  background:
+    linear-gradient(155deg, rgba(28, 26, 62, 0.92), rgba(15, 15, 36, 0.94)) padding-box,
+    linear-gradient(150deg, #ffe79a 0%, #f5c04a 24%, #6a4718 52%, #f5c04a 78%, #ffe79a 100%)
+      border-box;
   color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease,
-    box-shadow 0.15s ease;
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+/* The pink neon strip-light running down the inner left edge — the one glow
+   that lives on the card, kept to a thin bar so its blur is cheap. */
+.song-card::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 12%;
+  bottom: 12%;
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(to bottom, transparent, var(--pink), transparent);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.7);
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
 }
 
 .song-card:hover {
   transform: translateX(4px);
-  border-color: rgba(240, 182, 74, 0.4);
-  background: rgba(40, 30, 13, 0.82);
-  box-shadow: 0 0 22px rgba(240, 182, 74, 0.18);
+  box-shadow: 0 0 22px rgba(var(--accent-rgb), 0.16);
+}
+
+.song-card:hover::before {
+  opacity: 0.85;
 }
 
 .song-card--active {
-  border-color: var(--pink);
-  background: rgba(52, 39, 14, 0.85);
-  box-shadow: 0 0 26px rgba(var(--accent-rgb), 0.3);
+  box-shadow: 0 0 26px rgba(var(--accent-rgb), 0.32);
+}
+
+.song-card--active::before {
+  opacity: 1;
 }
 
 .song-card__art {
@@ -887,6 +1086,9 @@ kbd {
   border-radius: var(--radius-sm);
   object-fit: cover;
   flex-shrink: 0;
+  /* Gold trim frame around the thumbnail, echoing the card's own rim. */
+  border: 2px solid var(--trim);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5);
 }
 
 .song-card__art--blank {
@@ -938,7 +1140,7 @@ kbd {
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   background: var(--panel-solid);
-  box-shadow: 0 0 40px rgba(216, 169, 74, 0.18);
+  box-shadow: 0 0 40px rgba(var(--accent-rgb), 0.16);
   backdrop-filter: blur(14px);
   /* `hidden`, not `auto`: the blurred art backdrop (`.menu__detail-bg`) is
      `inset: 0` scaled 1.5x, so it overflows the panel on every side *by design*
@@ -1063,22 +1265,38 @@ kbd {
 }
 
 .difficulty {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0.85rem 1rem;
   border: 2px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-sm);
-  background: transparent;
+  background: rgba(12, 12, 30, 0.5);
   color: var(--text);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .difficulty__name {
+  position: relative;
+  z-index: 1;
   font-weight: 800;
   letter-spacing: 0.03em;
   text-transform: capitalize;
+}
+
+/* The selected chip lights up — the per-difficulty border colour below stays as
+   the readable code, and this adds the electric glow the arcs sit over. */
+.difficulty--active {
+  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.28), inset 0 0 14px rgba(var(--accent-rgb), 0.14);
+}
+
+/* The arcs only render on the active chip (see JSX); keep them clipped to the
+   chip's rounded box. */
+.difficulty .arcs {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 
 .difficulty--easy.difficulty--active {
@@ -1098,7 +1316,7 @@ kbd {
 
 .difficulty--extreme.difficulty--active {
   border-color: var(--violet);
-  background: rgba(216, 169, 74, 0.16);
+  background: rgba(122, 79, 255, 0.16);
 }
 
 .best-score {
@@ -1107,7 +1325,8 @@ kbd {
   align-items: center;
   padding: 0.9rem;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  background: rgba(10, 10, 28, 0.5);
 }
 
 .best-score__value {
@@ -1136,15 +1355,15 @@ kbd {
   position: relative;
   width: 100%;
   height: 100%;
-  /* The same warm stage gradient as RetroBackdrop, not a flat near-black.
+  /* The same navy night gradient as RetroBackdrop, not a flat near-black.
      The three.js canvas is only built AFTER the audio downloads, so for the
      couple of seconds a cold song is loading the canvas is transparent and
      this is what shows — a themed backdrop instead of a black void. Once the
      highway renders, its opaque frame covers this entirely. */
   background:
-    radial-gradient(130% 80% at 50% -14%, rgba(245, 190, 92, 0.3), transparent 55%),
-    radial-gradient(80% 55% at 50% 4%, rgba(255, 214, 128, 0.18), transparent 60%),
-    linear-gradient(to bottom, #14100a 0%, #0b0805 52%, #060402 100%);
+    radial-gradient(130% 80% at 50% -14%, rgba(255, 63, 164, 0.26), transparent 55%),
+    radial-gradient(80% 55% at 50% 4%, rgba(122, 79, 255, 0.18), transparent 60%),
+    linear-gradient(to bottom, #0d0d22 0%, #0a0a18 52%, #060610 100%);
 }
 
 .play__canvas {
@@ -1156,18 +1375,23 @@ kbd {
 
 .play__progress {
   position: absolute;
-  top: 0;
+  bottom: 0;
   left: 0;
   width: 100%;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  height: 7px;
+  /* A metallic groove the fill sits in. */
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), rgba(60, 50, 20, 0.25));
+  border-top: 1px solid rgba(245, 192, 74, 0.35);
+  z-index: 3;
 }
 
 .play__progress-bar {
   position: relative;
   height: 100%;
   width: 0;
-  background: linear-gradient(90deg, var(--pink), var(--cyan));
+  /* Green, like the health meter — this is progress, not the accent language. */
+  background: linear-gradient(90deg, #35d97f, #b8f24a);
+  box-shadow: 0 0 8px rgba(70, 230, 130, 0.6);
 }
 
 /* A glowing head riding the leading edge, so the bar reads as a moving point
@@ -1185,40 +1409,115 @@ kbd {
   box-shadow: 0 0 10px 2px rgba(var(--accent-rgb), 0.9);
 }
 
-.play__hud {
+/* --- HUD corner chips -----------------------------------------------------
+   Four bezelled plaques: SCORE / ACCURACY across the top, COMBO / PERFECTS at
+   mid-height. A crimson label over a seven-segment readout on a faint "8888"
+   ghost, so each reads as a lit LCD panel. */
+.hud-chip {
   position: absolute;
-  top: 1.5rem;
-  left: 0;
+  z-index: 3;
   display: flex;
-  justify-content: space-between;
-  width: 100%;
-  padding: 0 clamp(1rem, 4vw, 3rem);
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem 0.7rem;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  background:
+    linear-gradient(rgba(8, 8, 20, 0.82), rgba(8, 8, 20, 0.82)) padding-box,
+    linear-gradient(150deg, #ffe79a, #6a4718 55%, #f5c04a) border-box;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.7), 0 2px 10px rgba(0, 0, 0, 0.6);
   pointer-events: none;
 }
 
-.play__hud-right {
+.hud-chip--score {
+  top: 1rem;
+  left: 0.9rem;
+}
+.hud-chip--accuracy {
+  top: 1rem;
+  right: 0.9rem;
   text-align: right;
+  align-items: flex-end;
+}
+.hud-chip--combo {
+  top: 30%;
+  left: 0.9rem;
+}
+.hud-chip--perfects {
+  top: 30%;
+  right: 0.9rem;
+  text-align: right;
+  align-items: flex-end;
 }
 
-.hud-label {
+.hud-chip__label {
+  color: var(--hud-label);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 8px rgba(255, 90, 110, 0.5);
+}
+
+/* The seven-segment readout: the live value over a dim ghost of all-eights, so
+   unlit segments still faintly show like a real LCD. */
+.hud-chip__seg {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--font-seg);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.hud-chip__ghost {
+  position: absolute;
+  right: 0;
+  top: 0;
+  color: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}
+.hud-chip--score .hud-chip__ghost,
+.hud-chip--combo .hud-chip__ghost {
+  right: auto;
+  left: 0;
+}
+
+.hud-chip__value {
+  position: relative;
+  color: var(--gold-bright);
+  text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.5);
+}
+.hud-chip--accuracy .hud-chip__value {
+  color: #f2f0ff;
+}
+.hud-chip--perfects .hud-chip__value {
   color: var(--cyan);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  /* Faint on purpose. The label is signage; the number is the reading. */
-  text-shadow: 0 0 12px rgba(240, 182, 74, 0.5);
-  opacity: 0.75;
+  text-shadow: 0 0 10px rgba(53, 224, 255, 0.6);
+}
+/* The combo value brightens and swells a touch at higher tiers. */
+.hud-chip--combo .hud-chip__value[data-tier='2'] { color: #ffe487; }
+.hud-chip--combo .hud-chip__value[data-tier='3'] { color: #fff; text-shadow: 0 0 14px rgba(var(--accent-rgb), 0.8); }
+.hud-chip--combo .hud-chip__value[data-tier='4'] { color: #fff; text-shadow: 0 0 18px rgba(var(--accent-rgb), 1); }
+
+/* The % suffix — DSEG7 has no percent glyph, so it rides the display face. */
+.hud-chip__suffix {
+  margin-left: 0.12em;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
-.hud-score,
-.hud-accuracy {
-  font-size: 2rem;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-  /* Lifts the numbers off a busy grid without the weight of a solid plate
-     behind them, which would sit on the scene like a sticker. */
-  text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.55), 0 2px 10px rgba(0, 0, 0, 0.8);
+/* The chips belong to a live run only — hidden on the ready/loading/error
+   overlays, where they would sit over the ready card's cover and read as a
+   doubled HUD. The 3D cover ring (with its audio-wave firework) is the
+   centrepiece the play scene draws for itself. */
+.hud-chip {
+  display: none;
+}
+.play[data-phase='playing'] .hud-chip,
+.play[data-phase='paused'] .hud-chip {
+  display: flex;
 }
 
 /* Health meter — a slim *vertical* bar down the left edge, clear of the cover
@@ -1574,26 +1873,28 @@ kbd {
   font-size: 7rem;
   font-weight: 400; /* display face */
   color: #fff;
-  text-shadow: 0 0 60px rgba(216, 169, 74, 0.9);
+  text-shadow: 0 0 60px rgba(var(--accent-rgb), 0.9);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
 
 .play__pause-btn {
   position: absolute;
-  top: 1.4rem;
+  /* At the crown of the vinyl disc. */
+  top: 0.9rem;
   left: 50%;
   transform: translateX(-50%);
-  width: 3rem;
-  height: 3rem;
-  border: 2px solid rgba(255, 255, 255, 0.22);
+  z-index: 4;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 2px solid rgba(var(--accent-rgb), 0.6);
   border-radius: 50%;
-  background: rgba(10, 4, 24, 0.55);
+  background: rgba(10, 10, 26, 0.82);
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   letter-spacing: 0.08em;
   cursor: pointer;
-  backdrop-filter: blur(6px);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.5);
   transition: transform 0.12s ease, background 0.15s ease;
 }
 
@@ -1632,9 +1933,12 @@ kbd {
   gap: 1.1rem;
   padding: 1.6rem 1.4rem;
   border-radius: var(--radius);
-  background: var(--panel-solid);
-  border: 1px solid rgba(var(--accent-rgb), 0.16);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1.5px solid transparent;
+  /* Gold metallic trim over the navy panel — the shared card chrome. */
+  background:
+    linear-gradient(var(--panel-solid), var(--panel-solid)) padding-box,
+    linear-gradient(150deg, #ffe79a, #6a4718 55%, #f5c04a) border-box;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 30px rgba(var(--accent-rgb), 0.12);
   text-align: center;
 }
 
@@ -2053,10 +2357,13 @@ kbd {
   margin: auto;
   width: min(30rem, 100%);
   padding: 2.5rem;
-  border: 1px solid var(--edge);
+  border: 1.5px solid transparent;
   border-radius: var(--radius);
-  background: var(--panel-solid);
-  box-shadow: 0 0 0 1px rgba(240, 182, 74, 0.06), 0 22px 60px rgba(0, 0, 0, 0.55);
+  /* Gold metallic trim over a navy panel, the same chrome as the menu cards. */
+  background:
+    linear-gradient(var(--panel-solid), var(--panel-solid)) padding-box,
+    linear-gradient(150deg, #ffe79a, #6a4718 55%, #f5c04a) border-box;
+  box-shadow: 0 0 34px rgba(var(--accent-rgb), 0.12), 0 22px 60px rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(14px);
   text-align: center;
   /* Long unbreakable song titles wrap instead of overflowing (inherited). */
@@ -2317,11 +2624,11 @@ kbd {
 
 .results__score {
   margin-top: 0.7rem;
-  font-size: 3rem;
-  font-weight: 400; /* display face; the tally wobble reads as energy here */
-  font-variant-numeric: tabular-nums;
+  /* Seven-segment, to match the in-run HUD readouts. */
+  font-family: var(--font-seg);
+  font-size: 2.6rem;
   color: var(--gold-bright);
-  text-shadow: 0 0 24px rgba(var(--accent-rgb), 0.35);
+  text-shadow: 0 0 24px rgba(var(--accent-rgb), 0.45);
 }
 
 /* --- hero stats --- */
@@ -2334,15 +2641,17 @@ kbd {
 
 .stat {
   padding: 0.7rem 0.5rem;
-  border: 1px solid var(--edge);
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(8, 8, 20, 0.5);
 }
 
 .stat__value {
-  font-size: 1.5rem;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
+  /* Seven-segment digits; the unit ('%'/'x') stays on the display face. */
+  font-family: var(--font-seg);
+  font-size: 1.4rem;
+  color: var(--gold-bright);
+  text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.4);
 }
 
 .stat__unit {
@@ -2376,7 +2685,7 @@ kbd {
   gap: 0.1rem;
   padding: 0.6rem 0.2rem;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(8, 8, 20, 0.5);
   /* Faint border tinted by the tier's own colour (set inline on the element). */
   border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
 }
@@ -2641,12 +2950,18 @@ kbd {
 }
 
 .song-tools__only--on {
-  border-color: rgba(255, 214, 10, 0.5);
-  color: var(--yellow);
+  border-color: rgba(var(--accent-rgb), 0.6);
+  color: var(--pink);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.22);
 }
 
 .song-row {
   position: relative;
+  /* Cheap scroll insurance: rows below the fold skip layout/paint until they
+     approach the viewport. The reserved size matches a card's height so the
+     scrollbar stays honest. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 92px;
 }
 
 /* Overlaid on the card rather than inside it — the card is a <button>, and

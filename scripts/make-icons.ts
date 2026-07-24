@@ -75,8 +75,22 @@ function mix(a: Rgb, b: Rgb, t: number): Rgb {
 }
 
 /**
- * The retro sun on the app's night sky — the same motif as `RetroBackdrop` and
- * the play screen's backdrop, so the home-screen icon reads as this game.
+ * Signed distance to a rounded rectangle centred at the origin, half-extents
+ * `hx`/`hy`, corner radius `r`. Negative inside. Used to draw the gem tiles.
+ */
+function roundedRectSdf(lx: number, ly: number, hx: number, hy: number, r: number): number {
+  const qx = Math.abs(lx) - (hx - r);
+  const qy = Math.abs(ly) - (hy - r);
+  const ox = Math.max(qx, 0);
+  const oy = Math.max(qy, 0);
+  return Math.hypot(ox, oy) + Math.min(Math.max(qx, qy), 0) - r;
+}
+
+/**
+ * The neon-arcade brand mark on a navy night: a city skyline along the bottom
+ * and the two gem tap-tiles (cyan→violet, the same mark as the `.logo__tile`
+ * wordmark) glowing over it. Matches `RetroBackdrop` and the play scene so the
+ * home-screen icon reads as this game.
  *
  * `padding` insets the art. Maskable icons get a generous inset because Android
  * crops them to whatever shape the launcher uses, and anything in the outer
@@ -85,18 +99,26 @@ function mix(a: Rgb, b: Rgb, t: number): Rgb {
 function drawIcon(size: number, padding: number): Uint8Array {
   const px = new Uint8Array(size * size * 4);
 
-  const skyTop: Rgb = [0x12, 0x03, 0x30];
-  const skyHorizon: Rgb = [0x4a, 0x0d, 0x3a];
-  const sunTop: Rgb = [0xff, 0xd9, 0xe8];
-  const sunBottom: Rgb = [0xff, 0x2e, 0x88];
-  const grid: Rgb = [0xff, 0x2e, 0x88];
+  const bgTop: Rgb = [0x0c, 0x0c, 0x22];
+  const bgBottom: Rgb = [0x06, 0x06, 0x12];
+  const building: Rgb = [0x1a, 0x11, 0x40];
+  const gemTop: Rgb = [0x9b, 0xe8, 0xff]; // lit cyan edge
+  const gemMid: Rgb = [0x35, 0xe0, 0xff];
+  const gemBottom: Rgb = [0x4a, 0x2b, 0xa0]; // deep violet base
+  const glow: Rgb = [0xff, 0x3f, 0xa4]; // pink halo
 
   const art = size - padding * 2;
   const cx = size / 2;
-  // Sun sits above the horizon line, half-set, as on the menu backdrop.
-  const horizonY = padding + art * 0.66;
-  const sunR = art * 0.30;
-  const sunCy = horizonY - sunR * 0.18;
+  const cy = size / 2;
+  const skylineY = padding + art * 0.72;
+
+  // Two tiles, tilted toward each other and offset — the brand mark.
+  const th = art * 0.2; // tile half-size
+  const radius = th * 0.28;
+  const tiles = [
+    { tx: cx - art * 0.17, ty: cy + art * 0.06, rot: (-10 * Math.PI) / 180 },
+    { tx: cx + art * 0.17, ty: cy - art * 0.06, rot: (10 * Math.PI) / 180 },
+  ];
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -108,35 +130,37 @@ function drawIcon(size: number, padding: number): Uint8Array {
         continue;
       }
 
-      // Sky gradient, deepening toward the top.
-      const t = Math.min(1, Math.max(0, (y - padding) / (horizonY - padding)));
-      let [r, g, b] = mix(skyTop, skyHorizon, t * t);
+      // Navy sky, deepening toward the bottom.
+      const t = Math.min(1, Math.max(0, (y - padding) / art));
+      let [r, g, b] = mix(bgTop, bgBottom, t);
 
-      if (y > horizonY) {
-        // Ground: near-black with perspective grid lines converging on the
-        // horizon. Spacing widens with distance from it, which is what sells
-        // the perspective at this size.
-        r = 0x0a;
-        g = 0x02;
-        b = 0x18;
-        const depth = (y - horizonY) / (size - padding - horizonY);
-        const rung = Math.abs(((depth * depth * 7) % 1) - 0.5) < 0.06;
-        const spread = (x - cx) / (art * 0.5);
-        const column = Math.abs(((spread / Math.max(depth, 0.05)) % 1) - 0.5) < 0.09;
-        if (rung || column) {
-          const fade = 0.35 + depth * 0.5;
-          [r, g, b] = mix([r, g, b], grid, fade);
-        }
-      } else {
-        // Sun, clipped flat at the horizon and cut by horizontal slits.
-        const dx = (x - cx) / sunR;
-        const dy = (y - sunCy) / sunR;
-        if (dx * dx + dy * dy <= 1) {
-          const depth = (y - (sunCy - sunR)) / (sunR * 2);
-          const slitPhase = ((y - padding) / Math.max(2, art * 0.035)) % 1;
-          const gap = 0.12 + depth * 0.5;
-          const solid = depth < 0.25 || slitPhase > gap;
-          if (solid) [r, g, b] = mix(sunTop, sunBottom, Math.min(1, depth * 1.25));
+      // City skyline: blocky towers hashed by column, standing on the base band.
+      if (y > skylineY) {
+        const col = Math.floor(((x - padding) / art) * 12);
+        const h = 0.4 + 0.6 * (((col * 2654435761) >>> 8) / 0xffffff % 1);
+        const roofY = skylineY - art * 0.14 * h;
+        if (y > roofY) [r, g, b] = mix([r, g, b], building, 0.9);
+      }
+
+      // Pink glow pooled behind the tiles.
+      const gd = Math.hypot(x - cx, y - cy) / (art * 0.5);
+      const halo = Math.max(0, 1 - gd) ** 2 * 0.5;
+      [r, g, b] = mix([r, g, b], glow, halo);
+
+      // The two gem tiles.
+      for (const { tx, ty, rot } of tiles) {
+        const dx = x - tx;
+        const dy = y - ty;
+        const lx = dx * Math.cos(-rot) - dy * Math.sin(-rot);
+        const ly = dx * Math.sin(-rot) + dy * Math.cos(-rot);
+        const d = roundedRectSdf(lx, ly, th, th, radius);
+        if (d <= 0) {
+          const v = (ly + th) / (2 * th); // 0 top → 1 bottom
+          const base = v < 0.5 ? mix(gemTop, gemMid, v * 2) : mix(gemMid, gemBottom, (v - 0.5) * 2);
+          [r, g, b] = base;
+        } else if (d < art * 0.02) {
+          // A soft pink rim just outside the tile edge.
+          [r, g, b] = mix([r, g, b], glow, 1 - d / (art * 0.02));
         }
       }
 

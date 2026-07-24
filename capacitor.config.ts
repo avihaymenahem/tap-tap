@@ -14,7 +14,7 @@ const config: CapacitorConfig = {
   android: {
     // The game is dark end to end; a white flash between splash and first paint
     // reads as a bug on a phone.
-    backgroundColor: '#07030f',
+    backgroundColor: '#0a0a18',
   },
   // For an emulator/device smoke test before MB2's local storage exists, point at
   // the host dev server so the WebView has a real library:

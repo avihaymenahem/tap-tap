@@ -180,7 +180,8 @@ export function ResultsScreen({
           </div>
         )}
 
-        <div className="results__score">{shownScore.toLocaleString()}</div>
+        {/* No thousands separators — the seven-segment face has no comma glyph. */}
+        <div className="results__score">{shownScore}</div>
 
         <div className="results__stats rise" style={{ '--i': 3 } as CSSProperties}>
           <div className="stat">

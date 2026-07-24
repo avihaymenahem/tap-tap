@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } fr
 import { accentVars } from '../accent.js';
 import { isNativePlatform, listCustomThemes, listSongs } from '../data/index.js';
 import { NativeIngest } from '../components/NativeIngest.js';
+import { ElectricArcs } from '../components/ElectricArcs.js';
 import { playUiSound } from '../uisfx.js';
 import { prefetchAudio } from '../api/prefetch.js';
 import { isReadOnly } from '../api/serverConfig.js';
@@ -782,6 +783,7 @@ export function MenuScreen({
                         setDifficulty(name);
                       }}
                     >
+                      {effectiveDifficulty === name && <ElectricArcs />}
                       <span className="difficulty__name">{name}</span>
                     </button>
                   ))}
@@ -812,6 +814,7 @@ export function MenuScreen({
                 >
                   {effectiveDifficulty ? (
                     <>
+                      <ElectricArcs />
                       <Play className="menu__play-icon" size={20} aria-hidden />
                       Play
                     </>

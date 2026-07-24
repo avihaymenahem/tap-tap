@@ -1,21 +1,21 @@
 /**
- * Generates the app's brand-mark source image — the two gold tap-tiles from the
- * menu logo (`.logo__mark`) — for `@capacitor/assets` to fan out into the
+ * Generates the app's brand-mark source image — the two neon gem tap-tiles from
+ * the menu logo (`.logo__mark`) — for `@capacitor/assets` to fan out into the
  * Android launcher icon and splash.
  *
  *   npm run logo        # writes assets/logo.png + assets/logo-dark.png
  *   npx @capacitor/assets generate --android \
- *     --iconBackgroundColor '#07030f' --iconBackgroundColorDark '#07030f' \
- *     --splashBackgroundColor '#07030f' --splashBackgroundColorDark '#07030f'
+ *     --iconBackgroundColor '#0a0a18' --iconBackgroundColorDark '#0a0a18' \
+ *     --splashBackgroundColor '#0a0a18' --splashBackgroundColorDark '#0a0a18'
  *
  * Hand-rolled PNG encoding rather than pulling in sharp/canvas — the mark is two
- * rounded tiles with a metal gradient and a soft glow, and `zlib` is in the
+ * rounded tiles with a gem gradient and a soft glow, and `zlib` is in the
  * standard library. Same reasoning as `make-icons.ts`, whose encoder this
  * mirrors. The output is committed; only re-run when the brand mark changes.
  *
- * The old `assets/logo.png` was the pre-rebrand synthwave sun scene. Masked to a
- * launcher circle it read as a cropped stock image; the tile mark is the current
- * identity and stays legible down to 48px.
+ * The neon-arcade redesign recoloured the tiles from gold metal to a cyan→violet
+ * gem with a pink glow, matching the `.logo__tile` mark and the play scene's
+ * gems.
  */
 
 import { deflateSync } from 'node:zlib';
@@ -76,15 +76,16 @@ function mix(a: Rgb, b: Rgb, t: number): Rgb {
   return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 }
 
-/** The tile face gradient, top-lit to a deep base — matches `.logo__tile`. */
-const G0 = hex('#fff3cc');
-const G1 = hex('#f6c94a');
-const G2 = hex('#b9842a');
+/** The gem face gradient: lit cyan edge → cyan → deep violet base — matches
+    `.logo__tile`. */
+const G0 = hex('#9be8ff');
+const G1 = hex('#35e0ff');
+const G2 = hex('#4a2ba0');
 function tileColor(t: number): Rgb {
-  return t < 0.46 ? mix(G0, G1, t / 0.46) : mix(G1, G2, (t - 0.46) / 0.54);
+  return t < 0.4 ? mix(G0, G1, t / 0.4) : mix(G1, G2, (t - 0.4) / 0.6);
 }
-/** The warm glow the mark casts (the logo's accent drop-shadow). */
-const GLOW: Rgb = hex('#f6c94a');
+/** The pink glow the mark casts (the logo's accent drop-shadow). */
+const GLOW: Rgb = hex('#ff3fa4');
 
 interface Tile {
   cx: number;
@@ -153,7 +154,7 @@ function draw(size: number): Uint8Array {
         let col = tileColor(t);
         const rim = (ly + half) / S; // 0 at top, 1 at bottom
         if (rim < 0.14) col = mix(col, [255, 255, 255], (0.14 - rim) / 0.14 * 0.5);
-        if (rim > 0.9) col = mix(col, [90, 50, 0], (rim - 0.9) / 0.1 * 0.4);
+        if (rim > 0.9) col = mix(col, [30, 12, 70], (rim - 0.9) / 0.1 * 0.4);
         faceCol = col;
       }
 
