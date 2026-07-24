@@ -653,7 +653,8 @@ export function PlayScreen({
         }
       }
       if (accuracyRef.current) {
-        accuracyRef.current.textContent = (snap.accuracy * 100).toFixed(1);
+        // Whole number in the HUD — no decimals, just the rounded percent.
+        accuracyRef.current.textContent = String(Math.round(snap.accuracy * 100));
       }
       if (perfectsRef.current) {
         perfectsRef.current.textContent = String(snap.counts.perfect);
@@ -1098,30 +1099,38 @@ export function PlayScreen({
       <div className="hud-chip hud-chip--score">
         <div className="hud-chip__label">SCORE</div>
         <div className="hud-chip__seg">
-          <span className="hud-chip__ghost" aria-hidden>8888888</span>
-          <span ref={scoreRef} className="hud-chip__value">0</span>
+          <span className="hud-chip__num">
+            <span className="hud-chip__ghost" aria-hidden>8888888</span>
+            <span ref={scoreRef} className="hud-chip__value">0</span>
+          </span>
         </div>
       </div>
       <div className="hud-chip hud-chip--accuracy">
         <div className="hud-chip__label">ACCURACY</div>
         <div className="hud-chip__seg">
-          <span className="hud-chip__ghost" aria-hidden>888.8</span>
-          <span ref={accuracyRef} className="hud-chip__value">100.0</span>
+          <span className="hud-chip__num">
+            <span className="hud-chip__ghost" aria-hidden>888</span>
+            <span ref={accuracyRef} className="hud-chip__value">100</span>
+          </span>
           <span className="hud-chip__suffix">%</span>
         </div>
       </div>
       <div className="hud-chip hud-chip--combo">
         <div className="hud-chip__label">COMBO</div>
         <div className="hud-chip__seg">
-          <span className="hud-chip__ghost" aria-hidden>8888</span>
-          <span ref={comboRef} className="hud-chip__value" data-tier="0">0</span>
+          <span className="hud-chip__num">
+            <span className="hud-chip__ghost" aria-hidden>8888</span>
+            <span ref={comboRef} className="hud-chip__value" data-tier="0">0</span>
+          </span>
         </div>
       </div>
       <div className="hud-chip hud-chip--perfects">
         <div className="hud-chip__label">PERFECTS</div>
         <div className="hud-chip__seg">
-          <span className="hud-chip__ghost" aria-hidden>8888</span>
-          <span ref={perfectsRef} className="hud-chip__value">0</span>
+          <span className="hud-chip__num">
+            <span className="hud-chip__ghost" aria-hidden>8888</span>
+            <span ref={perfectsRef} className="hud-chip__value">0</span>
+          </span>
         </div>
       </div>
 

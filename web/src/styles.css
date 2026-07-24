@@ -1440,11 +1440,11 @@ kbd {
   align-items: flex-end;
 }
 .hud-chip--combo {
-  top: 30%;
+  top: 19%;
   left: 0.9rem;
 }
 .hud-chip--perfects {
-  top: 30%;
+  top: 19%;
   right: 0.9rem;
   text-align: right;
   align-items: flex-end;
@@ -1466,27 +1466,37 @@ kbd {
   display: inline-flex;
   align-items: baseline;
   font-family: var(--font-seg);
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   line-height: 1;
 }
 
+/* The number stack. The ghost sits in normal flow and sizes the box to the
+   widest possible reading; the live value is overlaid absolutely on top, so it
+   is always contained by the ghost's width and can never overflow the chip. */
+.hud-chip__num {
+  position: relative;
+  display: inline-block;
+}
+
 .hud-chip__ghost {
-  position: absolute;
-  right: 0;
-  top: 0;
   color: rgba(255, 255, 255, 0.06);
   pointer-events: none;
 }
-.hud-chip--score .hud-chip__ghost,
-.hud-chip--combo .hud-chip__ghost {
-  right: auto;
-  left: 0;
-}
 
 .hud-chip__value {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Left-anchored chips (score, combo) fill rightward; right-anchored chips
+     (accuracy, perfects) fill leftward — overridden below. */
+  text-align: left;
   color: var(--gold-bright);
   text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.5);
+}
+.hud-chip--accuracy .hud-chip__value,
+.hud-chip--perfects .hud-chip__value {
+  text-align: right;
 }
 .hud-chip--accuracy .hud-chip__value {
   color: #f2f0ff;
@@ -1508,15 +1518,14 @@ kbd {
   color: var(--muted);
 }
 
-/* The chips belong to a live run only — hidden on the ready/loading/error
-   overlays, where they would sit over the ready card's cover and read as a
-   doubled HUD. The 3D cover ring (with its audio-wave firework) is the
-   centrepiece the play scene draws for itself. */
+/* The chips show only while the run is actually playing — hidden on the
+   ready/loading/error overlays (where they would sit over the ready card's
+   cover and read as a doubled HUD) and on pause, where the pause card is the
+   modal and the readouts behind it are just clutter. */
 .hud-chip {
   display: none;
 }
-.play[data-phase='playing'] .hud-chip,
-.play[data-phase='paused'] .hud-chip {
+.play[data-phase='playing'] .hud-chip {
   display: flex;
 }
 
@@ -1527,10 +1536,12 @@ kbd {
 .play__health {
   position: absolute;
   left: 0.7rem;
-  top: 50%;
+  /* Half the old length, sitting in the mid-left below the COMBO chip (now
+     raised to ~19%) — the two used to overlap when the bar ran the full height. */
+  top: 46%;
   transform: translateY(-50%);
   width: 6px;
-  height: min(42%, 18rem);
+  height: min(21%, 9rem);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
   overflow: hidden;

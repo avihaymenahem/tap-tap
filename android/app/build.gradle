@@ -7,8 +7,8 @@ android {
         applicationId "com.taptap.game"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 11
-        versionName "0.9.0"
+        versionCode 12
+        versionName "0.9.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // youtubedl-android ships Python + ffmpeg per ABI. Ship only the two we
         // run — the S25 (arm64-v8a) and the x86_64 emulator — instead of four,

@@ -306,6 +306,8 @@ export class Highway {
   /** Live audio spectrum as a 1D texture, so the rails can read it as a waveform. */
   private spectrumTex: THREE.DataTexture | null = null;
   private spectrumData: Uint8Array | null = null;
+  /** The cover-art texture on the album disc — spun (via its rotation) while playing. */
+  private albumTex: THREE.Texture | null = null;
   /** Radial spikes around the cover art — the audio-wave firework (stage only). */
   private readonly coverBars: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
   /** Per-bar random phase so the ring shimmers instead of pulsing as one. */
@@ -743,6 +745,12 @@ export class Highway {
     const tilt = -0.15;
 
     const texture = Highway.makeCoverTexture(coverUrl);
+    // Spin the artwork around its centre while the track plays — the record
+    // turning. Rotating the texture (not the mesh) keeps the disc, rim and
+    // firework fixed; the angle is driven from songTime in render() so it stops
+    // dead when the song is paused.
+    texture.center.set(0.5, 0.5);
+    this.albumTex = texture;
 
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(RADIUS, 64),
@@ -1575,6 +1583,7 @@ export class Highway {
         uPulse: { value: 0 },
         uCore: { value: new THREE.Vector3(core.r, core.g, core.b) },
         uAccent: { value: new THREE.Vector3(accent.r, accent.g, accent.b) },
+        uSpectrum: { value: this.spectrumTex },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -1590,29 +1599,37 @@ export class Highway {
         uniform float uPulse;
         uniform vec3 uCore;
         uniform vec3 uAccent;
+        uniform sampler2D uSpectrum;
         float hash(float x) { return fract(sin(x * 91.17) * 43758.5453); }
         void main() {
-          // Rounded-capsule glow: bright along the centre line, feathering out
-          // top and bottom, with rounded ends.
-          float capsule = pow(smoothstep(0.5, 0.0, abs(vUv.y - 0.5)), 1.5);
+          // Rounded ends so the bar reads as a capsule.
           float ends = smoothstep(0.0, 0.05, vUv.x) * smoothstep(1.0, 0.95, vUv.x);
+          // A dim capsule glow along the centre line — the baseline the waveform
+          // rides on so the bar is never dark.
+          float capsule = pow(smoothstep(0.5, 0.0, abs(vUv.y - 0.5)), 1.5);
           float glow = capsule * ends;
 
-          // Two electric arcs jittering across the bar, re-seeded a few times a
-          // second so they jump rather than slide.
+          // The live audio spectrum drawn as a waveform across the bar: a band,
+          // mirrored around the centre line, whose half-height follows the level,
+          // with a bright edge tracing the top of the waveform.
+          float level = texture2D(uSpectrum, vec2(vUv.x, 0.5)).r;
+          float amp = 0.08 + level * 0.42;
+          float dy = abs(vUv.y - 0.5);
+          float waveFill = smoothstep(amp, amp - 0.06, dy) * ends;
+          float waveEdge = smoothstep(0.05, 0.0, abs(dy - amp)) * ends;
+
+          // A single electric arc still jitters across for life.
           float t = floor(uTime * 11.0);
-          float arc = 0.0;
-          for (int i = 0; i < 2; i++) {
-            float fi = float(i);
-            float y = 0.5 + (hash(vUv.x * 7.0 + t + fi * 3.0) - 0.5) * 0.5
-                        + sin(vUv.x * 26.0 + uTime * 9.0 + fi) * 0.06;
-            arc += smoothstep(0.06, 0.0, abs(vUv.y - y));
-          }
-          arc *= ends;
+          float ay = 0.5 + (hash(vUv.x * 7.0 + t) - 0.5) * 0.4
+                       + sin(vUv.x * 26.0 + uTime * 9.0) * 0.05;
+          float arc = smoothstep(0.05, 0.0, abs(vUv.y - ay)) * ends;
 
           float beat = 0.6 + uBass * 0.6 + uPulse * 0.9;
-          vec3 col = uCore * glow * beat + uAccent * arc * (0.8 + uPulse);
-          float alpha = clamp(glow * 0.9 + arc * 0.7, 0.0, 1.0);
+          vec3 col = uCore * glow * beat * 0.5
+                   + uCore * waveFill * (0.4 + level * 0.7)
+                   + uAccent * waveEdge * (0.9 + level * 1.3)
+                   + uAccent * arc * (0.5 + uPulse);
+          float alpha = clamp(glow * 0.45 + waveFill * 0.8 + waveEdge + arc * 0.5, 0.0, 1.0);
           gl_FragColor = vec4(col, alpha);
         }
       `,
@@ -2452,6 +2469,8 @@ export class Highway {
     this.updateShockwaves(dt);
     this.updateCamera(dt, songTime, pulse);
     this.updateCoverWave(songTime, pulse, spectrum);
+    // Spin the album artwork with the music (frozen when songTime is paused).
+    if (this.albumTex) this.albumTex.rotation = songTime * 0.6;
 
     const floorUniforms = this.floor.material.uniforms;
     floorUniforms['uTime']!.value = songTime;
