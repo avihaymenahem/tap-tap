@@ -51,10 +51,14 @@ audio; the analysis of that audio stays pure TS.
 
 ## What it looks like
 
-- **Menu** — search, sort, favourite tracks; pick a difficulty; the detail panel
-  recolours to the song's theme.
-- **Play** — a neon 3D highway (three.js) with notes on a curved, receding track;
-  an 80s-sunset backdrop; hit/miss juice, a combo meter, and haptics.
+- **Menu** — search, sort, and favourite tracks over a neon-arcade backdrop
+  (navy starfield, magenta glow, a lit city skyline). Tap a track and it opens a
+  full-screen hero with a living particle aura in the song's colour; pick a
+  difficulty and play straight from there.
+- **Play** — a neon 3D highway (three.js): faceted-gem notes falling down a
+  curved circuit-board track toward an electric hit bar, a night-city skyline
+  behind it, a live EQ "vinyl" of the current song, a seven-segment HUD, hit/miss
+  juice, a combo meter, and haptics.
 - **Add a song** — tap **+**, paste a YouTube link, and watch it download and
   analyse into a chart, right on the phone.
 - **Manage** — rename, retheme, delete, and regenerate songs; design colour
@@ -333,7 +337,7 @@ the library is empty — tap **+** and paste a YouTube link.
 **Other commands:**
 
 ```bash
-npm test                                      # ~326 unit tests
+npm test                                      # ~441 unit tests
 npx tsc -b                                    # typecheck the project graph
 npm run ingest -w server -- "<youtube-url>"   # author a song from the desktop CLI
 ```
@@ -343,7 +347,7 @@ npm run ingest -w server -- "<youtube-url>"   # author a song from the desktop C
 ## Testing philosophy
 
 The pure logic is genuinely tested — judge, engine, scoring, chart generation,
-router, coordinate math, themes, the data layer — around **326 tests**. Two
+router, coordinate math, themes, the data layer — around **441 tests**. Two
 conventions are worth stating:
 
 - **DSP is tested against synthetic audio with known ground truth**, never by

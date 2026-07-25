@@ -97,6 +97,12 @@ cd android && ./gradlew assembleDebug   # build the debug APK directly
 
 ## Offline / PWA
 
+**This is a web-context feature only.** The shipped APK stores its library on the
+device Filesystem and has no server, so *its* offline guarantee comes from
+storage, not from this worker — the service worker matters only when the game is
+run as a PWA in a browser (dev, or a hosted web build). Everything below is about
+that context.
+
 Installable, and songs already played stay playable with no server. Cache-on-use
 throughout — nothing is precached but the app shell, because the library is ~28
 tracks of ~5MB and precaching would mean a 125MB first visit.
@@ -113,7 +119,12 @@ Certificates), then `tailscale serve --bg 8787` and the `.ts.net` hostname.
 under `import.meta.env.DEV`, and `sw.js` is only emitted by `npm run build`.
 Putting a cache-first worker in front of Vite's unbundled dev graph would serve
 stale modules and reproduce the "my change did nothing" confusion HMR already
-causes here. **Test offline against `npm run serve:public`, never `npm run dev`.**
+causes here. **To exercise the worker, build (`npm run build` — app then worker),
+then serve `web/dist` with `npm run preview -w web`; never `npm run dev`.**
+(`serve:public`, which used to serve the built app and the dev API on one origin,
+was removed in MD1 — so `vite preview` gives you the shell and the worker, but not
+the dev `/api` + `/media` proxy, and a full offline-*playback* test now needs the
+API served alongside `web/dist` by hand.)
 
 ```
 web/src/sw.ts            the worker: four fetch rules and a cleanup pass
@@ -133,9 +144,9 @@ scripts/make-icons.ts    generates the PNG icons; `npm run icons`
 - **Non-GET requests are never intercepted.** Ingest, rename, delete and theme
   writes must fail honestly offline rather than appear to succeed from a cache.
 - **Navigations are network-first**, so a running server always wins — including
-  when it answers 404. That is what stops a worker registered by a previous
-  `serve:public` session from serving a cached app at `:8787` during `npm run
-  dev`, where that root is *supposed* to 404.
+  when it answers 404. That is what stops a worker registered by an earlier
+  production-build preview from serving a stale cached app during `npm run dev`,
+  where a 404 at a given root is *supposed* to happen.
 - Ranged requests are passed straight through: a 206 cannot be `cache.put`.
   Nothing issues one today because audio is fetched whole for `decodeAudioData`,
   but a `<audio>` element added later would.
@@ -170,8 +181,9 @@ web/src/
   pwa.ts        registration + offline-cache queries
 public/fonts/   space-grotesk-700.woff2 — the one bundled display face (--font-display)
 scripts/
-  make-icons.ts hand-rolled PNG encoder for the PWA icons
-  share.sh      pinggy tunnel (fallback; Tailscale is the answer)
+  make-icons.ts hand-rolled PNG encoder for the PWA/launcher icons
+  make-logo.ts  hand-rolled PNG encoder for the brand mark (assets/logo*.png,
+                the source art for `capacitor-assets generate`)
 ```
 
 ## Invariants — do not break these
