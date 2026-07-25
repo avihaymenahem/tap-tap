@@ -170,6 +170,29 @@ export class AudioClock {
     return this.ctx.state === 'running';
   }
 
+  /**
+   * Run `cb` once the context is running: immediately if it already is,
+   * otherwise when a pending resume (kicked off by `primeAudio`'s gesture)
+   * finally lands. This is why auto-start is reliable — `resume()` is async, so
+   * at engine-ready the primed context can still read `suspended` for a beat.
+   * If it never runs (no gesture ever unlocked it), `cb` simply never fires and
+   * the "tap to start" fallback stands. Returns a disposer.
+   */
+  onceRunning(cb: () => void): () => void {
+    if (this.ctx.state === 'running') {
+      cb();
+      return () => {};
+    }
+    const handler = (): void => {
+      if (this.ctx.state === 'running') {
+        this.ctx.removeEventListener('statechange', handler);
+        cb();
+      }
+    };
+    this.ctx.addEventListener('statechange', handler);
+    return () => this.ctx.removeEventListener('statechange', handler);
+  }
+
   stop(): void {
     if (this.source) {
       this.source.onended = null;

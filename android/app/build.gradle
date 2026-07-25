@@ -1,5 +1,15 @@
 apply plugin: 'com.android.application'
 
+// Release signing is driven by a gitignored `keystore.properties` (see
+// RELEASE.md for how to generate the keystore). When it is absent — a fresh
+// clone, CI, or a plain debug build — the release signingConfig is left unset
+// and `assembleDebug` still works with no setup.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace = "com.taptap.game"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,14 +17,15 @@ android {
         applicationId "com.taptap.game"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 14
-        versionName "0.11.0"
+        versionCode 15
+        versionName "0.11.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        // youtubedl-android ships Python + ffmpeg per ABI. Ship only the two we
-        // run — the S25 (arm64-v8a) and the x86_64 emulator — instead of four,
-        // which roughly halves the APK.
+        // youtubedl-android ships Python + ffmpeg per ABI, which dominates the
+        // APK size. Ship only arm64-v8a — the physical device (S25) — which
+        // roughly halves the download again. Add 'x86_64' back here if you need
+        // to run the bundled build in an emulator.
         ndk {
-            abiFilters 'arm64-v8a', 'x86_64'
+            abiFilters 'arm64-v8a'
         }
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -22,10 +33,29 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            // minify stays OFF on purpose: youtubedl-android reaches its Python
+            // runtime and ffmpeg through JNI/reflection, which R8 would strip and
+            // break ingest — and it can't be verified without the physical device.
+            // The size win comes from arm64-only above, not from shrinking code.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Sign with the release key when the keystore is present; without it,
+            // only `assembleDebug` (auto-signed with the debug key) can install.
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     packagingOptions {

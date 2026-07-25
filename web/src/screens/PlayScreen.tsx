@@ -1069,14 +1069,18 @@ export function PlayScreen({
     };
   }, [engineReady, params.laneCount, params.approachSec]);
 
-  // Auto-start once the engine is ready, when the menu's PLAY tap already
-  // unlocked the audio — so there is no second "tap to start". If it did not
-  // (a replay/deep link with no such gesture), the clock stays locked and the
-  // slim ready overlay waits for a tap. Runs after the effect above, so
-  // `controlsRef.current` is set by the time this fires.
+  // Auto-start once the engine is ready AND the audio is actually running — so
+  // the menu's PLAY tap drops straight into the run with no second "tap to
+  // start". `onceRunning` fires immediately if the primed context is already
+  // live, or when its async resume lands a beat later (the race that left the
+  // ready screen sitting there). If nothing ever unlocks it (a replay/deep link
+  // with no gesture), it never fires and the slim ready overlay waits for a tap.
+  // Runs after the effect above, so `controlsRef.current` is already set.
   useEffect(() => {
     if (!engineReady) return;
-    if (clockRef.current?.unlocked) controlsRef.current?.start();
+    const clock = clockRef.current;
+    if (!clock) return;
+    return clock.onceRunning(() => controlsRef.current?.start());
   }, [engineReady]);
 
   const keys = keymapFor(params.laneCount);

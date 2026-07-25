@@ -18,12 +18,17 @@
 
     <!-- The launch/splash theme. Android 12+ shows the system splash from these
          `windowSplashScreen*` attributes; the old `android:background=@drawable/splash`
-         was silently ignored by that API, which is why the splash never appeared
-         on modern phones. Backed by installSplashScreen() in MainActivity so
-         pre-12 devices get the same treatment. -->
+         was silently ignored by that API. Backed by installSplashScreen() in
+         MainActivity so pre-12 devices get the same treatment.
+
+         The icon is a plain branded VECTOR (`@drawable/splash_icon`), NOT the
+         adaptive `@mipmap/ic_launcher` — the splash API mis-renders adaptive
+         icons on some OEMs (Samsung/One UI showed nothing/the stock robot),
+         which is why the splash "didn't work". A vector on the navy background
+         renders reliably and on-brand. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/splashBackground</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>
