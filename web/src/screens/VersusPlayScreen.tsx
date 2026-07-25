@@ -11,6 +11,7 @@ import type { RunResult } from '../game/run.js';
 import { decideWinner, tugRatio, type VersusOutcome } from '../game/versus.js';
 import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
+import { adaptiveAllowed, qualityProfile, resolveQuality } from '../render/quality.js';
 import { getStoredCalibration } from '../storage.js';
 import { playUiSound } from '../uisfx.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
@@ -230,6 +231,10 @@ export function VersusPlayScreen({
         clockRef.current = clock;
         chartRef.current = played;
         introOffsetRef.current = offset;
+        // Two highways run at once here, so the low tier matters doubly. Resolve
+        // once and share it across both sides.
+        const quality = qualityProfile(resolveQuality());
+        const adaptive = adaptiveAllowed();
         sidesRef.current = canvases.map((canvas): SideRuntime => {
           const highway = new Highway({
             canvas: canvas!,
@@ -241,6 +246,8 @@ export function VersusPlayScreen({
             // the divider, crowd out the highways. A single shared disc is drawn
             // in the centre instead (`.vs-cover`), so each track's vanishing
             // point stays clear and both players get more runway.
+            quality,
+            adaptive,
           });
           highway.resize(canvas!.clientWidth, canvas!.clientHeight);
           return {

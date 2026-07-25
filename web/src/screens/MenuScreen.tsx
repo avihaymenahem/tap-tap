@@ -8,6 +8,7 @@ import { SongHero } from '../components/SongHero.js';
 import { playUiSound } from '../uisfx.js';
 import { prefetchAudio } from '../api/prefetch.js';
 import { isReadOnly } from '../api/serverConfig.js';
+import { GraphicsToggle } from '../components/GraphicsToggle.js';
 import { HapticToggle } from '../components/HapticToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
 import { useCachedAudio, useOffline } from '../hooks/useOffline.js';
@@ -383,6 +384,7 @@ export function MenuScreen({
             <div className="dropdown" role="menu">
               <HapticToggle className="dropdown__item" />
               <SoundToggle className="dropdown__item" />
+              <GraphicsToggle className="dropdown__item" />
 
               <button
                 type="button"
