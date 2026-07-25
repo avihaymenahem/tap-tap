@@ -14,10 +14,9 @@ import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS } from '../render/palette.js';
 import { HapticToggle } from '../components/HapticToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
-import { ModifierPanel } from '../components/ModifierPanel.js';
 import { CalibrationScreen } from './CalibrationScreen.js';
 import { accentVars } from '../accent.js';
-import { getStoredCalibration, getStoredModifiers, setCalibration, setStoredModifiers } from '../storage.js';
+import { getStoredCalibration, getStoredModifiers, setCalibration } from '../storage.js';
 import { type Modifiers, mirrorNotes } from '../game/modifiers.js';
 import { MIN_STORED_SEC, autoCalibrationStep, resolveCalibration } from '../game/calibration.js';
 
@@ -191,12 +190,13 @@ export function PlayScreen({
   pauseViewRef.current = pauseView;
 
   /**
-   * Per-run modifiers, chosen on the ready screen. Seeded from the last-used set
-   * so a player's choice persists. Read through a ref by the engine builder so a
-   * change on the ready screen takes effect on the *next* start without the
+   * Per-run modifiers, chosen on the menu hero and persisted. Read through a ref
+   * by the engine builder so `start` picks up the stored choice without the
    * input/render effect re-running.
    */
-  const [mods, setMods] = useState<Modifiers>(getStoredModifiers);
+  // Read once at mount: the modifiers were chosen on the hero (the old ready
+  // screen's job) and persisted, so this run just adopts them.
+  const [mods] = useState<Modifiers>(getStoredModifiers);
   const modsRef = useRef<Modifiers>(mods);
   modsRef.current = mods;
 
@@ -1069,6 +1069,16 @@ export function PlayScreen({
     };
   }, [engineReady, params.laneCount, params.approachSec]);
 
+  // Auto-start once the engine is ready, when the menu's PLAY tap already
+  // unlocked the audio — so there is no second "tap to start". If it did not
+  // (a replay/deep link with no such gesture), the clock stays locked and the
+  // slim ready overlay waits for a tap. Runs after the effect above, so
+  // `controlsRef.current` is set by the time this fires.
+  useEffect(() => {
+    if (!engineReady) return;
+    if (clockRef.current?.unlocked) controlsRef.current?.start();
+  }, [engineReady]);
+
   const keys = keymapFor(params.laneCount);
 
   return (
@@ -1247,84 +1257,35 @@ export function PlayScreen({
         </div>
       )}
 
+      {/* The ready overlay is now only a fallback: the run auto-starts when the
+          menu's PLAY tap unlocked the audio. It shows only when it did not
+          (a replay or deep link, where there was no such gesture) — a slim
+          "tap to start" over the already-rendered scene, not a second song
+          screen. Difficulty and modifiers were chosen on the hero. */}
       {phase === 'ready' && beatmap && (
-        <div className="play__overlay play__overlay--ready">
+        <div className="play__overlay play__overlay--ready play__overlay--ready-min">
           <button type="button" className="play__back" onClick={onExit}>
             ‹ Back
           </button>
-          {/* The ready screen shares the pause card's chrome — the same bordered
-              panel, head (eyebrow/title/meta) and pill actions — so pausing feels
-              like the same surface returning, not a different screen. */}
-          <div className="pause-card ready-card">
-            {/* The song's cover, ringed and haloed like the CD on the highway.
-                The thumbnail is a rectangle in a circle, so a blurred copy fills
-                behind it instead of leaving black corners. */}
-            <div className="ready-cover pop">
-              <div className="ready-cover__burst" aria-hidden />
-              <div className="ready-cover__disc">
-                <img
-                  className="ready-cover__blur"
-                  src={beatmap.thumbnailUrl ?? undefined}
-                  alt=""
-                  aria-hidden
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-                <img
-                  className="ready-cover__art"
-                  src={beatmap.thumbnailUrl ?? undefined}
-                  alt=""
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-              </div>
+          <div className="ready-min rise">
+            <span className="pause-card__eyebrow">▶ Ready</span>
+            <h2 className="ready-min__title">{beatmap.title}</h2>
+            <span className="pause-card__meta">
+              {difficulty} · {Math.round(beatmap.bpm)} BPM
+            </span>
+            <div className="keycaps only-desktop">
+              {keys.map((key) => (
+                <kbd key={key}>{key.toUpperCase()}</kbd>
+              ))}
             </div>
-
-            <div className="pause-card__head rise" style={{ '--i': 0 } as CSSProperties}>
-              <span className="pause-card__eyebrow">▶ Ready</span>
-              <h2>{beatmap.title}</h2>
-              <span className="pause-card__meta">
-                {difficulty} · {Math.round(beatmap.bpm)} BPM
-              </span>
-            </div>
-
-            {/* Modifiers take the settings section's place — the pre-run choices,
-                divided from the head by the same hairline the pause menu uses. */}
-            <div className="pause-settings rise" style={{ '--i': 1 } as CSSProperties}>
-              <ModifierPanel
-                mods={mods}
-                onChange={(next) => {
-                  setMods(next);
-                  setStoredModifiers(next);
-                }}
-              />
-              {/* Keyboard keys are desktop-only; on a phone you tap the lanes. */}
-              <div className="keycaps only-desktop">
-                {keys.map((key) => (
-                  <kbd key={key}>{key.toUpperCase()}</kbd>
-                ))}
-              </div>
-            </div>
-
-            <div className="pause-actions rise" style={{ '--i': 2 } as CSSProperties}>
-              <button
-                type="button"
-                className="btn btn--primary btn--block btn--start"
-                onClick={() => controlsRef.current?.start()}
-              >
-                <span className="only-desktop">Press SPACE to start</span>
-                <span className="only-mobile">Tap to start</span>
-              </button>
-            </div>
-
-            <p
-              className="muted small only-desktop pause-card__hint rise"
-              style={{ '--i': 3 } as CSSProperties}
+            <button
+              type="button"
+              className="btn btn--primary btn--block btn--start"
+              onClick={() => controlsRef.current?.start()}
             >
-              ESC to pause
-            </p>
+              <span className="only-desktop">Press SPACE to start</span>
+              <span className="only-mobile">Tap to start</span>
+            </button>
           </div>
         </div>
       )}

@@ -8,6 +8,34 @@
  * Never use setTimeout, setInterval, or accumulated frame deltas for game timing.
  */
 
+/**
+ * An AudioContext created and resumed inside a user gesture, held for the next
+ * `load()` to adopt. Browsers only let audio start from a gesture; the menu's
+ * PLAY tap is that gesture, but the clock is built later, after navigation, when
+ * no gesture is active. So the tap calls `primeAudio()` to unlock a context
+ * here, and `load()` adopts it — letting the run auto-start with sound instead
+ * of needing a second "tap to start". If nothing adopts it (e.g. the player
+ * backs out), it is a single idle context, reused by the next prime.
+ */
+let primedContext: AudioContext | null = null;
+
+/** Create/resume an AudioContext from a user gesture, ready for `load` to adopt. */
+export function primeAudio(): void {
+  try {
+    if (!primedContext) primedContext = new AudioContext();
+    if (primedContext.state === 'suspended') void primedContext.resume();
+  } catch {
+    // No Web Audio (or blocked): the run falls back to a "tap to start".
+    primedContext = null;
+  }
+}
+
+function adoptPrimedContext(): AudioContext {
+  const ctx = primedContext ?? new AudioContext();
+  primedContext = null;
+  return ctx;
+}
+
 export class AudioClock {
   private readonly ctx: AudioContext;
   private readonly buffer: AudioBuffer;
@@ -57,7 +85,9 @@ export class AudioClock {
     signal?: AbortSignal,
     onProgress?: (fraction: number) => void,
   ): Promise<AudioClock> {
-    const ctx = new AudioContext();
+    // Adopt the context the PLAY tap already unlocked, so playback can start
+    // with sound and no second gesture; falls back to a fresh (suspended) one.
+    const ctx = adoptPrimedContext();
     try {
       const response = await fetch(url, signal ? { signal } : {});
       if (!response.ok) throw new Error(`Could not load audio (${response.status})`);
@@ -129,6 +159,15 @@ export class AudioClock {
   /** The current playback rate, 1 = normal. */
   get rate(): number {
     return this.rateValue;
+  }
+
+  /**
+   * Whether the audio context is already running — i.e. a gesture unlocked it
+   * (via `primeAudio`) so the run can auto-start with sound. When false the
+   * caller must wait for a user tap before starting, or playback is silent.
+   */
+  get unlocked(): boolean {
+    return this.ctx.state === 'running';
   }
 
   stop(): void {

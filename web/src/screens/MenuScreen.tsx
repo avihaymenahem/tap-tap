@@ -1,11 +1,10 @@
 import type { DifficultyName, SongSummary, Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-tap/shared';
-import { ChevronDown, Download, Play, Star, WifiOff } from 'lucide-react';
+import { ChevronDown, Download, Star, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
-import { accentVars } from '../accent.js';
 import { isNativePlatform, listCustomThemes, listSongs } from '../data/index.js';
 import { NativeIngest } from '../components/NativeIngest.js';
-import { ElectricArcs } from '../components/ElectricArcs.js';
+import { SongHero } from '../components/SongHero.js';
 import { playUiSound } from '../uisfx.js';
 import { prefetchAudio } from '../api/prefetch.js';
 import { isReadOnly } from '../api/serverConfig.js';
@@ -111,14 +110,11 @@ export function MenuScreen({
   });
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   /**
-   * Mobile only: the detail panel is a fixed bottom sheet there, permanently
-   * covering a chunk of the list. Dismissing it gives the whole screen back to
-   * browsing; picking any track brings it straight back, so there is no need
-   * for a separate way to reopen it.
-   *
-   * Ignored entirely on desktop, where the panel is a column beside the list.
+   * The full-screen focused hero — the big disc + living aura + colour wash a
+   * song blows up into when tapped. The list is home; this is the detail view,
+   * opened over it and dismissed back to browsing.
    */
-  const [sheetOpen, setSheetOpen] = useState(true);
+  const [heroOpen, setHeroOpen] = useState(false);
   /** Sort picker dropdown — a styled menu, not a native select. */
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -298,6 +294,22 @@ export function MenuScreen({
     return grades;
   }, [songs, difficulty]);
 
+  // Move the focused selection through the currently filtered list (the hero's
+  // prev/next and the desktop arrow keys). Wraps around, and carries the same
+  // preview + prefetch that tapping a card does.
+  const stepSong = (delta: number): void => {
+    if (filtered.length === 0 || !selectedSong) return;
+    const idx = filtered.findIndex((s) => s.songId === selectedSong.songId);
+    const next = filtered[(idx + delta + filtered.length) % filtered.length];
+    if (!next) return;
+    playUiSound('tick');
+    setSelected(next.songId);
+    setLastSong(next.songId);
+    if (previewsOn) preview.play(next.audioUrl, previewStartSec(next.duration));
+    else preview.stop();
+    prefetchAudio(next.audioUrl);
+  };
+
   return (
     <div className="menu">
       {native && (
@@ -320,7 +332,6 @@ export function MenuScreen({
               setFavoritesOnly(false);
               setSelected(newSongId);
               setLastSong(newSongId);
-              setSheetOpen(true);
               pendingScrollRef.current = newSongId;
               setReloadKey((k) => k + 1);
             }}
@@ -328,15 +339,34 @@ export function MenuScreen({
         </>
       )}
       <header className="menu__header">
-        <h1 className="logo" aria-label="TapTap">
-          {/* A brand mark of two note-tiles — the game's own tap targets — that
-              flash on the beat, then the metallic wordmark. */}
-          <span className="logo__mark" aria-hidden="true">
-            <span className="logo__tile" />
-            <span className="logo__tile" />
-          </span>
-          <span className="logo__word">TapTap</span>
-        </h1>
+        {/* Search lives in the header beside the menu button — no wordmark up
+            here. The screen is the library; a persistent brand lockup earned
+            its keep less than giving that row to searching does. Only shown
+            once there is a library to search. */}
+        {songs && songs.length > 0 && (
+          <div className="search">
+            <input
+              type="search"
+              className="search__input"
+              placeholder="Search songs…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setQuery('');
+              }}
+            />
+            {query && (
+              <button
+                type="button"
+                className="search__clear"
+                aria-label="Clear search"
+                onClick={() => setQuery('')}
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
         <div className="menu__actions" ref={menuRef}>
           <button
             type="button"
@@ -511,29 +541,6 @@ export function MenuScreen({
       {songs && songs.length > 0 && (
         <div className="menu__body">
           <div className="song-column">
-            <div className="search">
-              <input
-                type="search"
-                className="search__input"
-                placeholder="Search songs…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') setQuery('');
-                }}
-              />
-              {query && (
-                <button
-                  type="button"
-                  className="search__clear"
-                  aria-label="Clear search"
-                  onClick={() => setQuery('')}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-
             <div className="song-tools">
               {/* A styled menu, not a native <select> — the one control the OS
                   would otherwise draw in its own widget style, which reads as
@@ -654,10 +661,8 @@ export function MenuScreen({
                         // silence, and the cache warm below still runs.
                         if (previewsOn) preview.play(song.audioUrl, previewStartSec(song.duration));
                         else preview.stop();
-                        // Picking a track is the way back to a dismissed sheet
-                        // on mobile — the only one, deliberately, since it is
-                        // also the reason you would want it back.
-                        setSheetOpen(true);
+                        // Tapping a track blows it up into the full-screen hero.
+                        setHeroOpen(true);
                         // The seconds spent choosing a difficulty are free
                         // download time; on a slow link this is most of the
                         // wait the play screen would otherwise show.
@@ -707,117 +712,35 @@ export function MenuScreen({
             )}
           </div>
 
-          <aside
-            className={`menu__detail ${sheetOpen ? '' : 'menu__detail--hidden'}`}
-            style={accentVars(selectedAccent)}
-          >
-            {selectedSong && (
-              <>
-                {/* The song's art, blurred and dimmed, fills the panel behind
-                    everything — the same treatment the ready screen gives its
-                    cover, so selecting a song already looks like its run. */}
-                {selectedSong.thumbnailUrl && (
-                  <img
-                    className="menu__detail-bg"
-                    src={selectedSong.thumbnailUrl}
-                    alt=""
-                    aria-hidden
-                  />
-                )}
-                <div className="menu__detail-scrim" aria-hidden />
-
-                {/* Mobile only — on desktop this is a column, not a sheet, and
-                    there is nothing to dismiss. Hidden by CSS above 860px
-                    rather than conditionally rendered, so the markup does not
-                    depend on a width the component would have to measure. */}
-                <button
-                  type="button"
-                  className="menu__detail-close"
-                  aria-label="Hide song details"
-                  onClick={() => {
-                    playUiSound('back');
-                    setSheetOpen(false);
-                  }}
-                >
-                  <ChevronDown size={20} aria-hidden />
-                </button>
-
-                {/* Desktop hero: the ringed disc over a slow burst, echoing the
-                    ready screen and the in-game CD. Hidden on mobile, where the
-                    sheet must stay compact — the blurred backdrop carries the
-                    art there instead. */}
-                {selectedSong.thumbnailUrl && (
-                  <div className="menu__detail-hero" aria-hidden>
-                    <div className="menu__detail-burst" />
-                    {/* Keyed by song so switching tracks replays the pop. */}
-                    <div className="menu__detail-disc pop" key={selectedSong.songId}>
-                      <img
-                        className="menu__detail-disc-art"
-                        src={selectedSong.thumbnailUrl}
-                        alt=""
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <h2>{selectedSong.title}</h2>
-                <p className="muted">{selectedSong.artist || 'Unknown artist'}</p>
-
-                <div className="difficulty-picker">
-                  {available.map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      className={`difficulty ${effectiveDifficulty === name ? 'difficulty--active' : ''} difficulty--${name}`}
-                      onClick={() => {
-                        playUiSound('tick');
-                        setDifficulty(name);
-                      }}
-                    >
-                      {effectiveDifficulty === name && <ElectricArcs />}
-                      <span className="difficulty__name">{name}</span>
-                    </button>
-                  ))}
-                </div>
-
-                {best && (
-                  <div className="best-score">
-                    <span className={`grade grade--${best.grade}`}>{best.grade}</span>
-                    <div>
-                      <div className="best-score__value">{best.score.toLocaleString()}</div>
-                      <div className="muted small">
-                        {(best.accuracy * 100).toFixed(1)}% · {best.maxCombo}x combo
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  className="btn btn--primary btn--large menu__play"
-                  disabled={!effectiveDifficulty}
-                  onClick={() => {
-                    if (!effectiveDifficulty) return;
-                    playUiSound('confirm');
-                    preview.stop(); // never let a preview bleed into the run
-                    onPlay(selectedSong.songId, effectiveDifficulty);
-                  }}
-                >
-                  {effectiveDifficulty ? (
-                    <>
-                      <ElectricArcs />
-                      <Play className="menu__play-icon" size={20} aria-hidden />
-                      Play
-                    </>
-                  ) : (
-                    'No chart for this song'
-                  )}
-                </button>
-
-              </>
-            )}
-          </aside>
         </div>
+      )}
+
+      {/* The full-screen focused hero, opened when a track is tapped. */}
+      {heroOpen && selectedSong && (
+        <SongHero
+          song={selectedSong}
+          accent={selectedAccent}
+          available={available}
+          difficulty={effectiveDifficulty}
+          onSelectDifficulty={(name) => {
+            playUiSound('tick');
+            setDifficulty(name);
+          }}
+          best={best}
+          onPlay={() => {
+            if (!effectiveDifficulty) return;
+            playUiSound('confirm');
+            preview.stop(); // never let a preview bleed into the run
+            onPlay(selectedSong.songId, effectiveDifficulty);
+          }}
+          onClose={() => {
+            playUiSound('back');
+            preview.stop();
+            setHeroOpen(false);
+          }}
+          onPrev={() => stepSong(-1)}
+          onNext={() => stepSong(1)}
+        />
       )}
     </div>
   );

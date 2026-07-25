@@ -430,7 +430,6 @@ button {
    the `font-weight: 400` below renders as that Bold with no synthesis — never
    pair it with an even heavier bold, which would smear. Numbers that tick every
    frame (HUD score, accuracy) stay on --font or their width wobbles at 60fps. */
-.logo,
 .menu__detail h2,
 .results__card h1,
 .calibration__card h1,
@@ -675,10 +674,11 @@ kbd {
 }
 
 /* The menu's Play button — the one action the whole screen leads to, so it is
-   dressed to be pressed. A livelier accent gradient (dark → accent → bright,
-   not the flat accent → dark of the base primary), a play glyph, a slow glow
-   pulse and a sheen that sweeps across on an idle loop. It still recolours to
-   the selected song via the panel's accentVars. */
+   dressed to be pressed. One cohesive accent body (a bright top falling to a
+   deeper shade of the same hue) with a glassy highlight laid over it — not the
+   old violet→pink→gold sweep, whose gold end clashed with whatever song accent
+   the panel painted. A crisp lit rim, a play glyph, a slow glow pulse and an
+   idle sheen. Still recolours to the selected song via the panel's accentVars. */
 .menu__play {
   position: relative;
   overflow: hidden;
@@ -686,16 +686,28 @@ kbd {
   margin-top: 0.2rem;
   padding: 1.05rem;
   font-size: 1.3rem;
-  background: linear-gradient(120deg, var(--violet), var(--pink) 52%, var(--gold-bright));
-  box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.55), 0 12px 32px rgba(var(--accent-rgb), 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  /* Two stacked padding-box layers: a top-down glass highlight over the accent
+     body. Keeping both on padding-box lets the 1px border read as a lit rim. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 46%) padding-box,
+    linear-gradient(168deg, var(--pink), var(--violet)) padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 0 24px rgba(var(--accent-rgb), 0.5),
+    0 12px 30px rgba(var(--accent-rgb), 0.3);
   animation: play-pulse 2.4s ease-in-out infinite;
 }
 
 .menu__play:hover:not(:disabled) {
-  /* Brighten and lift rather than change hue — the base primary's hover swung
-     toward an un-themed gold, which fought the song colour. */
-  background: linear-gradient(120deg, var(--pink), var(--gold-bright));
-  box-shadow: 0 0 32px rgba(var(--accent-rgb), 0.7), 0 16px 40px rgba(var(--accent-rgb), 0.42);
+  /* Brighten body and glow, staying in the accent family — no hue swing. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 46%) padding-box,
+    linear-gradient(168deg, var(--pink), var(--pink) 32%, var(--violet)) padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 0 34px rgba(var(--accent-rgb), 0.72),
+    0 16px 40px rgba(var(--accent-rgb), 0.42);
 }
 
 .menu__play:disabled {
@@ -730,10 +742,16 @@ kbd {
 @keyframes play-pulse {
   0%,
   100% {
-    box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.55), 0 12px 32px rgba(var(--accent-rgb), 0.32);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      0 0 24px rgba(var(--accent-rgb), 0.5),
+      0 12px 32px rgba(var(--accent-rgb), 0.3);
   }
   50% {
-    box-shadow: 0 0 36px rgba(var(--accent-rgb), 0.8), 0 12px 40px rgba(var(--accent-rgb), 0.46);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      0 0 36px rgba(var(--accent-rgb), 0.82),
+      0 12px 40px rgba(var(--accent-rgb), 0.46);
   }
 }
 
@@ -811,116 +829,17 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 2rem;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
 }
 
-.logo {
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: clamp(1.9rem, 5vw, 2.9rem);
+/* In the header the search is the primary element — it grows to fill the row,
+   with the menu button parked at the end. Capped so it doesn't sprawl across a
+   wide desktop; the cap just leaves a gap before the button there. */
+.menu__header .search {
+  flex: 1 1 auto;
+  max-width: 34rem;
 }
-
-/* --- the note-tile brand mark ---
-   Two of the game's own tap-tiles, tilted toward each other and pulsing on the
-   beat, so the wordmark carries a hint of what the game is. */
-.logo__mark {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.1em;
-  filter: drop-shadow(0 0 10px rgba(var(--accent-rgb), 0.6));
-}
-
-.logo__tile {
-  width: 0.6em;
-  height: 0.6em;
-  border-radius: 0.17em;
-  /* A neon gem tile: a lit cyan top edge falling into a deep violet base — the
-     same blue→purple the play scene's gems catch. */
-  background: linear-gradient(150deg, #9be8ff 0%, #35e0ff 34%, #7a4fff 78%, #4a2ba0 100%);
-  box-shadow:
-    inset 0 0.06em 0.02em rgba(255, 255, 255, 0.75),
-    inset 0 -0.06em 0.05em rgba(30, 12, 70, 0.55),
-    0 0.04em 0.12em rgba(0, 0, 0, 0.45);
-  animation: logo-tile 2.4s ease-in-out infinite;
-}
-
-/* Tilted apart and beating a half-cycle out of phase — two taps, not one. */
-.logo__tile:first-child {
-  transform: rotate(-10deg) translateY(0.04em);
-}
-.logo__tile:last-child {
-  transform: rotate(10deg) translateY(-0.04em);
-  animation-delay: 1.2s;
-}
-
-@keyframes logo-tile {
-  0%,
-  100% {
-    filter: brightness(1);
-  }
-  50% {
-    filter: brightness(1.4);
-  }
-}
-
-/* --- the wordmark ---
-   One cohesive sheet of polished gold rather than two clashing halves. The
-   gradient is clipped to the glyphs, so the shine lives *in* it — a bright band
-   parked off to one side and swept across on a long, mostly-idle loop; a
-   pseudo-element cannot help, there is nothing to clip it to but the text. The
-   1px dark drop-shadow embosses the letters; the two soft ones are the glow. */
-.logo__word {
-  font-family: var(--font-display);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  /* Electric pink melting into gold — the two brand colours in one sheet, with
-     a bright band swept across on a long idle loop (the shine lives in the
-     gradient because there is nothing but the text to clip a pseudo-element to). */
-  background: linear-gradient(
-    100deg,
-    #ff3fa4 0%,
-    #ff8fd0 26%,
-    #ffffff 44%,
-    #ffe487 56%,
-    #f5c04a 72%,
-    #ff3fa4 100%
-  );
-  background-size: 250% 100%;
-  background-position: 120% 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 1px 0 rgba(40, 8, 30, 0.5))
-    drop-shadow(0 0 16px rgba(var(--accent-rgb), 0.55))
-    drop-shadow(0 0 34px rgba(245, 192, 74, 0.24));
-  animation: logo-sheen 9s ease-in-out infinite;
-}
-
-/* The bright band spends most of the loop parked off the right edge; the pass
-   itself is the brief window near the end. */
-@keyframes logo-sheen {
-  0%,
-  72% {
-    background-position: 120% 0;
-  }
-  92%,
-  100% {
-    background-position: -60% 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .logo__word {
-    animation: none;
-    background-position: 50% 0;
-  }
-  .logo__tile {
-    animation: none;
-  }
-}
-
 
 .menu__actions {
   position: relative;
@@ -929,9 +848,14 @@ kbd {
 }
 
 .menu__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 22rem;
-  gap: 2rem;
+  /* Single column now — the detail view is the full-screen hero, opened on tap,
+     not a panel beside the list. Capped and centred so the list stays readable
+     on a wide desktop. */
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
   min-height: 0;
   flex: 1;
 }
@@ -1196,17 +1120,15 @@ kbd {
   place-items: center;
 }
 
-.menu__detail-burst {
+/* The aura canvas overflows the disc on every side; the panel's `overflow:
+   hidden` clips the far edges softly (its gradients fade to transparent there
+   anyway). Behind the disc, above the panel art. */
+.menu__detail-aura {
   position: absolute;
-  inset: -22%;
-  background: repeating-conic-gradient(
-    from 0deg,
-    rgba(var(--accent-rgb), 0.2) 0deg 5deg,
-    transparent 5deg 13deg
-  );
-  -webkit-mask: radial-gradient(closest-side, transparent 45%, #000 55%, transparent 82%);
-  mask: radial-gradient(closest-side, transparent 45%, #000 55%, transparent 82%);
-  animation: results-spin 22s linear infinite;
+  inset: -60%;
+  width: auto;
+  height: auto;
+  pointer-events: none;
 }
 
 .menu__detail-disc {
@@ -1258,6 +1180,356 @@ kbd {
   overflow-wrap: anywhere;
 }
 
+/* --- the full-screen song hero -------------------------------------------
+   The dazzling detail view a track blows up into when tapped: a huge album
+   disc wrapped in the living `SongAura`, over a wash of the song's own colour,
+   with the difficulty picker and a big PLAY. This is where the "so alive"
+   feeling lives, because the disc + aura finally own the whole screen. */
+.song-hero {
+  position: fixed;
+  inset: 0;
+  z-index: 30; /* over the list, the stars (z2), and the header dropdown (z20) */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* A little breathing room top/bottom; the stage flexes to fill the middle. */
+  padding: calc(2rem + env(safe-area-inset-top, 0px)) 1.25rem
+    calc(1.75rem + env(safe-area-inset-bottom, 0px));
+  justify-content: space-between;
+  overflow: hidden;
+  /* Base wash: the song accent pooled behind the disc, falling into a deep
+     near-black so text and the aura stay legible. accentVars recolours it. */
+  background:
+    radial-gradient(120% 80% at 50% 50%, rgba(var(--accent-rgb), 0.5), transparent 62%),
+    radial-gradient(120% 90% at 50% 100%, rgba(var(--accent-rgb), 0.14), transparent 55%),
+    linear-gradient(180deg, #140f1c 0%, #0a0a14 100%);
+  animation: hero-in 0.32s ease both;
+}
+
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    transform: scale(1.015);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Minimizing: slide + fade down, then `onAnimationEnd` unmounts. Overrides the
+   entrance `animation` above (later in the file, same specificity). */
+.song-hero--closing {
+  animation: hero-out 0.26s ease both;
+  pointer-events: none;
+}
+
+@keyframes hero-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(2.5%);
+  }
+}
+
+/* Reduced motion still needs an animation on close so `onAnimationEnd` fires —
+   a plain fade, no movement. */
+@keyframes hero-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* The song's own art, blurred to a broad colour field over the accent wash —
+   the reference takes its whole-screen colour from the cover. Very dim; the
+   gradient wash and the aura do the heavy lifting. */
+.song-hero__wash {
+  position: absolute;
+  inset: -10%;
+  z-index: 0;
+  width: 120%;
+  height: 120%;
+  object-fit: cover;
+  filter: blur(70px) saturate(1.3) brightness(0.7);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.song-hero__tint {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(120% 80% at 50% 40%, transparent 30%, rgba(6, 6, 12, 0.5));
+  pointer-events: none;
+}
+
+.song-hero__head,
+.song-hero__controls,
+.song-hero__close {
+  position: relative;
+  z-index: 2;
+}
+
+.song-hero__close {
+  position: absolute;
+  top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  left: 0.75rem;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border: none;
+  border-radius: 50%;
+  background: rgba(8, 8, 18, 0.45);
+  color: var(--text);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.song-hero__close:hover {
+  background: rgba(8, 8, 18, 0.7);
+  transform: translateY(-1px);
+}
+
+.song-hero__head {
+  text-align: center;
+  margin-top: 1.5rem;
+}
+
+.song-hero__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(1.5rem, 6vw, 2.3rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.5);
+  overflow-wrap: anywhere;
+}
+
+.song-hero__artist {
+  margin: 0.25rem 0 0;
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* The stage is a full-screen layer, centred on the viewport, holding the aura
+   and the disc — so the aura fills the whole screen (rays reach every edge, no
+   clipping) and the disc sits dead-centre, exactly where the aura emits from.
+   The head and controls overlay it (higher z-index), pinned top and bottom. */
+.song-hero__stage {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  /* Lift the disc (and the aura centred on it) above the controls, so the
+     difficulty/modifier rows never cover the cover. */
+  transform: translateY(-6%);
+  pointer-events: none;
+}
+
+/* The aura fills the whole screen. Its `disc={0.66}` prop means particles emit
+   from a rim at 66% of the screen's half-size — the disc below is sized to
+   match so they hug its edge. */
+.song-hero__aura {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.song-hero__disc {
+  position: relative;
+  width: min(66vw, 60vh, 24rem);
+  height: min(66vw, 60vh, 24rem);
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 0 0 1px rgba(var(--accent-rgb), 0.5),
+    0 0 48px rgba(var(--accent-rgb), 0.4),
+    inset 0 2px 14px rgba(0, 0, 0, 0.5);
+  background: #0a0a14;
+  /* Entrance first (replayed on each song change via the React key), then the
+     idle breathe. The two never overlap, so sharing `transform` is fine. */
+  animation:
+    hero-disc-in 0.5s cubic-bezier(0.2, 0.85, 0.3, 1.25) both,
+    hero-breathe 4.5s ease-in-out 0.5s infinite;
+}
+
+/* Cover swap: scale + fade in from a touch below, on every song change. */
+@keyframes hero-disc-in {
+  from {
+    opacity: 0;
+    transform: scale(0.86) translateY(3%);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Title/artist swap — a quick fade + rise, keyed to the song. */
+.song-hero__swap {
+  animation: hero-swap 0.45s ease both;
+}
+
+@keyframes hero-swap {
+  from {
+    opacity: 0;
+    transform: translateY(0.7rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.song-hero__disc-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.34);
+}
+
+.song-hero__disc-art--blank {
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.4), #0a0a14);
+}
+
+/* A slow swell so the disc feels like it's breathing to the track, even before
+   a note plays. */
+@keyframes hero-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.025);
+  }
+}
+
+.song-hero__controls {
+  width: 100%;
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.song-hero__play-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.song-hero__play {
+  flex: 1;
+  margin-top: 0;
+  /* Match the track-name font (the system stack), not the display face — the
+     Space Grotesk on the base primary button read as clashing signage here. */
+  font-family: var(--font);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  /* Liquid glass: a frosted, accent-tinted pane that blurs and refracts the
+     aura behind it, rather than a flat gradient sitting on top of it. A bright
+     specular gradient up top, a thin lit rim, a soft inner floor-glow, and an
+     outer float shadow do the rest. The base .menu__play pulse is dropped —
+     glass is calmer than neon. */
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.38) 0%,
+      rgba(255, 255, 255, 0.08) 38%,
+      rgba(255, 255, 255, 0) 62%
+    ),
+    linear-gradient(180deg, rgba(var(--accent-rgb), 0.4), rgba(var(--accent-rgb), 0.16));
+  backdrop-filter: blur(14px) saturate(1.7);
+  -webkit-backdrop-filter: blur(14px) saturate(1.7);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.75),
+    inset 0 -10px 20px rgba(var(--accent-rgb), 0.28),
+    0 10px 28px rgba(var(--accent-rgb), 0.32),
+    0 2px 6px rgba(0, 0, 0, 0.32);
+  animation: none;
+}
+
+.song-hero__play:hover:not(:disabled) {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0.12) 38%,
+      rgba(255, 255, 255, 0) 62%
+    ),
+    linear-gradient(180deg, rgba(var(--accent-rgb), 0.5), rgba(var(--accent-rgb), 0.22));
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.85),
+    inset 0 -10px 22px rgba(var(--accent-rgb), 0.34),
+    0 14px 34px rgba(var(--accent-rgb), 0.42),
+    0 2px 6px rgba(0, 0, 0, 0.32);
+}
+
+/* Prev / next flanking PLAY — dark glassy circles, echoing the reference's
+   skip arrows. */
+.song-hero__nav {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 3.1rem;
+  height: 3.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(8, 8, 18, 0.4);
+  color: var(--text);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.song-hero__nav:hover {
+  background: rgba(var(--accent-rgb), 0.2);
+  transform: translateY(-1px);
+}
+
+.song-hero__nav:active {
+  transform: translateY(0);
+}
+
+/* The hero's best-score plaque sits over the wash; give it a readable panel. */
+.song-hero .best-score {
+  justify-content: center;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: rgba(8, 8, 18, 0.34);
+  backdrop-filter: blur(6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .song-hero {
+    animation: none;
+  }
+  .song-hero__disc,
+  .song-hero__swap {
+    animation: none;
+  }
+  /* Keep a fade (no movement) so closing still fires `onAnimationEnd`. */
+  .song-hero--closing {
+    animation: hero-fade-out 0.18s linear both;
+  }
+}
+
 .difficulty-picker {
   display: flex;
   flex-direction: column;
@@ -1281,8 +1553,11 @@ kbd {
 .difficulty__name {
   position: relative;
   z-index: 1;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  /* Same system stack as the track names, weight matched — not the heavier,
+     wider treatment it had. */
+  font-family: var(--font);
+  font-weight: 700;
+  letter-spacing: normal;
   text-transform: capitalize;
 }
 
@@ -1568,13 +1843,12 @@ kbd {
   animation: health-pulse 0.7s ease-in-out infinite;
 }
 
-/* Only visible while a run is live — never on the ready/loading/error overlays,
-   where it would sit over the artwork. */
+/* Only visible while a run is actively playing — hidden on the ready/loading/
+   error overlays and on pause, where it would sit over the pause card. */
 .play__health {
   display: none;
 }
-.play[data-phase='playing'] .play__health,
-.play[data-phase='paused'] .play__health {
+.play[data-phase='playing'] .play__health {
   display: flex;
 }
 
@@ -2038,6 +2312,33 @@ kbd {
   width: min(100%, 360px);
   margin: auto;
   gap: 0.9rem;
+}
+
+/* The slim ready fallback (audio didn't unlock): a centred column over the
+   already-rendered scene, no second song card. */
+.play__overlay--ready-min {
+  justify-content: center;
+}
+
+.ready-min {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  width: min(88%, 340px);
+  margin: auto;
+  text-align: center;
+}
+
+.ready-min__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.5rem;
+}
+
+.ready-min .btn--start {
+  margin-top: 0.6rem;
 }
 
 /* Smaller than the old free-floating hero so the card stays compact. */
@@ -3912,10 +4213,6 @@ kbd {
     margin-bottom: 1rem;
   }
 
-  .logo {
-    font-size: 2rem;
-  }
-
   .icon-btn {
     width: 2.6rem;
     height: 2.6rem;
@@ -3940,15 +4237,8 @@ kbd {
 
   .song-list {
     padding-right: 0;
-    /* Clear the sheet, plus the home indicator on iOS. */
-    padding-bottom: calc(19rem + env(safe-area-inset-bottom, 0px));
-    transition: padding-bottom 0.24s ease;
-  }
-
-  /* Dismissing the sheet has to give the space back, or hiding it would only
-     trade a covered list for a short one with a gap under it. */
-  .song-column:has(.menu__detail--hidden) .song-list,
-  .menu__body:has(.menu__detail--hidden) .song-list {
+    /* No bottom sheet any more — the detail view is the full-screen hero — so
+       the list only needs to clear the iOS home indicator. */
     padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
   }
 
