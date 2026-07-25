@@ -9,6 +9,7 @@ import type { Visibility } from '../game/modifiers.js';
 import type { Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT } from '@tap-tap/shared';
 import { laneColor } from './palette.js';
+import { markAutoLow, qualityProfile, type QualityProfile } from './quality.js';
 
 /**
  * Perspective note highway.
@@ -159,10 +160,28 @@ export function holdSpan(
  * chording across it.
  */
 const HOLD_SEGMENTS = 24;
+/**
+ * Particle-pool *capacity* — the buffers are sized to this once. How many are
+ * actually emitted and drawn is `this.particleBudget`, which the quality tier
+ * sets at or below this, so a live downgrade only has to lower a number rather
+ * than reallocate.
+ */
 const MAX_PARTICLES = 1500;
 /** Concurrent hit shockwaves. A short burst can stack a few across lanes. */
 const MAX_SHOCKWAVES = 16;
+/** Starfield *capacity* — see `MAX_PARTICLES`; the live count is `this.starCount`. */
 const STAR_COUNT = 560;
+
+// Live quality adaptation. A budget GPU that cannot hold 60fps is caught by
+// watching frame time rather than guessing from specs (which lie — a weak-GPU
+// phone reports flagship CPU/RAM). See `quality.ts` for why this is the reliable
+// signal.
+/** Below this frame time (seconds) a frame counts as slow — ~45fps. */
+const SLOW_FRAME_SEC = 1 / 45;
+/** Skip the opening frames: shader compile and texture upload spike them. */
+const ADAPT_WARMUP_FRAMES = 45;
+/** Net slow frames (slow ones add, fast ones subtract) that trip a downgrade. */
+const ADAPT_SLOW_BUDGET = 45;
 
 /**
  * Camera rig. Height and distance set how steeply you look down the highway:
@@ -237,14 +256,28 @@ export interface HighwayOptions {
    * song may have no thumbnail, in which case the ring is simply omitted.
    */
   coverUrl?: string;
+  /**
+   * Rendering quality. Omit for the full `high` pipeline. Screens resolve it
+   * with `resolveQuality()` (quality.ts) and pass the profile; the low profile
+   * drops bloom, MSAA and pixel ratio and thins the effects for weak GPUs.
+   */
+  quality?: QualityProfile;
+  /**
+   * Allow the renderer to downgrade to low live when frames run slow. Enabled on
+   * gameplay screens under the `auto` setting; the decision is remembered
+   * (`markAutoLow`) so it happens once, not every song.
+   */
+  adaptive?: boolean;
 }
 
 export class Highway {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
-  private readonly composer: EffectComposer;
-  private readonly bloom: UnrealBloomPass;
+  // Nullable and mutable: absent on the low tier (which renders straight to the
+  // canvas), and torn down mid-run when the adaptive downgrade fires.
+  private composer: EffectComposer | null = null;
+  private bloom: UnrealBloomPass | null = null;
   private readonly laneCount: number;
   private readonly approachSec: number;
   /**
@@ -339,9 +372,46 @@ export class Highway {
   private readonly color = new THREE.Color();
   private disposed = false;
 
-  constructor({ canvas, laneCount, approachSec, theme, beatGrid = [], coverUrl }: HighwayOptions) {
+  /** The active quality profile. Swapped for the low one on a live downgrade. */
+  private quality: QualityProfile;
+  /** Active starfield count (≤ STAR_COUNT capacity). */
+  private starCount: number;
+  /** Active particle count (≤ MAX_PARTICLES capacity); also the draw range. */
+  private particleBudget: number;
+  /** Whether the renderer may auto-downgrade on sustained slow frames. */
+  private readonly adaptive: boolean;
+  /** Frames seen (for warmup) and the running slow-frame tally. */
+  private framesSeen = 0;
+  private slowFrameScore = 0;
+  /** Last size passed to `resize`, so a live downgrade can re-apply it. */
+  private viewWidth = 1;
+  private viewHeight = 1;
+
+  constructor({
+    canvas,
+    laneCount,
+    approachSec,
+    theme,
+    beatGrid = [],
+    coverUrl,
+    quality,
+    adaptive = false,
+  }: HighwayOptions) {
     this.laneCount = laneCount;
     this.approachSec = approachSec;
+    // Resolved before any build* call: they size the star/particle buffers and
+    // decide which effects exist. Default to the full pipeline when unspecified.
+    const q = quality ?? qualityProfile('high');
+    this.quality = q;
+    // Clamped to the buffer capacities. The profile lives in quality.ts and the
+    // capacities here, and the two files cannot import from each other's numbers
+    // — same drift risk as the sw.ts/pwa.ts cache name. Raising a profile above
+    // capacity would place stars past the end of a Float32Array (a silent no-op)
+    // and then draw that range: a field of vertices stuck at the origin.
+    this.starCount = Math.min(q.starCount, STAR_COUNT);
+    this.particleBudget = Math.min(q.particleBudget, MAX_PARTICLES);
+    // Only adaptive when high: nothing to shed once already low.
+    this.adaptive = adaptive && q.tier !== 'low';
     // Assigned before any build* call: every one of them reads it, and a field
     // set after `buildBackdrop()` would be undefined at the moment it is needed.
     this.theme = theme;
@@ -353,8 +423,8 @@ export class Highway {
     this.beatGrid = beatGrid;
     this.laneFlash = new Float32Array(laneCount);
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: q.antialias, alpha: false });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatioCap));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1;
 
@@ -431,9 +501,9 @@ export class Highway {
     this.noteGlow = this.buildNoteGlow();
     this.scene.add(this.noteGlow);
 
-    // Light-streak trails behind the gems — stage only. Built before the notes
-    // so a gem draws over its own trail.
-    this.noteTrails = this.stage ? this.buildNoteTrails() : null;
+    // Light-streak trails behind the gems — stage only, and dropped on the low
+    // tier. Built before the notes so a gem draws over its own trail.
+    this.noteTrails = this.stage && q.trails ? this.buildNoteTrails() : null;
     if (this.noteTrails) this.scene.add(this.noteTrails);
 
     this.notes = this.buildNotes();
@@ -448,18 +518,24 @@ export class Highway {
 
     this.buildShockwaves();
 
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    // Tight radius and a high threshold. A wide radius smears the hit line and
-    // lit floor across the entire sky as a flat haze, which reads as a washed
-    // out background rather than as glow.
-    // Radius 0 and a low strength: a wide, strong bloom smears every bright edge
-    // into a soft haze that reads as the whole scene being out of focus. Keep it
-    // to a faint flare so the notes, rails and glow stay crisp.
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.16, 0.0, 0.85);
-    this.composer.addPass(this.bloom);
+    // Bloom is the low tier's biggest saving: the composer renders the scene
+    // into a half-float target and runs several full-screen blur passes on it
+    // every frame. Skip the whole chain when off — `render()` then draws the
+    // scene straight to the canvas.
+    if (q.bloom) {
+      this.composer = new EffectComposer(this.renderer);
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      // Tight radius and a high threshold. A wide radius smears the hit line and
+      // lit floor across the entire sky as a flat haze, which reads as a washed
+      // out background rather than as glow.
+      // Radius 0 and a low strength: a wide, strong bloom smears every bright edge
+      // into a soft haze that reads as the whole scene being out of focus. Keep it
+      // to a faint flare so the notes, rails and glow stay crisp.
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.16, 0.0, 0.85);
+      this.composer.addPass(this.bloom);
 
-    this.composer.addPass(new OutputPass());
+      this.composer.addPass(new OutputPass());
+    }
   }
 
   // --- construction --------------------------------------------------------
@@ -1087,7 +1163,9 @@ export class Highway {
     const colors = new Float32Array(STAR_COUNT * 3);
     const tint = new THREE.Color();
 
-    for (let i = 0; i < STAR_COUNT; i++) {
+    // Only the active count is placed and drawn; the buffers stay at capacity so
+    // a downgrade lowers `starCount` without reallocating.
+    for (let i = 0; i < this.starCount; i++) {
       this.placeStar(i);
       // Seed depth across the whole corridor so the field starts full rather
       // than arriving as one wave.
@@ -1103,6 +1181,8 @@ export class Highway {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(this.starPositions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    // Draw only the active stars, not the full capacity buffer.
+    geometry.setDrawRange(0, this.starCount);
 
     const points = new THREE.Points(
       geometry,
@@ -1131,7 +1211,7 @@ export class Highway {
   private updateStars(dt: number, bass: number): void {
     const boost = 1 + bass * 2.4;
 
-    for (let i = 0; i < STAR_COUNT; i++) {
+    for (let i = 0; i < this.starCount; i++) {
       const zi = i * 3 + 2;
       const z = (this.starPositions[zi] ?? 0) + (this.starSpeeds[i] ?? 0) * boost * dt;
 
@@ -2192,6 +2272,9 @@ export class Highway {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(this.particlePositions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(this.particleColors, 3));
+    // Draw only the active budget; the cursor never wraps beyond it, so higher
+    // indices are always dead. On the low tier this cuts additive overdraw too.
+    geometry.setDrawRange(0, this.particleBudget);
 
     const points = new THREE.Points(
       geometry,
@@ -2250,9 +2333,14 @@ export class Highway {
   }
 
   resize(width: number, height: number): void {
+    // Remembered so a live downgrade can re-apply the size after re-capping the
+    // pixel ratio.
+    this.viewWidth = width;
+    this.viewHeight = height;
+
     this.renderer.setSize(width, height, false);
-    this.composer.setSize(width, height);
-    this.bloom.resolution.set(width, height);
+    this.composer?.setSize(width, height);
+    this.bloom?.resolution.set(width, height);
 
     const aspect = width / height;
     this.camera.aspect = aspect;
@@ -2324,7 +2412,7 @@ export class Highway {
 
     for (let i = 0; i < count; i++) {
       const p = this.particleCursor;
-      this.particleCursor = (this.particleCursor + 1) % MAX_PARTICLES;
+      this.particleCursor = (this.particleCursor + 1) % this.particleBudget;
 
       const angle = Math.random() * Math.PI * 2;
       const lift = 0.4 + Math.random() * 1.3;
@@ -2363,7 +2451,7 @@ export class Highway {
 
     for (let i = 0; i < 2; i++) {
       const p = this.particleCursor;
-      this.particleCursor = (this.particleCursor + 1) % MAX_PARTICLES;
+      this.particleCursor = (this.particleCursor + 1) % this.particleBudget;
 
       this.particlePositions[p * 3] = x + (Math.random() - 0.5) * 0.35;
       this.particlePositions[p * 3 + 1] = 0.1;
@@ -2517,9 +2605,68 @@ export class Highway {
       ? 0.18 + treble * 0.18
       : 0.55 + treble * 0.45;
 
-    this.bloom.strength = 0.16 + bass * 0.12 + this.punch * 0.2;
+    if (this.composer && this.bloom) {
+      this.bloom.strength = 0.16 + bass * 0.12 + this.punch * 0.2;
+      this.composer.render();
+    } else {
+      // Low tier (or after a live downgrade): no post-processing chain, so draw
+      // the scene straight to the canvas. three.js still applies the renderer's
+      // tone mapping and sRGB output, which is exactly what OutputPass did.
+      this.renderer.render(this.scene, this.camera);
+    }
 
-    this.composer.render();
+    this.maybeDowngrade(dt);
+  }
+
+  /**
+   * Drop to the low tier if frames are consistently slow.
+   *
+   * The reliable way to catch a weak GPU — device specs lie (a budget phone
+   * reports flagship CPU/RAM). Slow frames add to a score and fast ones subtract,
+   * so a downgrade needs *sustained* slowness, not one hitch; the opening frames
+   * are skipped because shader compilation and texture upload spike them. The
+   * decision is remembered so the next song starts low instead of flickering
+   * through this again.
+   */
+  private maybeDowngrade(dt: number): void {
+    if (!this.adaptive || this.quality.tier === 'low') return;
+
+    this.framesSeen++;
+    if (this.framesSeen < ADAPT_WARMUP_FRAMES) return;
+
+    // `dt` is already capped at 0.05 by the play loop, so a single stall (a GC
+    // pause, a backgrounded tab) reads as one slow frame and cannot trip this.
+    this.slowFrameScore += dt > SLOW_FRAME_SEC ? 1 : -1;
+    if (this.slowFrameScore < 0) this.slowFrameScore = 0;
+    if (this.slowFrameScore >= ADAPT_SLOW_BUDGET) this.downgradeToLow();
+  }
+
+  /** Apply the low profile to a running Highway and remember the decision. */
+  private downgradeToLow(): void {
+    const low = qualityProfile('low');
+    this.quality = low;
+    markAutoLow();
+
+    // Tear down the bloom chain: `render()` falls through to the direct path.
+    this.composer?.dispose();
+    this.composer = null;
+    this.bloom = null;
+
+    // Re-cap the pixel ratio and re-apply the current size so the smaller
+    // backing store takes effect.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, low.pixelRatioCap));
+    this.resize(this.viewWidth, this.viewHeight);
+
+    // Thin the effects. Buffers stay at capacity; only the active counts shrink,
+    // and the draw ranges follow so overdraw drops with them.
+    this.starCount = Math.min(this.starCount, low.starCount);
+    this.stars.geometry.setDrawRange(0, this.starCount);
+    this.particleBudget = Math.min(this.particleBudget, low.particleBudget);
+    this.particles.geometry.setDrawRange(0, this.particleBudget);
+    // The cursor may sit past the new budget; wrap it so fresh bursts land in
+    // the visible range (particles already beyond it just fade out unseen).
+    if (this.particleCursor >= this.particleBudget) this.particleCursor = 0;
+    if (this.noteTrails) this.noteTrails.visible = false;
   }
 
   /** 1 on a beat, decaying to 0 before the next one. */
@@ -2780,7 +2927,7 @@ export class Highway {
 
   private updateParticles(dt: number): void {
     const gravity = 7.5;
-    for (let i = 0; i < MAX_PARTICLES; i++) {
+    for (let i = 0; i < this.particleBudget; i++) {
       const life = this.particleLife[i] ?? 0;
       if (life <= 0) continue;
 
@@ -2819,7 +2966,7 @@ export class Highway {
       }
     });
 
-    this.composer.dispose();
+    this.composer?.dispose();
     this.renderer.dispose();
   }
 }

@@ -12,6 +12,7 @@ import { cancelHaptics, vibrateHold, vibrateMiss, vibrateTap } from '../haptics.
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS } from '../render/palette.js';
+import { adaptiveAllowed, qualityProfile, resolveQuality } from '../render/quality.js';
 import { HapticToggle } from '../components/HapticToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
 import { CalibrationScreen } from './CalibrationScreen.js';
@@ -367,6 +368,10 @@ export function PlayScreen({
           // on the server, a convertFileSrc file URL on device); hardcoding
           // `/media/…` here would not resolve in the bundled Android app.
           coverUrl: map.thumbnailUrl ?? undefined,
+          // Gameplay: honor the resolved tier and let the renderer downgrade
+          // live on a weak GPU (unless the player pinned a tier).
+          quality: qualityProfile(resolveQuality()),
+          adaptive: adaptiveAllowed(),
         });
         highwayRef.current.resize(canvas.clientWidth, canvas.clientHeight);
         highwayRef.current.setVisibility(modsRef.current.visibility);

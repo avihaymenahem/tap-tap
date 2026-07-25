@@ -15,6 +15,7 @@ import { cancelHaptics, vibrateTap } from '../haptics.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
+import { qualityProfile, resolveQuality } from '../render/quality.js';
 import { getStoredCalibration, setTutorialSeen } from '../storage.js';
 import { playUiSound } from '../uisfx.js';
 
@@ -176,6 +177,7 @@ export function TutorialScreen({
         approachSec: TUTORIAL_APPROACH_SEC,
         theme: DEFAULT_THEME,
         beatGrid,
+        quality: qualityProfile(resolveQuality()),
       });
       highway.resize(canvas.clientWidth, canvas.clientHeight);
       highwayRef.current = highway;

@@ -2,6 +2,7 @@ import type { Chart, Note, Theme } from '@tap-tap/shared';
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { GameEngine } from '../game/engine.js';
 import { Highway } from '../render/highway.js';
+import { qualityProfile, resolveQuality } from '../render/quality.js';
 
 const LANE_COUNT = 5;
 const APPROACH_SEC = 1.6;
@@ -76,6 +77,7 @@ export function ThemePreview({ theme }: { theme: Theme }): JSX.Element {
         approachSec: APPROACH_SEC,
         theme: applied,
         beatGrid: chart.notes.map((note) => note.t),
+        quality: qualityProfile(resolveQuality()),
       });
     } catch {
       // WebGL can genuinely be unavailable — too many live contexts, a lost
