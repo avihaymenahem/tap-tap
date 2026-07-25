@@ -403,8 +403,13 @@ export class Highway {
     // decide which effects exist. Default to the full pipeline when unspecified.
     const q = quality ?? qualityProfile('high');
     this.quality = q;
-    this.starCount = q.starCount;
-    this.particleBudget = q.particleBudget;
+    // Clamped to the buffer capacities. The profile lives in quality.ts and the
+    // capacities here, and the two files cannot import from each other's numbers
+    // — same drift risk as the sw.ts/pwa.ts cache name. Raising a profile above
+    // capacity would place stars past the end of a Float32Array (a silent no-op)
+    // and then draw that range: a field of vertices stuck at the origin.
+    this.starCount = Math.min(q.starCount, STAR_COUNT);
+    this.particleBudget = Math.min(q.particleBudget, MAX_PARTICLES);
     // Only adaptive when high: nothing to shed once already low.
     this.adaptive = adaptive && q.tier !== 'low';
     // Assigned before any build* call: every one of them reads it, and a field
