@@ -126,5 +126,21 @@ export function useSongPreview(): SongPreview {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Stop the preview when the app is backgrounded or minimized — audio must not
+  // keep playing behind the home screen or another app. `visibilitychange`
+  // fires in the Android WebView on minimize; `pagehide` covers a hard teardown.
+  useEffect(() => {
+    const onHidden = (): void => {
+      if (document.visibilityState === 'hidden') stop();
+    };
+    document.addEventListener('visibilitychange', onHidden);
+    window.addEventListener('pagehide', stop);
+    return () => {
+      document.removeEventListener('visibilitychange', onHidden);
+      window.removeEventListener('pagehide', stop);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return { play, stop };
 }
