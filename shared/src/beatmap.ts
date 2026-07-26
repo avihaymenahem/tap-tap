@@ -61,6 +61,22 @@ export interface Chart {
   laneCount: number;
   /** Sorted ascending by `t`. The judge relies on this ordering. */
   notes: Note[];
+  /**
+   * The note spacing this chart was actually generated with, in seconds — the
+   * output of `effectiveMinGapSec` for the tempo at generation time.
+   *
+   * Recorded rather than recomputed because it is what `hitWindowsFor` must be
+   * given: the `good`/miss window is capped to the chart's own spacing so
+   * `hitLane` cannot retire a neighbouring same-lane note, and that guarantee
+   * only holds against the spacing the notes were *placed* at. Regenerating or
+   * re-analysing can move a song's bpm, so a value derived fresh at play time
+   * could disagree with the chart in front of the player.
+   *
+   * **Absence means the difficulty's nominal `minGapSec`** — exactly the old
+   * behaviour, so every chart generated before this field existed plays
+   * identically and no migration is required. Same reasoning as `gainDb`.
+   */
+  minGapSec?: number;
 }
 
 export interface Beatmap {

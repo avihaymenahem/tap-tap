@@ -642,6 +642,27 @@ scripts/
   no holds, and that is the right chart for it — never manufacture them to fill
   a quota.
 
+**Scroll speed is the player's, not the chart's**
+- `approachSec` in `difficulty.ts` is the *base*; the run uses
+  `approachSecFor(base, getScrollSpeed())` (`web/src/scrollSpeed.ts`). Higher
+  multiplier = faster = **less** approach time, so the multiplier divides.
+- **It is deliberately not an assist**, and this is the one thing to get right
+  before touching it. `isAssisted` must classify every new *modifier*, and the
+  tempting reading is "more approach time is easier". It is not: judgement is
+  untouched (note times and `hitWindowsFor` are identical), and the effect is not
+  monotonic — a *low* speed crams more seconds of chart onto the same physical
+  highway, so a dense passage arrives as an unreadable clump. That is why the
+  genre shares records across scroll speeds and why this stays out of
+  `Modifiers`.
+- **Resolve it once per screen, never per frame.** `visibleNotes` runs in the
+  render loop; `getScrollSpeed` caches, but calling it there would hide a
+  storage read on the hottest path rather than remove it. Both play screens
+  compute one `approachSec` const and feed it to the `Highway` constructor, to
+  `visibleNotes`, and to the effect deps.
+- Menu only, taking effect next song — same constraint as Graphics, because the
+  value is baked into the `Highway` at construction. A pause-menu copy would
+  need a live highway rebuild.
+
 **The menu's detail panel is two different things**
 - Below 860px it is a **fixed bottom sheet** overlaying the list; above, it is a
   column beside it. `sheetOpen` state dismisses it, and **only mobile CSS reads
@@ -690,7 +711,11 @@ scripts/
   findings ("easy and medium are rhythmically identical", "hard/extreme never
   rest", a 35% leap rate) failed to reproduce on a second synthetic fixture that
   differed only in how its onsets were built. Numbers from a throwaway harness
-  describe that harness until they are reproduced on another one.
+  describe that harness until they are reproduced on another one. The corpus in
+  `charts/testFixtures.ts` exists so that reproducing is the default rather than
+  an afterthought — a claim about *generation* gets asserted across all four
+  fixtures (see Testing conventions). Both surviving claims did: rhythm does
+  escalate from easy to extreme, and density is monotonic, on every fixture.
 - Regenerating charts invalidates stored scores. Mention it when you do.
 - **Regenerate re-analyzes when `analysis.json` is stale.** The file carries an
   `analysisVersion` stamp; when it does not match `ANALYSIS_VERSION`, regenerate
@@ -702,8 +727,35 @@ scripts/
 - **Existing songs have no holds until they are regenerated.** That is by
   design — `duration` is optional so old beatmaps stay valid — but it means a
   song will look like holds "did not work" until it is rebuilt.
-- `minGapSec` governs how hard a chart feels far more than `targetNps` — the
-  target is only an average, the gap is a hard ceiling on sustained streams.
+- **Note spacing is beat-relative, and `minGapBeats` is the knob.** The gap
+  governs how hard a chart feels far more than `targetNps` — the target is only
+  an average, the gap is a hard ceiling on sustained streams — but it is no
+  longer a wall-clock constant. `effectiveMinGapSec` converts `minGapBeats`
+  through the song's tempo and floors the result at `minGapSec`, so:
+  - **Tune the beats value, not the seconds one.** The two are calibrated so
+    120 BPM resolves to exactly the old flat number, which is what keeps the
+    existing library stable; `difficulty.test.ts` pins that calibration.
+  - **The floor means nothing ever gets tighter than it used to.** Songs at or
+    above 120 BPM are unchanged; slower songs get proportionally wider gaps.
+    Removing the floor would let a 180 BPM extreme chart ask for ~10.7 notes/sec
+    and push `hitWindowsFor` into windows nobody has played.
+  - **An untrusted grid falls back to `minGapSec`.** Converting through a tempo
+    below `MIN_GRID_CONFIDENCE` would scale every gap in the song by that
+    tempo's own error — the same reasoning that already denies the grid any say
+    in snapping, the on-beat bonus and chord gating.
+  - **Charts record what they were built with** (`Chart.minGapSec`), and play
+    passes *that* to the engine rather than the difficulty's nominal value.
+    `hitWindowsFor` caps the miss window to the chart's own spacing so `hitLane`
+    cannot retire a neighbouring same-lane note, and that guarantee only holds
+    against the spacing the notes were actually placed at — a value re-derived
+    at play time could disagree after a re-analysis moved the bpm. Absence means
+    the nominal value, so pre-existing charts are unaffected.
+  - **A harder tier is not always denser.** Where the onsets offer no spacing
+    between two tiers' targets both land on the same figure: on a sixteenth-
+    quantised 80 BPM song, hard (0.285s) and extreme (0.21s) both skip to
+    eighths and generate identical density, differing only in lanes and
+    approach speed. `corpus.test.ts` therefore asserts non-decreasing density,
+    not strictly increasing.
 
 ## Testing conventions
 
@@ -716,6 +768,28 @@ scripts/
   decode audio → per-second RMS → per-second note count → correlate. Near zero
   or negative means the charts are fighting the music. This caught two separate
   bugs. See PLAN.md §2.4.
+- **Chart generation is gated by a recorded corpus** — `charts/corpus.test.ts`
+  over the four fixtures in `charts/testFixtures.ts`, at `CORPUS_SEED`.
+  Generation is deterministic, so the full `chartMetrics` scorecard is pinned per
+  fixture per difficulty and compared to ~0.005. **A failure means "generation
+  changed", not "generation broke"** — read which numbers moved, decide if that
+  is the change you wanted, then re-record and say in the commit which moved.
+  Never loosen a tolerance to make it pass; that throws away the only lasting
+  evidence of what a change did to the charts.
+  - **Use the corpus rather than hand-rolling a fixture.** Each of the four
+    exists for a path the others cannot reach: `structured` is the only one with
+    real silence and intensity variation (so the only one where rests and the
+    density correlation mean anything); `hatHeavy` is ~94% high-band and is what
+    holds `laneRangesByPopulation` honest; `rubato` is the only one below
+    `MIN_GRID_CONFIDENCE`, i.e. the whole untrusted-grid branch; `fullKit` is the
+    only one whose onsets carry a real *second* band, which is what
+    `secondaryBand` needs before a chord is eligible at all — before it existed
+    no test in the repo produced a single chord despite `chordChance` being
+    0.05/0.15/0.32.
+  - Assertions that only hold for one song shape belong in that fixture's block,
+    not the shared one. Asserting rests on a continuously-playing fixture is the
+    "a metric is not a quality floor" mistake wearing a different hat — such a
+    song is *entitled* to a continuous chart.
 - Write throwaway diagnostics as `dbg.ts` at the repo root and delete them after
   — relative imports do not resolve from a temp directory.
 
@@ -815,9 +889,12 @@ New screens and elements should reuse it rather than invent parallel systems:
   row — everything downstream (menu picker, router, editor dropdown,
   `generateAllCharts`, CLI) iterates the list. TypeScript's exhaustiveness on
   `Record<DifficultyName, …>` catches any hand-written literal you miss.
-  **Extreme spaces at 140ms — tighter than hard's 190ms — on purpose.** That is
-  only safe because the miss window is per difficulty (`hitWindowsFor`), so
-  Extreme judges on a 140ms window while easy/medium/hard keep the base 190ms.
+  **Extreme spaces tighter than hard — on purpose.** That is only safe because
+  the miss window is per difficulty (`hitWindowsFor`), so Extreme judges on a
+  correspondingly tighter window while easy/medium/hard keep the base 190ms.
+  Both spacings are now beat-relative (0.28 vs 0.38 beats, floored at 140ms and
+  190ms) — see the spacing entry under Charts; the floors are what those window
+  numbers refer to, and they bind at 120 BPM and above.
   It escalates further via `approachSec` (0.95s — faster scroll), `targetNps`
   and `chordChance`. Do not reintroduce a single global miss window; it was what
   capped Extreme's density. Existing songs get the new chart on regenerate/

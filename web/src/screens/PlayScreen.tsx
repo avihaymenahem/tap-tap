@@ -7,6 +7,7 @@ import { comboMilestone, comboTier } from '../game/combo.js';
 import { GameEngine, type GameSnapshot } from '../game/engine.js';
 import { accuracyOf, foldUnreached, gradeFor, type Tier } from '../game/judge.js';
 import { playUiSound } from '../uisfx.js';
+import { approachSecFor, getScrollSpeed } from '../scrollSpeed.js';
 import type { RunResult } from '../game/run.js';
 import { cancelHaptics, vibrateHold, vibrateMiss, vibrateTap } from '../haptics.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
@@ -263,6 +264,12 @@ export function PlayScreen({
   onTitleRef.current = onTitle;
 
   const params = DIFFICULTIES[difficulty];
+  // Scroll speed is the player's, not the chart's (`scrollSpeed.ts`). Resolved
+  // here rather than at each use below: `visibleNotes` is called from the render
+  // loop, and this must not become a per-frame storage read. `getScrollSpeed`
+  // caches, and the value cannot change while this screen is mounted — the
+  // setting lives in the menu — so it stays stable for the effect deps too.
+  const approachSec = approachSecFor(params.approachSec, getScrollSpeed());
 
   /**
    * Build a fresh engine for the played chart under the current modifiers.
@@ -285,7 +292,11 @@ export function PlayScreen({
       // the engine subtracts song-seconds — so the offset scales with speed, or
       // a fast run would judge and draw everything a fraction off.
       calibrationSec: effectiveCalibration(clock) * run.speed,
-      minGapSec: params.minGapSec,
+      // The chart's own spacing when it has one — note spacing is beat-relative,
+      // so a slow song's chart is spaced wider than `params.minGapSec` and may
+      // fairly be judged on the wider window. Absent on charts generated before
+      // that existed, where the nominal value *is* what they were built with.
+      minGapSec: chart.minGapSec ?? params.minGapSec,
       canFail: run.fail,
     });
   };
@@ -366,7 +377,7 @@ export function PlayScreen({
         highwayRef.current = new Highway({
           canvas,
           laneCount: chart.laneCount,
-          approachSec: params.approachSec,
+          approachSec,
           theme,
           beatGrid: map.beatGrid,
           // The beatmap carries a platform-resolved thumbnail URL (an HTTP path
@@ -408,7 +419,7 @@ export function PlayScreen({
       setEngineReady(false);
       phaseRef.current = 'loading';
     };
-  }, [songId, difficulty, params.approachSec]);
+  }, [songId, difficulty, approachSec]);
 
   // Keep the WebGL drawing buffer matched to the element size.
   useEffect(() => {
@@ -634,7 +645,7 @@ export function PlayScreen({
 
       highway.render(
         shownTime,
-        engine.visibleNotes(shownTime, params.approachSec),
+        engine.visibleNotes(shownTime, approachSec),
         dt,
         bass,
         treble,
@@ -1081,7 +1092,7 @@ export function PlayScreen({
       // Never leave the device buzzing after the screen is gone.
       cancelHaptics();
     };
-  }, [engineReady, params.laneCount, params.approachSec]);
+  }, [engineReady, params.laneCount, approachSec]);
 
   // Auto-start once the engine is ready AND the audio is actually running — so
   // the menu's PLAY tap drops straight into the run with no second "tap to

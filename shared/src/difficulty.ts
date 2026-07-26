@@ -5,8 +5,38 @@ export interface DifficultyParams {
   laneCount: number;
   /** Beat subdivision notes snap to. 1 = quarter notes, 4 = sixteenths. */
   subdivision: number;
-  /** Minimum seconds between consecutive notes anywhere on the board. */
+  /**
+   * **Absolute floor** on the seconds between consecutive notes anywhere on the
+   * board — the physical-playability limit, and the fallback when the song's
+   * tempo is not trustworthy enough to convert `minGapBeats` through.
+   *
+   * This used to be the whole spacing rule, and that made difficulty
+   * tempo-dependent in a way nobody chose: the same 0.19s is 0.285 beats at
+   * 90 BPM (nearly every sixteenth) but 0.538 beats at 170 BPM (only eighths).
+   * So "hard" asked for a much finer musical figure on slow songs than fast
+   * ones. `minGapBeats` is the musical target; this is what stops that target
+   * from producing something unplayable. See {@link effectiveMinGapSec}.
+   */
   minGapSec: number;
+  /**
+   * Minimum **beats** between consecutive notes — the musical spacing target.
+   * 1 is a quarter note, 0.5 an eighth, 0.25 a sixteenth.
+   *
+   * Each value deliberately sits *between* two subdivisions, which is the tuning
+   * logic this table already followed in wall-clock form: a gap between an eighth
+   * and a quarter lets the generator place eighths as accents without being able
+   * to place every single one. Sitting exactly on a subdivision would let a chart
+   * fill every slot of it, which is the "wall of evenly spaced notes rather than
+   * a rhythm" failure.
+   *
+   * **Calibrated so 120 BPM is unchanged.** At a 0.5s beat every value here
+   * resolves to exactly the `minGapSec` above it, so a 120 BPM song generates the
+   * chart it already generated. Slower songs get proportionally wider gaps;
+   * faster songs sit on the floor and are also unchanged. Nothing gets tighter
+   * than it is today — that direction would make charts harder without anyone
+   * asking, and would push `hitWindowsFor` into windows no one has played.
+   */
+  minGapBeats: number;
   /** Whether two notes may share a timestamp. */
   chords: boolean;
   /** 0..1 — how often an eligible strong onset becomes a chord. */
@@ -69,16 +99,24 @@ export interface DifficultyParams {
 /**
  * Difficulty calibration.
  *
- * `minGapSec` matters more than `targetNps`. The target only sets the average
- * across the song; the gap sets the hard ceiling on a sustained stream, at
- * `1 / minGapSec` notes per second. A generous target with a tight gap produces
- * a chart that sits permanently on the spacing floor — a wall of evenly spaced
- * notes rather than a rhythm — which is what made medium unplayable at a 0.2s
- * gap: on a 126 BPM track that is a note on every eighth note, forever.
+ * The gap matters more than `targetNps`. The target only sets the average across
+ * the song; the gap sets the hard ceiling on a sustained stream, at `1 / gap`
+ * notes per second. A generous target with a tight gap produces a chart that sits
+ * permanently on the spacing floor — a wall of evenly spaced notes rather than a
+ * rhythm — which is what made medium unplayable at a 0.2s gap: on a 126 BPM track
+ * that is a note on every eighth note, forever.
+ *
+ * **Tune `minGapBeats`, not `minGapSec`.** The beats value is the musical
+ * intent and is what shapes a chart on all but the fastest songs;
+ * `minGapSec` is the floor beneath it (see both fields, and
+ * {@link effectiveMinGapSec}). Changing one without the other breaks the 120 BPM
+ * calibration that keeps the existing library's charts stable — `difficulty.test.ts`
+ * asserts that calibration, so it will tell you.
  *
  * A useful check against a real song: quarter note = 60/BPM seconds, eighth =
  * half that. Medium's gap should sit *between* the two, so it can place eighths
- * as accents without being able to place every single one.
+ * as accents without being able to place every single one — which in beats is
+ * simply `0.5 < minGapBeats < 1`, the same statement without the tempo in it.
  */
 export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
   easy: {
@@ -91,6 +129,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     subdivision: 1,
     // ~2.2 notes/sec ceiling: roughly quarter notes at typical tempos.
     minGapSec: 0.45,
+    // Just under a quarter note: quarters yes, eighths never.
+    minGapBeats: 0.9,
     chords: false,
     chordChance: 0,
     targetNps: 1.2,
@@ -110,6 +150,8 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     subdivision: 2,
     // ~3.3 notes/sec ceiling: between quarters and eighths, so streams breathe.
     minGapSec: 0.3,
+    // Between an eighth and a quarter: eighths land as accents, not as a wall.
+    minGapBeats: 0.6,
     chords: true,
     chordChance: 0.05,
     targetNps: 2,
@@ -126,6 +168,10 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     subdivision: 4,
     // ~5.2 notes/sec ceiling: comfortable eighths with sixteenth-note bursts.
     minGapSec: 0.19,
+    // Between a sixteenth and an eighth: every eighth is available, sixteenths
+    // only as bursts. At 90 BPM the old flat 0.19s allowed nearly every
+    // sixteenth; this is the difference that fix is about.
+    minGapBeats: 0.38,
     chords: true,
     chordChance: 0.15,
     targetNps: 3.6,
@@ -163,6 +209,10 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     laneCount: 4,
     subdivision: 4,
     minGapSec: 0.14,
+    // Barely wider than a sixteenth — sixteenth streams are on the table, which
+    // is the point of the tier. Sits on the floor for anything at or above
+    // 120 BPM, so a fast song plays exactly as it does today.
+    minGapBeats: 0.28,
     chords: true,
     chordChance: 0.32,
     targetNps: 5.4,
@@ -176,6 +226,40 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     maxConcurrentHolds: 1,
   },
 };
+
+/**
+ * The spacing a chart is actually generated with: the musical target
+ * (`minGapBeats` converted through the song's tempo), floored at the absolute
+ * `minGapSec`.
+ *
+ * Two reasons this is a function of the song rather than a constant:
+ *
+ *  - **`max`, not a plain conversion.** A fast song would otherwise get a very
+ *    tight gap in seconds — 0.28 beats at 180 BPM is 93ms, roughly 10.7
+ *    notes/sec — which is past what two thumbs can do and past any window
+ *    `hitWindowsFor` has been played at. The floor means the change only ever
+ *    *widens* a gap, so no existing chart becomes harder and the fast end keeps
+ *    exactly the spacing it has now.
+ *  - **`gridTrusted` gates it.** Converting through a tempo nobody believes is
+ *    worse than not converting at all: a wrong BPM would scale every gap in the
+ *    song by the size of its own error. Below `MIN_GRID_CONFIDENCE` the grid gets
+ *    no say anywhere else in generation either (no snapping, no on-beat bonus, no
+ *    chord gating), and this is the same rule applied to spacing.
+ *
+ * Callers must pass the tempo the chart is being built against. Charts record
+ * the result on themselves (`Chart.minGapSec`) so judgement can use the same
+ * number later without having to recompute it from a tempo that may since have
+ * been re-analysed.
+ */
+export function effectiveMinGapSec(
+  params: DifficultyParams,
+  bpm: number,
+  gridTrusted: boolean,
+): number {
+  if (!gridTrusted || !Number.isFinite(bpm) || bpm <= 0) return params.minGapSec;
+  const beatSec = 60 / bpm;
+  return Math.max(params.minGapSec, params.minGapBeats * beatSec);
+}
 
 /**
  * Lane -> keyboard key, left hand, scaling outward from the home row.

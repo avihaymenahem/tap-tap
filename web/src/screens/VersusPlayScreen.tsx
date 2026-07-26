@@ -14,6 +14,7 @@ import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../rende
 import { adaptiveAllowed, qualityProfile, resolveQuality } from '../render/quality.js';
 import { getStoredCalibration } from '../storage.js';
 import { playUiSound } from '../uisfx.js';
+import { approachSecFor, getScrollSpeed } from '../scrollSpeed.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 
 /**
@@ -183,6 +184,12 @@ export function VersusPlayScreen({
   onExitRef.current = onExit;
 
   const params = DIFFICULTIES[difficulty];
+  // Scroll speed is the player's, not the chart's (`scrollSpeed.ts`). Resolved
+  // here rather than at each use below: `visibleNotes` is called from the render
+  // loop, and this must not become a per-frame storage read. `getScrollSpeed`
+  // caches, and the value cannot change while this screen is mounted — the
+  // setting lives in the menu — so it stays stable for the effect deps too.
+  const approachSec = approachSecFor(params.approachSec, getScrollSpeed());
 
   useWakeLock(true);
 
@@ -192,7 +199,9 @@ export function VersusPlayScreen({
   const makeEngine = (chart: Chart, clock: AudioClock): GameEngine =>
     new GameEngine(chart, {
       calibrationSec: resolveCalibration(getStoredCalibration(), clock.outputLatency),
-      minGapSec: params.minGapSec,
+      // The chart's own spacing — see PlayScreen. Both sides play the same chart,
+      // so both windows resolve identically.
+      minGapSec: chart.minGapSec ?? params.minGapSec,
       canFail: false,
     });
 
@@ -240,7 +249,7 @@ export function VersusPlayScreen({
           const highway = new Highway({
             canvas: canvas!,
             laneCount: chart.laneCount,
-            approachSec: params.approachSec,
+            approachSec,
             theme,
             beatGrid: map.beatGrid,
             // No per-highway cover disc in Versus: two of them, back to back at
@@ -287,7 +296,7 @@ export function VersusPlayScreen({
       setEngineReady(false);
       phaseRef.current = 'loading';
     };
-  }, [songId, difficulty, params.approachSec]);
+  }, [songId, difficulty, approachSec]);
 
   // Keep both drawing buffers matched to their (half-height) panes.
   useEffect(() => {
@@ -460,7 +469,7 @@ export function VersusPlayScreen({
         const shownTime = engine.judgementTime(songTime);
         highway.render(
           shownTime,
-          engine.visibleNotes(shownTime, params.approachSec),
+          engine.visibleNotes(shownTime, approachSec),
           dt,
           bass,
           treble,
@@ -730,7 +739,7 @@ export function VersusPlayScreen({
       controlsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engineReady, params.laneCount, params.approachSec]);
+  }, [engineReady, params.laneCount, approachSec]);
 
   const outcomeTag = (player: PlayerIndex): string => {
     if (!match) return '';

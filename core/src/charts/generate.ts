@@ -7,7 +7,7 @@ import type {
   Onset,
   Waveform,
 } from '@tap-tap/shared';
-import { DIFFICULTIES, DIFFICULTY_NAMES } from '@tap-tap/shared';
+import { DIFFICULTIES, DIFFICULTY_NAMES, effectiveMinGapSec } from '@tap-tap/shared';
 import { percentileRanks } from '../analysis/onsets.js';
 import { type Sustain, detectSustains } from '../analysis/sustain.js';
 import { hashString, mulberry32 } from '../util/rng.js';
@@ -50,6 +50,15 @@ export function generateChart(
   // toward a wrong grid only adds noise to ground truth.
   const gridTrusted = analysis.bpmConfidence >= MIN_GRID_CONFIDENCE;
   const tolerance = gridTrusted ? gridTolerance(grid) : 0;
+
+  // Spacing is beat-relative (see `effectiveMinGapSec`), so it depends on this
+  // song's tempo. Resolved once into a derived params object rather than at each
+  // of the four call sites below: every `params.minGapSec` downstream then reads
+  // the tempo-aware value automatically, including any added later — the
+  // alternative leaves a trap where a new use silently picks up the nominal gap
+  // and spaces notes differently from the rest of the chart.
+  const minGapSec = effectiveMinGapSec(params, analysis.bpm, gridTrusted);
+  params = minGapSec === params.minGapSec ? params : { ...params, minGapSec };
 
   // 1. Nudge onsets onto the subdivision grid, but ONLY where the grid already
   //    agrees with them.
@@ -146,7 +155,10 @@ export function generateChart(
 
   notes.sort((a, b) => a.t - b.t || a.lane - b.lane);
   if (sustains.length > 0) applyHolds(notes, sustains, params, accepted, gridTrusted);
-  return { laneCount: params.laneCount, notes };
+  // Recorded so judgement caps its windows against the spacing these notes were
+  // actually placed at, not a value re-derived from a bpm that may have moved
+  // since. See `Chart.minGapSec`.
+  return { laneCount: params.laneCount, notes, minGapSec };
 }
 
 /**
