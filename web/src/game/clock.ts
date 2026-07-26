@@ -8,6 +8,8 @@
  * Never use setTimeout, setInterval, or accumulated frame deltas for game timing.
  */
 
+import { dbToGain } from '@tap-tap/core';
+
 /**
  * An AudioContext created and resumed inside a user gesture, held for the next
  * `load()` to adopt. Browsers only let audio start from a gesture; the menu's
@@ -41,6 +43,12 @@ export class AudioClock {
   private readonly buffer: AudioBuffer;
   private readonly analyser: AnalyserNode;
   private readonly gain: GainNode;
+  /**
+   * Loudness normalisation, separate from `gain` so the outro fade has one job.
+   * Sharing a node would mean the fade multiplying a per-track offset, and a
+   * quiet song would fade from a different starting point than a loud one.
+   */
+  private readonly trackGain: GainNode;
 
   private source: AudioBufferSourceNode | null = null;
   private startedAtContextTime = 0;
@@ -66,9 +74,25 @@ export class AudioClock {
     this.analyser.fftSize = 512;
     this.analyser.smoothingTimeConstant = 0.75;
 
+    this.trackGain = ctx.createGain();
     this.gain = ctx.createGain();
+    // source → trackGain → gain(fade) → analyser → destination. The analyser
+    // sits *after* normalisation on purpose: the spectrum drives the EQ ring and
+    // the scene's reactivity, and reading it pre-gain would leave a quiet track
+    // looking dead on screen as well as sounding quiet.
+    this.trackGain.connect(this.gain);
     this.gain.connect(this.analyser);
     this.analyser.connect(ctx.destination);
+  }
+
+  /**
+   * Apply this track's loudness normalisation (`Beatmap.gainDb`).
+   *
+   * Call before `start`. Undefined means a song ingested before loudness was
+   * measured: it plays at its own level, which is exactly how it played before.
+   */
+  setTrackGain(db: number | undefined): void {
+    this.trackGain.gain.value = db === undefined ? 1 : dbToGain(db);
   }
 
   /**
@@ -121,7 +145,7 @@ export class AudioClock {
     const source = this.ctx.createBufferSource();
     source.buffer = this.buffer;
     source.playbackRate.value = this.rateValue;
-    source.connect(this.gain);
+    source.connect(this.trackGain);
     source.onended = () => {
       if (this.source === source) {
         this.playing = false;

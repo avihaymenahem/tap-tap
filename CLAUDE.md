@@ -195,8 +195,13 @@ scripts/
 - **`AudioContext.currentTime` is the master clock.** Never `setTimeout`,
   `setInterval`, or accumulated frame deltas for anything the player can hear or
   feel. `requestAnimationFrame` drives rendering only.
-- **`laneCount` is a parameter, never a constant.** Difficulty determines it
-  (3/4/5). Anything that hardcodes 3 is a bug.
+- **`laneCount` is a parameter, never a constant.** Anything that hardcodes a
+  lane count is a bug. **Every shipped difficulty is currently 4** — the 3- and
+  5-lane paths are supported (keymaps, lane ranges, `laneColor`, the tap-to-lane
+  projection) and exercised by tests, but nothing in the library travels them,
+  so a regression there will not show up in play. If you change a `laneCount`
+  in `difficulty.ts`, that is the moment those paths get their first real
+  exercise; expect to find something.
 - **Lane *widths* are sized to the song, not fixed at `low[0] mid[1,2] high[3]`.**
   `laneRangesByPopulation` (charts/lanes.ts) gives each band a lane range
   proportional to how many onsets it carries, so a hat-dominated song does not
@@ -241,6 +246,46 @@ scripts/
   that share a mood are lanes the player cannot tell apart at speed. The sky
   carries a theme's identity; the lanes carry its readability. `theme.test.ts`
   enforces count and uniqueness, but only an eye catches "too similar".
+- **Assist rank outranks score in `recordScore`.** There is one best slot per
+  chart and `scoreMultiplierFor` returns 1 for every modifier set, so a 0.75x
+  run posts the same numbers as a full-speed one. Comparing on score alone let
+  an assisted run overwrite a clean record — irreversibly, since nothing keeps a
+  second copy. An assisted run may never displace a clean one and a clean run
+  always displaces an assisted one, whatever the scores. `isAssisted` is
+  deliberately **not** `!isDefaultModifiers`: most modifiers (fail, hidden,
+  fadeout, speeds above 1) make the run *harder* and must keep their standing;
+  only slower speeds and holds-off count. **Any new modifier has to be
+  classified into one of those two groups** or it silently defaults to "not
+  assisted", which is the direction that corrupts records.
+- **Loudness is stored as a gain, never re-encoded.** `Beatmap.gainDb` carries a
+  ReplayGain-style offset measured per ITU-R BS.1770 at ingest
+  (`core/analysis/loudness.ts`), applied at playback by `AudioClock.setTrackGain`.
+  Re-encoding the audio would destroy the original irreversibly, add a
+  generation of lossy loss, and make re-tuning `TARGET_LUFS` later mean
+  re-downloading the library; a number is reversible. **Absence means unity**, so
+  a song ingested before this plays exactly as it did — `regenerateCharts`
+  measures it best-effort on the decode it already does, which is the migration
+  path for the existing library. Measured on the **mono downmix** (that is what
+  `analyze` is handed); `DUAL_MONO_GAIN` puts it back on the stereo scale so the
+  numbers compare with other tools. Real spread on this library is **9.6 LU**
+  (−4.7 to −14.3 LUFS), which is why a fixed-level hit sound cannot be balanced
+  until this exists — it blocks the rest of the audio work.
+- **`trackGain` and the outro `gain` are separate nodes.** Sharing one would
+  make the fade multiply a per-track offset, so a quiet song would fade from a
+  different starting point than a loud one. The analyser sits *after*
+  normalisation on purpose: the spectrum drives the scene's reactivity, and
+  reading it pre-gain leaves a quiet track looking dead as well as sounding it.
+- **The beat flare is rate-limited to `MAX_FLASH_HZ` (3/sec) and switchable.**
+  Tempo comes from whatever the player pasted a link to, so at 240 BPM the
+  backdrop flare fired four times a second — over the WCAG 2.3.1 threshold, and
+  the safety of the effect was a property of the music rather than the code.
+  `flashStride` thins fast songs onto every Nth beat (skipping beats keeps it
+  musical; clamping to a fixed 3 Hz would drift against the song). Anything new
+  that pulses on the grid must go through `beatPulse`, or it reintroduces the
+  hazard next to a control that claims to have removed it. The player switch is
+  separate from `prefers-reduced-motion` on purpose — plenty of people want
+  motion and not flashing, and the reverse — and **its copy must never promise
+  safety**; it says "Screen flash", not "epilepsy safe".
 
 ## Traps that have already cost time
 
@@ -309,8 +354,9 @@ scripts/
   same shape as a tile so a tile visibly drops *into* its target. The old rings
   are gone, and so is the **white hit-line bar** — the frames alone mark the
   target now (they sit at z=0, so the timing reference the old bar carried is
-  preserved). `theme.hitLine` is now unused by the renderer but kept in the
-  schema.
+  preserved). `theme.hitLine` went unused for a while after that and **is used
+  again**: it colours the electric hit bar's core (`buildHitBar`) and the
+  receptor dash on the stage path.
 - **Tile/frame textures are aspect-matched to the world footprint.** A tile is
   ~1:2 (tall), the frame ~1:2.5, so the texture canvases are 128×256 / 128×320 —
   match the canvas aspect to the world aspect or the rounded corners map to
@@ -535,19 +581,19 @@ scripts/
   themed: they mean perfect/great/good/early/late, and that is the one visual
   language the player learns once and relies on everywhere.
 
-**Holds — currently OFF**
-- **`holdShare` is 0 on every difficulty, which disables the feature.** They
-  were built (L1–L4) and did not play well enough to keep. Nothing is deleted:
-  the engine, input and renderer are intact and tested, and `applyHolds` returns
-  immediately on a zero budget so none of it ever fires. Restore the tuned
-  shares recorded in `difficulty.ts` to turn it back on; `holds.test.ts` asserts
-  the off state, so re-enabling is deliberate rather than accidental.
-- The generation tests enable holds explicitly via a local `enabled()` helper,
-  so the mechanism stays covered while the feature is dark.
-- **Disabling only affects newly generated charts.** Beatmaps keep whatever
-  they were built with, so every song that already had holds needed regenerating
-  — including one that existed *only in the Docker volume*, because it was
-  ingested there. See the Docker section: the container's library is a copy.
+**Holds — ON**
+- **`holdShare` is 0.1 / 0.14 / 0.18 / 0.2** (easy→extreme) in `difficulty.ts`.
+  They were dark for a while — the shares were zeroed after L1–L4 because they
+  did not play well enough — and were turned back on once tuned. If you read a
+  doc or comment claiming the feature is off, it is out of date; check
+  `difficulty.ts`, which is the only authority. `holds.test.ts` pins the shipped
+  shares in `TUNED_SHARE` and has a `shipped configuration` case asserting the
+  two agree, so changing one and not the other fails rather than drifts.
+- A zero share still disables the feature cleanly (`applyHolds` returns
+  immediately on a zero budget), so zeroing one difficulty is a valid move.
+- **Changing a share only affects newly generated charts.** Beatmaps keep
+  whatever they were built with, so the whole library needs regenerating to
+  follow a change — and a song will look like holds "did not work" until it is.
 - **Release input is bound on `window`, not the canvas**, and keyed by
   `pointerId`. A finger that slides off the canvas still fires `pointerup`
   there, and a release that never arrives leaves the lane held forever.
@@ -630,6 +676,21 @@ scripts/
   effect is emptying the list is worse than no filter.
 
 **Charts**
+- **A metric is not a quality floor, and `fullBoardLeapRate` is the cautionary
+  tale.** Hard and extreme cross the whole board on 26–33% of transitions. That
+  reads as alarming and is almost certainly fine: **every lane owns a finger**
+  (A/S/D/F is one hand) or a thumb, so lane 0 → lane 3 is not a journey across
+  the board, it is the other hand — kick-then-hat alternation scoring high there
+  is the chart mirroring the kit, which is what the lane ordering exists to do.
+  A whole change was built against the opposite assumption and reverted; see
+  `LANE_STEP_GAP_FACTOR` for why clamping *within* a band can never move a
+  *between*-band jump. Do not assert an upper bound on a movement metric without
+  a playability model that says what the bound means.
+- **Chart diagnostics are fixture-specific — say which fixture.** Three separate
+  findings ("easy and medium are rhythmically identical", "hard/extreme never
+  rest", a 35% leap rate) failed to reproduce on a second synthetic fixture that
+  differed only in how its onsets were built. Numbers from a throwaway harness
+  describe that harness until they are reproduced on another one.
 - Regenerating charts invalidates stored scores. Mention it when you do.
 - **Regenerate re-analyzes when `analysis.json` is stale.** The file carries an
   `analysisVersion` stamp; when it does not match `ANALYSIS_VERSION`, regenerate

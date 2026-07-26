@@ -17,8 +17,8 @@ android {
         applicationId "com.taptap.game"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 16
-        versionName "0.11.2"
+        versionCode 17
+        versionName "0.12.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // youtubedl-android ships Python + ffmpeg per ABI, which dominates the
         // APK size. Ship only arm64-v8a — the physical device (S25) — which

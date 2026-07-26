@@ -69,6 +69,51 @@ describe('forgetSong', () => {
   });
 });
 
+/**
+ * The rank rule. There is exactly one best slot per chart, so an assisted run
+ * that overwrote a clean record destroyed it — `scoreMultiplierFor` returns 1
+ * for every modifier set, which is what let a 0.75x run post a competitive
+ * score in the first place.
+ */
+describe('recordScore assist ranking', () => {
+  const clean = { score: 1000, accuracy: 0.9, maxCombo: 50, grade: 'A' };
+  const assisted = { ...clean, assisted: true };
+
+  it('still takes the higher score between two clean runs', () => {
+    expect(recordScore('s', 'hard', clean)).toBe(true);
+    expect(recordScore('s', 'hard', { ...clean, score: 1500 })).toBe(true);
+    expect(getBestScore('s', 'hard')?.score).toBe(1500);
+    expect(recordScore('s', 'hard', { ...clean, score: 900 })).toBe(false);
+  });
+
+  it('never lets an assisted run displace a clean record, however high it scores', () => {
+    recordScore('s', 'hard', clean);
+    expect(recordScore('s', 'hard', { ...assisted, score: 999_999 })).toBe(false);
+    expect(getBestScore('s', 'hard')).toEqual(clean);
+  });
+
+  it('lets a clean run displace an assisted record, however low it scores', () => {
+    recordScore('s', 'hard', { ...assisted, score: 999_999 });
+    expect(recordScore('s', 'hard', { ...clean, score: 1 })).toBe(true);
+    expect(getBestScore('s', 'hard')?.assisted).toBeUndefined();
+  });
+
+  it('ranks assisted runs against each other on score', () => {
+    expect(recordScore('s', 'hard', assisted)).toBe(true);
+    expect(recordScore('s', 'hard', { ...assisted, score: 500 })).toBe(false);
+    expect(recordScore('s', 'hard', { ...assisted, score: 2000 })).toBe(true);
+    expect(getBestScore('s', 'hard')?.score).toBe(2000);
+  });
+
+  it('treats a record with no assisted field as clean', () => {
+    // Written by a build that predates the field. It cannot be classified after
+    // the fact, so it keeps its standing rather than being silently demoted.
+    recordScore('s', 'hard', clean);
+    expect(getBestScore('s', 'hard')?.assisted).toBeUndefined();
+    expect(recordScore('s', 'hard', { ...assisted, score: 999_999 })).toBe(false);
+  });
+});
+
 describe('onboarding + preview flags', () => {
   it('has never seen the tutorial by default, then remembers it was seen', () => {
     expect(getTutorialSeen()).toBe(false);

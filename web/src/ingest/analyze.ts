@@ -11,12 +11,24 @@
  * that is orchestration for the ingest layer (MC2). This stays the pure DSP step.
  */
 
-import { analyze, computeWaveform, generateAllCharts } from '@tap-tap/core';
+import {
+  analyze,
+  computeWaveform,
+  generateAllCharts,
+  integratedLoudness,
+  replayGainDb,
+} from '@tap-tap/core';
 
 export interface AnalysisBundle {
   analysis: ReturnType<typeof analyze>;
   waveform: ReturnType<typeof computeWaveform>;
   charts: ReturnType<typeof generateAllCharts>;
+  /**
+   * Playback gain in dB — see `Beatmap.gainDb`. Measured here because this is
+   * the one place holding decoded PCM, and it is the only chance to measure it
+   * without decoding the track a second time.
+   */
+  gainDb: number;
 }
 
 /** Run the full analysis + chart generation over mono PCM. Deterministic for a given `songId`. */
@@ -24,7 +36,8 @@ export function runAnalysis(pcm: Float32Array, sampleRate: number, songId: strin
   const analysis = analyze(pcm, sampleRate);
   const waveform = computeWaveform(pcm, sampleRate);
   const charts = generateAllCharts(analysis, songId, waveform);
-  return { analysis, waveform, charts };
+  const gainDb = replayGainDb(integratedLoudness(pcm, sampleRate));
+  return { analysis, waveform, charts, gainDb };
 }
 
 /** Worker message in. The PCM buffer is transferred, not copied. */

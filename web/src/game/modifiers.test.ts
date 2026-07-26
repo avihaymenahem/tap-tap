@@ -2,6 +2,7 @@ import type { Note } from '@tap-tap/shared';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_MODIFIERS,
+  isAssisted,
   isDefaultModifiers,
   mirrorNotes,
   scoreMultiplierFor,
@@ -23,6 +24,37 @@ describe('isDefaultModifiers', () => {
     expect(isDefaultModifiers({ ...DEFAULT_MODIFIERS, speed: 1.25 })).toBe(false);
     // Holds are on by default, so turning them *off* is the change.
     expect(isDefaultModifiers({ ...DEFAULT_MODIFIERS, holds: false })).toBe(false);
+  });
+});
+
+/**
+ * Assist is not the inverse of default — most modifiers make the game *harder*,
+ * and a record set under one of those deserves to stand. Getting this backwards
+ * would either lock real bests out of the board or let easy runs eat them.
+ */
+describe('isAssisted', () => {
+  it('is false for a plain run', () => {
+    expect(isAssisted(DEFAULT_MODIFIERS)).toBe(false);
+  });
+
+  it('is true only for the two easings: slower, and holds demoted to taps', () => {
+    expect(isAssisted({ ...DEFAULT_MODIFIERS, speed: 0.75 })).toBe(true);
+    expect(isAssisted({ ...DEFAULT_MODIFIERS, holds: false })).toBe(true);
+  });
+
+  it('is false for modifiers that make the run harder or leave it level', () => {
+    expect(isAssisted({ ...DEFAULT_MODIFIERS, speed: 1.5 })).toBe(false);
+    expect(isAssisted({ ...DEFAULT_MODIFIERS, fail: true })).toBe(false);
+    expect(isAssisted({ ...DEFAULT_MODIFIERS, visibility: 'hidden' })).toBe(false);
+    expect(isAssisted({ ...DEFAULT_MODIFIERS, visibility: 'fadeout' })).toBe(false);
+    // Mirror moves which hand plays which note, not how hard any of it is.
+    expect(isAssisted({ ...DEFAULT_MODIFIERS, mirror: true })).toBe(false);
+  });
+
+  it('is not merely the inverse of isDefaultModifiers', () => {
+    const harder = { ...DEFAULT_MODIFIERS, visibility: 'hidden' as const };
+    expect(isDefaultModifiers(harder)).toBe(false);
+    expect(isAssisted(harder)).toBe(false);
   });
 });
 

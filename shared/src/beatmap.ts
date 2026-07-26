@@ -107,6 +107,18 @@ export interface Beatmap {
   /** Seconds. One entry per detected beat. */
   beatGrid: number[];
 
+  /**
+   * Playback gain in dB, so every track plays at a comparable loudness
+   * (`replayGainDb`, measured per ITU-R BS.1770 at ingest).
+   *
+   * Stored as a gain and applied at playback — the audio file is never
+   * re-encoded, so the original survives and re-tuning the target later costs
+   * nothing. Absent on everything ingested before this existed, and absence
+   * means unity: those songs play exactly as they did, just not levelled
+   * against the rest until they are re-ingested.
+   */
+  gainDb?: number;
+
   charts: Record<DifficultyName, Chart>;
 }
 

@@ -26,18 +26,30 @@
  * actually landing.
  */
 
-export type QualityTier = 'high' | 'low';
+export type QualityTier = 'high' | 'medium' | 'low';
+
+/**
+ * Ordered best-first. The live downgrade steps along this one rung at a time
+ * rather than jumping to the bottom — see `nextTierDown`.
+ */
+export const QUALITY_TIERS: readonly QualityTier[] = ['high', 'medium', 'low'];
 
 /** What the player chose. `auto` defers to the remembered/static detection. */
 export type QualitySetting = 'auto' | QualityTier;
 
-export const QUALITY_SETTINGS: readonly QualitySetting[] = ['auto', 'high', 'low'];
+export const QUALITY_SETTINGS: readonly QualitySetting[] = ['auto', 'high', 'medium', 'low'];
 
 export const QUALITY_SETTING_LABELS: Record<QualitySetting, string> = {
   auto: 'Auto',
   high: 'High',
+  medium: 'Medium',
   low: 'Low',
 };
+
+/** The next rung down, or null at the bottom. */
+export function nextTierDown(tier: QualityTier): QualityTier | null {
+  return QUALITY_TIERS[QUALITY_TIERS.indexOf(tier) + 1] ?? null;
+}
 
 /**
  * The concrete knobs a tier turns. Pure data so the mapping is unit-tested and
@@ -52,6 +64,20 @@ export interface QualityProfile {
    * the canvas — no offscreen target, no blur, no output copy.
    */
   bloom: boolean;
+  /**
+   * Linear scale on the bloom's own working resolution, per axis. 0.5 is a
+   * quarter of the pixels through the whole five-level blur chain.
+   *
+   * This is the cheapest large win in the renderer, because bloom is a wide
+   * low-frequency effect: it is a blur, so resolving it at full resolution
+   * spends fill rate producing detail the blur immediately destroys. Halving
+   * each axis is close to invisible and roughly quarters the cost of the most
+   * expensive thing on screen.
+   *
+   * Ignored when `bloom` is false. `resize` must apply it *after*
+   * `composer.setSize`, which resets every pass to the full canvas size.
+   */
+  bloomScale: number;
   /**
    * MSAA on the drawing buffer. Only matters when `bloom` is off, because that
    * is the path that renders straight to the canvas; with the composer the scene
@@ -74,6 +100,10 @@ export interface QualityProfile {
 const HIGH: QualityProfile = {
   tier: 'high',
   bloom: true,
+  // Half-resolution even at the top. The full-resolution chain was costing the
+  // most expensive pass in the renderer for detail a blur throws away; nothing
+  // about the look depends on it.
+  bloomScale: 0.5,
   antialias: true,
   pixelRatioCap: 2,
   starCount: 560,
@@ -81,9 +111,32 @@ const HIGH: QualityProfile = {
   trails: true,
 };
 
+/**
+ * The rung that was missing.
+ *
+ * With only high and low, a phone that could not quite hold 60fps lost bloom,
+ * antialiasing, note trails and two thirds of the starfield all at once — the
+ * game's whole look, to buy headroom it may only have needed a fraction of.
+ * Most phones belong here: bloom and trails survive (they carry the neon
+ * identity), while the pixel-ratio cap and a quarter-resolution bloom do the
+ * actual saving. Antialiasing is off because it never applied under bloom
+ * anyway — the scene goes to an offscreen target on that path.
+ */
+const MEDIUM: QualityProfile = {
+  tier: 'medium',
+  bloom: true,
+  bloomScale: 0.25,
+  antialias: false,
+  pixelRatioCap: 1.5,
+  starCount: 360,
+  particleBudget: 800,
+  trails: true,
+};
+
 const LOW: QualityProfile = {
   tier: 'low',
   bloom: false,
+  bloomScale: 1,
   antialias: false,
   pixelRatioCap: 1,
   starCount: 180,
@@ -91,8 +144,14 @@ const LOW: QualityProfile = {
   trails: false,
 };
 
+const PROFILES: Record<QualityTier, QualityProfile> = {
+  high: HIGH,
+  medium: MEDIUM,
+  low: LOW,
+};
+
 export function qualityProfile(tier: QualityTier): QualityProfile {
-  return tier === 'low' ? LOW : HIGH;
+  return PROFILES[tier] ?? HIGH;
 }
 
 /**
@@ -160,23 +219,32 @@ export function nextQualitySetting(setting: QualitySetting): QualitySetting {
 }
 
 /**
- * Whether a previous session (or an earlier song this session) caught this
- * device running slow and dropped it to low. Persisted separately from the
- * explicit setting so the live downgrade is remembered without overwriting — and
- * silently masking — what the player actually chose.
+ * The tier a previous session (or an earlier song this session) settled on after
+ * catching this device running slow, or null if it never has. Persisted
+ * separately from the explicit setting so the live downgrade is remembered
+ * without overwriting — and silently masking — what the player actually chose.
+ *
+ * Stores a tier rather than the old boolean because the downgrade now steps
+ * high → medium → low: a device that only needed one rung must not come back as
+ * `low` next song. `'1'` is the value the boolean version wrote and still reads
+ * as `low`, so an existing player's remembered downgrade survives the change.
  */
-export function hasAutoLow(): boolean {
+export function autoTier(): QualityTier | null {
   try {
-    return localStorage.getItem(AUTO_LOW_KEY) === '1';
+    const stored = localStorage.getItem(AUTO_LOW_KEY);
+    if (stored === '1') return 'low';
+    return (QUALITY_TIERS as readonly string[]).includes(stored ?? '')
+      ? (stored as QualityTier)
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
 /** Called by the renderer once it has decided the device cannot keep up. */
-export function markAutoLow(): void {
+export function markAutoTier(tier: QualityTier): void {
   try {
-    localStorage.setItem(AUTO_LOW_KEY, '1');
+    localStorage.setItem(AUTO_LOW_KEY, tier);
   } catch {
     // Private mode — it just will not be remembered next song.
   }
@@ -190,8 +258,7 @@ export function markAutoLow(): void {
 export function resolveQuality(): QualityTier {
   const setting = getQualitySetting();
   if (setting !== 'auto') return setting;
-  if (hasAutoLow()) return 'low';
-  return detectQuality();
+  return autoTier() ?? detectQuality();
 }
 
 /**

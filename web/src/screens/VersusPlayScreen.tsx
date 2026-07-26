@@ -221,6 +221,7 @@ export function VersusPlayScreen({
           void clock.dispose();
           return;
         }
+        clock.setTrackGain(map.gainDb);
 
         const canvases = [p1Refs.canvas.current, p2Refs.canvas.current];
         if (!canvases[0] || !canvases[1]) throw new Error('Canvas unavailable');

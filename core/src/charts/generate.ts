@@ -427,6 +427,18 @@ const PATTERN_WEIGHT = 0.5;
  * A contour lane jump is clamped to a single step when two notes are closer in
  * time than this multiple of the spacing floor. Above it, the melody sweeps
  * freely; below it, a wide jump would be a leap the hand cannot make at speed.
+ *
+ * Grading this — one lane of movement per "step unit", instead of the binary
+ * one-or-unlimited — was tried and reverted. It moved the full-board crossing
+ * rate on hard and extreme by *nothing at all* (26% and 33% either way), while
+ * making easy worse and doubling medium's busiest-lane share.
+ *
+ * It cannot work, for a structural reason worth recording: band ranges are
+ * disjoint, so a low-band note followed by a high-band one is a full-width move
+ * by construction, and `pickLaneContour` skips the clamp entirely when the
+ * target band lies wholly outside the step window. Clamping *within* a band can
+ * never fix a jump *between* bands. See `fullBoardLeapRate` in metrics.ts for
+ * why that is very probably fine anyway.
  */
 const LANE_STEP_GAP_FACTOR = 1.5;
 

@@ -42,6 +42,45 @@ export interface ChartMetrics {
   /** Longest run of consecutive notes each within `STREAM_GAP_SEC` of the last. */
   longestStream: number;
   /**
+   * Fraction of note-to-note transitions that cross the entire board — lane 0 to
+   * the last lane, or back. 0..1. Typically 25–35% on hard and extreme.
+   *
+   * **This is a descriptive measurement, not a quality floor**, and the
+   * distinction cost a wasted change. It is tempting to read a high number as
+   * "unplayable", and that reading assumes a game where one pointer travels
+   * across lanes. This is not that game: every lane owns a finger (A/S/D/F is
+   * one hand) or a thumb (four lanes, two thumbs on a phone), so lane 0 → lane 3
+   * is not a journey, it is the other hand. Kick-then-hat alternation scoring
+   * high here is the chart mirroring the kit, which is the thing the lane
+   * ordering exists to do.
+   *
+   * It is still worth measuring: a sudden jump would flag a band-classification
+   * or lane-range regression, and it is the number to watch if a lane count ever
+   * grows past what one hand covers. Do not assert an upper bound on it without
+   * a playability model that says what the bound means.
+   */
+  fullBoardLeapRate: number;
+  /**
+   * Median gap between consecutive note times, **in beats**. 1 means a chart of
+   * quarter notes; 0.5 eighths.
+   *
+   * In beats rather than seconds because that is the unit difficulty actually
+   * lives in: 190ms is a 32nd note at 90 BPM and nearly a 16th at 170, so the
+   * same spacing in seconds is a different musical figure — and a different
+   * degree of hard — depending on the song. 0 when there is no grid.
+   */
+  medianGapBeats: number;
+  /**
+   * Count of gaps long enough to read as a deliberate rest (`REST_BEATS` beats,
+   * or `REST_FALLBACK_SEC` with no grid).
+   *
+   * Music has verses, choruses and breakdowns; a chart that never stops reads as
+   * a metronome with extra steps however accurate it is. Zero here on a
+   * three-minute song is the alarm — it means the generator has no concept of
+   * phrasing at all, not that the song has none.
+   */
+  restCount: number;
+  /**
    * How concentrated notes are on a few recurring bar-phase positions, 0..1.
    * A repetitive groove scores high; a chart that reshuffles its rhythm every
    * bar scores low. Rescaled so a perfectly uniform spread maps to 0. Measured
@@ -57,6 +96,11 @@ const METRIC_SUBDIVISION = 4;
 
 /** Consecutive notes closer than this are part of the same stream. */
 const STREAM_GAP_SEC = 0.3;
+
+/** A silence of at least this many beats counts as a rest. */
+const REST_BEATS = 2;
+/** Rest threshold when the song has no usable grid to measure beats against. */
+const REST_FALLBACK_SEC = 1.2;
 
 /** Tolerance ceiling for counting a note as on-grid. */
 const ON_GRID_TOLERANCE_SEC = 0.035;
@@ -74,6 +118,9 @@ export function chartMetrics(chart: Chart, analysis: AnalysisResult): ChartMetri
     onGridShare: 0,
     longestStream: 0,
     patternConcentration: 0,
+    fullBoardLeapRate: 0,
+    medianGapBeats: 0,
+    restCount: 0,
   };
   if (notes.length === 0) return empty;
 
@@ -85,7 +132,59 @@ export function chartMetrics(chart: Chart, analysis: AnalysisResult): ChartMetri
     onGridShare: onGridShare(chart, analysis.beatGrid),
     longestStream: longestStream(chart),
     patternConcentration: patternConcentration(chart, analysis.beatGrid),
+    fullBoardLeapRate: fullBoardLeapRate(chart),
+    ...gapStats(chart, analysis.beatGrid),
   };
+}
+
+/**
+ * One note per timestamp, in time order.
+ *
+ * Chord partners share a timestamp and are played by the other hand, so they are
+ * not a *transition* — counting them would report a full-board leap every time a
+ * chord spanned the board, which is the one case where it is free. The first
+ * voice at each time stands for the group.
+ */
+function melodyLine(chart: Chart): { t: number; lane: number }[] {
+  const line: { t: number; lane: number }[] = [];
+  for (const note of [...chart.notes].sort((a, b) => a.t - b.t)) {
+    if (line.length === 0 || line[line.length - 1]!.t !== note.t) {
+      line.push({ t: note.t, lane: note.lane });
+    }
+  }
+  return line;
+}
+
+function fullBoardLeapRate(chart: Chart): number {
+  const line = melodyLine(chart);
+  if (line.length < 2) return 0;
+  const span = chart.laneCount - 1;
+  if (span < 1) return 0;
+
+  let leaps = 0;
+  for (let i = 1; i < line.length; i++) {
+    if (Math.abs(line[i]!.lane - line[i - 1]!.lane) >= span) leaps++;
+  }
+  return leaps / (line.length - 1);
+}
+
+function gapStats(
+  chart: Chart,
+  beatGrid: number[],
+): { medianGapBeats: number; restCount: number } {
+  const line = melodyLine(chart);
+  if (line.length < 2) return { medianGapBeats: 0, restCount: 0 };
+
+  const gaps: number[] = [];
+  for (let i = 1; i < line.length; i++) gaps.push(line[i]!.t - line[i - 1]!.t);
+
+  const beat = beatGrid.length >= 2 ? medianGap(beatGrid) : 0;
+  const restThreshold = beat > 0 ? beat * REST_BEATS : REST_FALLBACK_SEC;
+  const restCount = gaps.filter((g) => g >= restThreshold).length;
+
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const median = sorted[sorted.length >> 1]!;
+  return { medianGapBeats: beat > 0 ? median / beat : 0, restCount };
 }
 
 /** Per-second onset intensity vs per-second note count, correlated. */

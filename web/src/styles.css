@@ -1196,7 +1196,13 @@ kbd {
   padding: calc(2rem + env(safe-area-inset-top, 0px)) 1.25rem
     calc(1.75rem + env(safe-area-inset-bottom, 0px));
   justify-content: space-between;
-  overflow: hidden;
+  /* Y must scroll, not clip. `body` is `overflow: hidden`, so nothing above can
+     rescue a hero taller than the viewport — and on a short window the controls
+     ran to 624px inside a 508px box, putting the bottom-most action genuinely
+     out of reach rather than merely cut off. X stays hidden so the aura's glow
+     never produces a sideways scrollbar. */
+  overflow-x: hidden;
+  overflow-y: auto;
   /* Base wash: the song accent pooled behind the disc, falling into a deep
      near-black so text and the aura stay legible. accentVars recolours it. */
   background:
@@ -1428,6 +1434,25 @@ kbd {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+/* Deliberately quiet next to PLAY. Versus needs a second person opposite you,
+   so it is the rarer choice and must not compete with the primary action. */
+.song-hero__versus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.6rem;
+  font-family: var(--font);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.song-hero__versus:disabled {
+  opacity: 0.4;
 }
 
 .song-hero__play {
@@ -2904,6 +2929,67 @@ kbd {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   box-shadow: 0 0 22px rgba(var(--accent-rgb), 0.5);
+}
+
+/* Rides inside the gold pill, so it is dark-on-gold like the label it follows
+   rather than a second badge competing with it. */
+.results__assisted-tag {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(36, 26, 6, 0.22);
+  font-size: 0.86em;
+  letter-spacing: 0.1em;
+}
+
+.results__assisted {
+  margin: 0.1rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+}
+
+/* Sits directly under the score it is measured against. Green/red here is a
+   direction, not a judgement — it is deliberately quiet, because falling short
+   of a personal best is the normal outcome and should not read as a failure. */
+.results__delta {
+  margin: -0.35rem 0 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+.results__delta--up {
+  color: #6ee7a8;
+}
+
+.results__delta--down {
+  color: var(--muted);
+}
+
+/* Early | mean | late. The mean alone hid the difference between a steady
+   player and a wildly inconsistent one whose errors happen to cancel. */
+.results__timing {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.9rem;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.results__timing-side b {
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.results__timing-mean {
+  padding: 0 0.55rem;
+  border-left: 1px solid var(--edge);
+  border-right: 1px solid var(--edge);
 }
 
 .results__score {

@@ -35,6 +35,9 @@ describe('chartMetrics', () => {
       onGridShare: 0,
       longestStream: 0,
       patternConcentration: 0,
+      fullBoardLeapRate: 0,
+      medianGapBeats: 0,
+      restCount: 0,
     });
   });
 
@@ -106,12 +109,23 @@ describe('chartMetrics', () => {
 });
 
 describe('chartMetrics on generated charts (regression floors)', () => {
-  /** A song whose intensity ramps up: a quiet first half, a loud second half. */
+  /**
+   * A song with structure: a quiet first half, a loud second half, and a real
+   * breakdown — eight seconds with nothing playing at all.
+   *
+   * The break is the point. Without one, "does the chart rest?" cannot be asked:
+   * a fixture that plays continuously is entitled to a continuous chart, and a
+   * generator with no concept of phrasing passes for the wrong reason.
+   */
+  const BREAK_START = 24;
+  const BREAK_END = 32;
+
   function structuredAnalysis(): AnalysisResult {
     const duration = 60;
     const beatGrid = beatsEvery(0.5, duration);
     const onsets: Onset[] = [];
     for (let t = 0; t < duration; t += 0.25) {
+      if (t >= BREAK_START && t < BREAK_END) continue;
       const loud = t >= 30;
       const phase = Math.round(t / 0.25) % 3;
       onsets.push({
@@ -139,5 +153,49 @@ describe('chartMetrics on generated charts (regression floors)', () => {
       expect(m.onGridShare).toBeGreaterThan(0.7);
       expect(m.notesPerSec).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * Full-board crossings are *tracked*, not bounded — see `fullBoardLeapRate`.
+   * A bound was tried and removed: in a lane-per-finger game, crossing the board
+   * is alternating hands, not travelling, so a low number is not a better chart.
+   * What is worth catching is the degenerate end, where the chart stops using
+   * the board at all.
+   */
+  it('keeps using the whole board on the harder charts', () => {
+    const analysis = structuredAnalysis();
+    for (const params of [DIFFICULTIES.hard, DIFFICULTIES.extreme]) {
+      const m = chartMetrics(generateChart(analysis, params, 5), analysis);
+      expect(m.fullBoardLeapRate, `${params.name} leap rate`).toBeGreaterThan(0);
+      expect(m.fullBoardLeapRate, `${params.name} leap rate`).toBeLessThan(0.6);
+    }
+  });
+
+  it('rests when the music does', () => {
+    const analysis = structuredAnalysis();
+    for (const params of [DIFFICULTIES.medium, DIFFICULTIES.hard, DIFFICULTIES.extreme]) {
+      const chart = generateChart(analysis, params, 5);
+      const m = chartMetrics(chart, analysis);
+
+      // The fixture has an eight-second break; a chart that never stops is a
+      // chart that is not listening.
+      expect(m.restCount, `${params.name} rests`).toBeGreaterThan(0);
+
+      // And specifically: nothing should be placed inside the break itself.
+      const inBreak = chart.notes.filter((n) => n.t >= BREAK_START + 0.5 && n.t < BREAK_END - 0.5);
+      expect(inBreak, `${params.name} notes inside the break`).toHaveLength(0);
+    }
+  });
+
+  it('escalates rhythm across difficulties, not only density', () => {
+    const analysis = structuredAnalysis();
+    const easy = chartMetrics(generateChart(analysis, DIFFICULTIES.easy, 5), analysis);
+    const extreme = chartMetrics(generateChart(analysis, DIFFICULTIES.extreme, 5), analysis);
+
+    // Measured in beats, so this says something musical: extreme must ask for a
+    // finer subdivision than easy, not merely more of the same figure. Easy and
+    // medium were both quarter-notes-only, which is why clearing easy taught a
+    // player nothing that prepared them for the next rung.
+    expect(extreme.medianGapBeats).toBeLessThan(easy.medianGapBeats);
   });
 });

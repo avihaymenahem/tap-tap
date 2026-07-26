@@ -13,6 +13,7 @@ import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS } from '../render/palette.js';
 import { adaptiveAllowed, qualityProfile, resolveQuality } from '../render/quality.js';
+import { FlashToggle } from '../components/FlashToggle.js';
 import { HapticToggle } from '../components/HapticToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
 import { CalibrationScreen } from './CalibrationScreen.js';
@@ -324,6 +325,10 @@ export function PlayScreen({
           void clock.dispose();
           return;
         }
+        // Level this track against the rest of the library before anything is
+        // heard. Absent on songs ingested before loudness was measured, which
+        // `setTrackGain` reads as unity.
+        clock.setTrackGain(map.gainDb);
 
         const canvas = canvasRef.current;
         if (!canvas) throw new Error('Canvas unavailable');
@@ -478,6 +483,10 @@ export function PlayScreen({
         meanDelta: snap.meanDelta,
         totalNotes: snap.totalNotes,
         failed: snap.failed,
+        // Snapshotted here rather than read at results time: the player can
+        // change modifiers between finishing and looking at the card, and a
+        // personal best has to be judged on how the run was actually played.
+        modifiers: modsRef.current,
       };
     };
 
@@ -1217,6 +1226,10 @@ export function PlayScreen({
             <div className="pause-settings rise" style={{ '--i': 2 } as CSSProperties}>
               <HapticToggle className="pause-setting" />
               <SoundToggle className="pause-setting" />
+              {/* Reachable mid-run on purpose: flashing is something a player
+                  discovers is a problem during a song, and if turning it off
+                  costs them the run they stop playing instead. */}
+              <FlashToggle className="pause-setting" />
               <button
                 type="button"
                 className="pause-setting"

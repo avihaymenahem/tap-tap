@@ -92,10 +92,11 @@ describe('the stored setting', () => {
     expect(getQualitySetting()).toBe('auto');
   });
 
-  it('cycles auto → high → low → auto', async () => {
+  it('cycles auto → high → medium → low → auto', async () => {
     const { nextQualitySetting } = await freshQuality({});
     expect(nextQualitySetting('auto')).toBe('high');
-    expect(nextQualitySetting('high')).toBe('low');
+    expect(nextQualitySetting('high')).toBe('medium');
+    expect(nextQualitySetting('medium')).toBe('low');
     expect(nextQualitySetting('low')).toBe('auto');
   });
 
@@ -107,12 +108,67 @@ describe('the stored setting', () => {
   });
 
   it('clears the remembered auto-downgrade on any deliberate choice', async () => {
-    const { setQualitySetting, hasAutoLow } = await freshQuality({
+    const { setQualitySetting, autoTier } = await freshQuality({
+      stored: { 'tap-tap.quality.autoLow': 'medium' },
+    });
+    expect(autoTier()).toBe('medium');
+    setQualitySetting('auto');
+    expect(autoTier()).toBeNull();
+  });
+
+  it("reads the boolean version's '1' as low", async () => {
+    // Written by the build before the downgrade could stop at medium. Losing it
+    // would silently put a known-slow device back on high for a whole song.
+    const { autoTier } = await freshQuality({
       stored: { 'tap-tap.quality.autoLow': '1' },
     });
-    expect(hasAutoLow()).toBe(true);
-    setQualitySetting('auto');
-    expect(hasAutoLow()).toBe(false);
+    expect(autoTier()).toBe('low');
+  });
+
+  it('ignores a value that is not a tier', async () => {
+    const { autoTier } = await freshQuality({
+      stored: { 'tap-tap.quality.autoLow': 'garbage' },
+    });
+    expect(autoTier()).toBeNull();
+  });
+});
+
+describe('the tier ladder', () => {
+  it('steps one rung at a time and stops at the bottom', async () => {
+    const { nextTierDown } = await freshQuality({});
+    expect(nextTierDown('high')).toBe('medium');
+    expect(nextTierDown('medium')).toBe('low');
+    expect(nextTierDown('low')).toBeNull();
+  });
+
+  it('keeps the neon identity at medium and drops it only at low', async () => {
+    const { qualityProfile } = await freshQuality({});
+    const medium = qualityProfile('medium');
+    // Bloom and trails are what the game looks like; medium buys headroom from
+    // resolution instead of from the look.
+    expect(medium.bloom).toBe(true);
+    expect(medium.trails).toBe(true);
+    expect(qualityProfile('low').bloom).toBe(false);
+  });
+
+  it('never resolves bloom above half resolution on any tier', async () => {
+    const { qualityProfile, QUALITY_TIERS } = await freshQuality({});
+    for (const tier of QUALITY_TIERS) {
+      const p = qualityProfile(tier);
+      if (p.bloom) expect(p.bloomScale).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it('gets cheaper monotonically down the ladder', async () => {
+    const { qualityProfile, QUALITY_TIERS } = await freshQuality({});
+    const profiles = QUALITY_TIERS.map(qualityProfile);
+    for (let i = 1; i < profiles.length; i++) {
+      const prev = profiles[i - 1]!;
+      const next = profiles[i]!;
+      expect(next.pixelRatioCap).toBeLessThanOrEqual(prev.pixelRatioCap);
+      expect(next.starCount).toBeLessThanOrEqual(prev.starCount);
+      expect(next.particleBudget).toBeLessThanOrEqual(prev.particleBudget);
+    }
   });
 });
 

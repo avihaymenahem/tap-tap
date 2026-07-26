@@ -9,6 +9,7 @@ import { playUiSound } from '../uisfx.js';
 import { prefetchAudio } from '../api/prefetch.js';
 import { isReadOnly } from '../api/serverConfig.js';
 import { GraphicsToggle } from '../components/GraphicsToggle.js';
+import { FlashToggle } from '../components/FlashToggle.js';
 import { HapticToggle } from '../components/HapticToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
 import { useCachedAudio, useOffline } from '../hooks/useOffline.js';
@@ -36,6 +37,13 @@ import {
 
 interface MenuScreenProps {
   onPlay: (songId: string, difficulty: DifficultyName) => void;
+  /**
+   * Two players, one phone, same chart. Takes the same difficulty as `onPlay`
+   * rather than a pair: both sides play the identical chart at the same instant
+   * off one shared clock, which is what makes the match fair and is the reason
+   * Versus needs no second picker.
+   */
+  onVersus: (songId: string, difficulty: DifficultyName) => void;
   onAdmin: () => void;
   onCalibrate: () => void;
   onAchievements: () => void;
@@ -71,6 +79,7 @@ function nearestAvailable(
 
 export function MenuScreen({
   onPlay,
+  onVersus,
   onAdmin,
   onCalibrate,
   onAchievements,
@@ -385,6 +394,7 @@ export function MenuScreen({
               <HapticToggle className="dropdown__item" />
               <SoundToggle className="dropdown__item" />
               <GraphicsToggle className="dropdown__item" />
+              <FlashToggle className="dropdown__item" />
 
               <button
                 type="button"
@@ -734,6 +744,12 @@ export function MenuScreen({
             playUiSound('confirm');
             preview.stop(); // never let a preview bleed into the run
             onPlay(selectedSong.songId, effectiveDifficulty);
+          }}
+          onVersus={() => {
+            if (!effectiveDifficulty) return;
+            playUiSound('confirm');
+            preview.stop();
+            onVersus(selectedSong.songId, effectiveDifficulty);
           }}
           onClose={() => {
             playUiSound('back');

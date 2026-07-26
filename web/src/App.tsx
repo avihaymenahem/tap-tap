@@ -179,6 +179,7 @@ export function App(): JSX.Element {
         return (
           <MenuScreen
             onPlay={(songId, difficulty) => navigate({ name: 'play', songId, difficulty })}
+            onVersus={(songId, difficulty) => navigate({ name: 'versus', songId, difficulty })}
             onAdmin={() => navigate({ name: 'admin' })}
             onCalibrate={() => navigate({ name: 'calibrate' })}
             onAchievements={() => navigate({ name: 'achievements' })}

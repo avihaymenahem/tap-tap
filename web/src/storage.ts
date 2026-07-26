@@ -27,6 +27,15 @@ export interface BestScore {
   accuracy: number;
   maxCombo: number;
   grade: string;
+  /**
+   * True when this record was set with easing modifiers on (`isAssisted`).
+   *
+   * Optional, and absent means clean: records written before this field existed
+   * cannot be classified after the fact, so they are trusted rather than
+   * demoted. The forgiving direction — the alternative silently strips real
+   * bests of their standing.
+   */
+  assisted?: boolean;
 }
 
 function read<T>(key: string, fallback: T): T {
@@ -77,7 +86,18 @@ export function getBestScore(songId: string, difficulty: DifficultyName): BestSc
   return all[scoreKey(songId, difficulty)] ?? null;
 }
 
-/** Records the run if it beats the stored best. Returns true when it did. */
+/**
+ * Records the run if it beats the stored best. Returns true when it did.
+ *
+ * Assist rank outranks score. An assisted run may never displace a clean
+ * record however high it scores, and a clean run always displaces an assisted
+ * one however low — because `scoreMultiplierFor` returns 1 for every modifier
+ * set, so a 0.75x run posts the same numbers as a full-speed one for materially
+ * less work. Comparing on score alone let an easier run overwrite a real best,
+ * and there is only one slot per chart, so the real best was gone for good.
+ *
+ * Within the same rank it is still simply the higher score.
+ */
 export function recordScore(
   songId: string,
   difficulty: DifficultyName,
@@ -86,7 +106,16 @@ export function recordScore(
   const all = read<Record<string, BestScore>>(SCORES_KEY, {});
   const key = scoreKey(songId, difficulty);
   const previous = all[key];
-  if (previous && previous.score >= result.score) return false;
+
+  if (previous) {
+    const wasAssisted = previous.assisted === true;
+    const isAssisted = result.assisted === true;
+    if (isAssisted !== wasAssisted) {
+      if (isAssisted) return false;
+    } else if (previous.score >= result.score) {
+      return false;
+    }
+  }
 
   all[key] = result;
   write(SCORES_KEY, all);

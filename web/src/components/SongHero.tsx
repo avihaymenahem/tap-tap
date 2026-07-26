@@ -1,5 +1,5 @@
 import type { DifficultyName, SongSummary } from '@tap-tap/shared';
-import { ChevronDown, Play, SkipBack, SkipForward } from 'lucide-react';
+import { ChevronDown, Play, SkipBack, SkipForward, Users } from 'lucide-react';
 import { useEffect, useState, type JSX } from 'react';
 import { accentVars } from '../accent.js';
 import { primeAudio } from '../game/clock.js';
@@ -25,6 +25,8 @@ interface SongHeroProps {
   onSelectDifficulty: (name: DifficultyName) => void;
   best: HeroBest | null;
   onPlay: () => void;
+  /** Start the same chart as a two-player match on this one phone. */
+  onVersus: () => void;
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
@@ -48,6 +50,7 @@ export function SongHero({
   onSelectDifficulty,
   best,
   onPlay,
+  onVersus,
   onClose,
   onPrev,
   onNext,
@@ -180,6 +183,23 @@ export function SongHero({
             <SkipForward size={22} aria-hidden />
           </button>
         </div>
+
+        {/* Versus takes the difficulty already chosen above — both sides play
+            the identical chart off one shared clock, so there is nothing else
+            to pick. Secondary styling on purpose: solo is the common case, and
+            a match needs a second person sitting opposite you. */}
+        <button
+          type="button"
+          className="btn song-hero__versus"
+          disabled={!difficulty}
+          onClick={() => {
+            primeAudio();
+            onVersus();
+          }}
+        >
+          <Users size={18} aria-hidden />
+          Versus — two players, one phone
+        </button>
       </div>
     </div>
   );

@@ -2,7 +2,14 @@ import type { Beatmap, JobStatus } from '@tap-tap/shared';
 import { BEATMAP_VERSION, CHART_VERSION } from '@tap-tap/shared';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ANALYSIS_VERSION, analyze, computeWaveform, generateAllCharts } from '@tap-tap/core';
+import {
+  ANALYSIS_VERSION,
+  analyze,
+  computeWaveform,
+  generateAllCharts,
+  integratedLoudness,
+  replayGainDb,
+} from '@tap-tap/core';
 import {
   AUDIO_FILE,
   THUMB_FILE,
@@ -42,6 +49,10 @@ export async function ingestSong(url: string, onProgress: ProgressFn = () => {})
   const cached = await loadAnalysis(songId);
 
   let analysis = cached;
+  // Only measurable while the decoded PCM is in hand. A cached-analysis path
+  // never decodes, so it keeps whatever the previous beatmap carried rather
+  // than silently resetting the track to unity.
+  let gainDb: number | undefined;
   if (analysis) {
     onProgress('generating', 'Reusing cached analysis');
   } else {
@@ -69,6 +80,9 @@ export async function ingestSong(url: string, onProgress: ProgressFn = () => {})
     // hold generation reads it to find sustains — which is why holds work on
     // the existing library without re-analysing anything.
     await saveWaveform(songId, computeWaveform(pcm, ANALYSIS_SAMPLE_RATE));
+    // Measured on the same PCM as everything else — the transcode the player
+    // hears, not the download.
+    gainDb = replayGainDb(integratedLoudness(pcm, ANALYSIS_SAMPLE_RATE));
 
     // The original download is only needed for analysis; the m4a is what plays.
     await removeSourceFiles(dir);
@@ -102,6 +116,12 @@ export async function ingestSong(url: string, onProgress: ProgressFn = () => {})
     bpm: analysis.bpm,
     bpmConfidence: analysis.bpmConfidence,
     beatGrid: analysis.beatGrid,
+    // Freshly measured when this run decoded, otherwise whatever the previous
+    // beatmap carried. `?? previous?.gainDb` and not the other way round: a new
+    // decode is the better number.
+    ...(gainDb ?? previous?.gainDb) !== undefined
+      ? { gainDb: gainDb ?? previous?.gainDb }
+      : {},
     charts: generateAllCharts(analysis, songId, await loadWaveform(songId)),
   };
 
@@ -166,6 +186,17 @@ export async function regenerateCharts(songId: string): Promise<Beatmap> {
     if (waveform) await saveWaveform(songId, waveform);
   }
 
+  // Measure loudness for a song that predates it, exactly like the missing
+  // waveform above and for the same reason: the whole existing library was
+  // ingested without one, and left alone those tracks would stay unlevelled
+  // against everything added afterwards with nothing in the UI to explain why.
+  // Best-effort and only when absent, so it costs one decode per song, once.
+  let gainDb = existing.gainDb;
+  if (gainDb === undefined) {
+    const decoded = await decodeOnce();
+    if (decoded) gainDb = replayGainDb(integratedLoudness(decoded, ANALYSIS_SAMPLE_RATE));
+  }
+
   const beatmap: Beatmap = {
     ...existing,
     chartVersion: CHART_VERSION,
@@ -174,6 +205,7 @@ export async function regenerateCharts(songId: string): Promise<Beatmap> {
     bpm: analysis.bpm,
     bpmConfidence: analysis.bpmConfidence,
     beatGrid: analysis.beatGrid,
+    ...(gainDb !== undefined ? { gainDb } : {}),
     charts: generateAllCharts(analysis, songId, waveform),
   };
   await saveBeatmap(beatmap);

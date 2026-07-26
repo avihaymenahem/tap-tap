@@ -26,6 +26,17 @@ export {
 export { computeWaveform } from './analysis/waveform.js';
 
 export {
+  dbToGain,
+  integratedLoudness,
+  kWeight,
+  replayGainDb,
+  MAX_BOOST_DB,
+  MAX_CUT_DB,
+  SILENT_LUFS,
+  TARGET_LUFS,
+} from './analysis/loudness.js';
+
+export {
   generateAllCharts,
   generateChart,
   peakConcurrency,

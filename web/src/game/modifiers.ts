@@ -66,6 +66,27 @@ export function isDefaultModifiers(mods: Modifiers): boolean {
 }
 
 /**
+ * True when the run was made *easier* than a plain one.
+ *
+ * This is not `!isDefaultModifiers`. Most modifiers make the game harder —
+ * `fail` can end the run, `hidden`/`fadeout` take sight away, speeds above 1
+ * compress every window — and a record set under those is worth at least as
+ * much as a clean one. Two make it easier, and only those two count here:
+ * slowing the song down, and demoting every hold to a tap.
+ *
+ * `mirror` is deliberately absent: flipping the board changes which hand plays
+ * which note but not how hard any of it is.
+ *
+ * The distinction exists because `scoreMultiplierFor` returns 1 for everything,
+ * so a 0.75x run scores exactly like a 1x run while being materially easier.
+ * Without this, that score lands in the same personal-best slot and destroys the
+ * clean record it beat. See `recordScore`.
+ */
+export function isAssisted(mods: Modifiers): boolean {
+  return mods.speed < 1 || !mods.holds;
+}
+
+/**
  * A copy of the notes with lanes flipped across the board.
  *
  * Pure: returns a new array of new notes, so the caller can mirror the played

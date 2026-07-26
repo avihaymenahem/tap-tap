@@ -4,8 +4,9 @@ import { accentVars } from '../accent.js';
 import { achievementById } from '../game/achievements.js';
 import { TIERS, TIMINGS, biasAdvice, type Tier } from '../game/judge.js';
 import { loadRun } from '../lastRun.js';
-import { TIER_COLORS, TIER_LABELS } from '../render/palette.js';
-import { recordScore } from '../storage.js';
+import { isAssisted } from '../game/modifiers.js';
+import { TIER_COLORS, TIER_LABELS, TIMING_COLORS } from '../render/palette.js';
+import { getBestScore, recordScore } from '../storage.js';
 import { playUiSound } from '../uisfx.js';
 
 interface ResultsScreenProps {
@@ -27,6 +28,18 @@ export function ResultsScreen({
   // Read once per mount: the run is fixed for this screen.
   const [result] = useState(() => loadRun(songId, difficulty));
 
+  // Whether this run was made easier than a plain one. Read off the run itself,
+  // never off current settings — see RunResult.modifiers. A run stored before
+  // that field existed reads as clean, which is the same forgiving default
+  // `BestScore.assisted` takes.
+  const assisted = result?.modifiers ? isAssisted(result.modifiers) : false;
+
+  // Read the standing record *before* `recordScore` below can replace it —
+  // `useState` initializers run in declaration order, so this must stay above
+  // it. Without the snapshot there is nothing left to compare against: the
+  // whole point of the delta is the number this run just beat.
+  const [previousBest] = useState(() => getBestScore(songId, difficulty));
+
   // Persist during the initializer so a re-render cannot double-record. A failed
   // run is never a "best" — it folds its unreached notes to misses, so its score
   // would not beat a real run anyway, but skipping the record makes that explicit
@@ -38,6 +51,7 @@ export function ResultsScreen({
           accuracy: result.accuracy,
           maxCombo: result.maxCombo,
           grade: result.grade,
+          assisted,
         })
       : false,
   );
@@ -118,6 +132,20 @@ export function ResultsScreen({
   const advice = biasAdvice(result.meanDelta, hits);
   const meanMs = Math.round(result.meanDelta * 1000);
 
+  // The split, not just the mean. A mean of zero hides the difference between a
+  // player who is dead on and one who is wildly early half the time and wildly
+  // late the other half — and those two need opposite advice. Already stored on
+  // every run; the card simply never showed it.
+  const early = result.timingCounts.early;
+  const late = result.timingCounts.late;
+
+  // Measured against the record this run was up against, captured before it was
+  // replaced. Shown whether the run beat it or not: falling 300 short is as
+  // useful to know as clearing it by 300.
+  const scoreDelta = previousBest ? result.score - previousBest.score : null;
+  const accuracyDelta = previousBest ? result.accuracy - previousBest.accuracy : null;
+  const signed = (n: number): string => (n >= 0 ? `+${n}` : `${n}`);
+
   // Badges this run unlocked, resolved from their stored ids. Unknown ids (a
   // badge removed in a later build) are dropped rather than rendered blank.
   const earned = (result.newAchievements ?? [])
@@ -153,8 +181,16 @@ export function ResultsScreen({
 
         {isBest && (
           <div className="results__best rise" style={{ '--i': 2 } as CSSProperties}>
-            ★ New best
+            ★ New best{assisted && <span className="results__assisted-tag">assisted</span>}
           </div>
+        )}
+
+        {/* An assisted run that did not record needs to say why, or it reads as
+            the game having lost the score. */}
+        {assisted && !isBest && !result.failed && (
+          <p className="results__assisted rise" style={{ '--i': 2 } as CSSProperties}>
+            Assisted run — your best is kept
+          </p>
         )}
 
         {earned.length > 0 && (
@@ -183,6 +219,15 @@ export function ResultsScreen({
         {/* No thousands separators — the seven-segment face has no comma glyph. */}
         <div className="results__score">{shownScore}</div>
 
+        {scoreDelta !== null && accuracyDelta !== null && (
+          <p
+            className={`results__delta ${scoreDelta >= 0 ? 'results__delta--up' : 'results__delta--down'}`}
+          >
+            {signed(scoreDelta)} · {accuracyDelta >= 0 ? '+' : ''}
+            {(accuracyDelta * 100).toFixed(1)}% vs best
+          </p>
+        )}
+
         <div className="results__stats rise" style={{ '--i': 3 } as CSSProperties}>
           <div className="stat">
             <div className="stat__value">
@@ -210,10 +255,18 @@ export function ResultsScreen({
         </div>
 
         {hits > 0 && (
-          <p className="muted small">
-            Average offset {meanMs >= 0 ? '+' : ''}
-            {meanMs} ms
-          </p>
+          <div className="results__timing rise" style={{ '--i': 5 } as CSSProperties}>
+            <span className="results__timing-side">
+              <b style={{ color: TIMING_COLORS.early }}>{early}</b> early
+            </span>
+            <span className="results__timing-mean">
+              {meanMs >= 0 ? '+' : ''}
+              {meanMs} ms
+            </span>
+            <span className="results__timing-side">
+              <b style={{ color: TIMING_COLORS.late }}>{late}</b> late
+            </span>
+          </div>
         )}
         {advice && <p className="results__advice">{advice}</p>}
 

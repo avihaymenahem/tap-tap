@@ -8,8 +8,15 @@ import type { Tier } from '../game/judge.js';
 import type { Visibility } from '../game/modifiers.js';
 import type { Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT } from '@tap-tap/shared';
+import { flashEffectsEnabled, flashStride } from './flash.js';
 import { laneColor } from './palette.js';
-import { markAutoLow, qualityProfile, type QualityProfile } from './quality.js';
+import {
+  markAutoTier,
+  nextTierDown,
+  qualityProfile,
+  type QualityProfile,
+  type QualityTier,
+} from './quality.js';
 
 /**
  * Perspective note highway.
@@ -298,6 +305,12 @@ export class Highway {
   private readonly camHeight: number;
   private readonly beatGrid: readonly number[];
   private beatCursor = 0;
+  /**
+   * Beats between flashes, holding the beat flare within `MAX_FLASH_HZ`. Fixed
+   * for the song at construction — see `flashStride` for why it must not track
+   * the tempo live.
+   */
+  private readonly flashStride: number;
 
   /**
    * Pool of hold bodies, checked out per frame.
@@ -341,10 +354,25 @@ export class Highway {
   private spectrumData: Uint8Array | null = null;
   /** The cover-art texture on the album disc — spun (via its rotation) while playing. */
   private albumTex: THREE.Texture | null = null;
-  /** Radial spikes around the cover art — the audio-wave firework (stage only). */
-  private readonly coverBars: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
+  /**
+   * Radial spikes around the cover art — the audio-wave firework (stage only).
+   *
+   * One `InstancedMesh`, not 96 meshes. It was 96 separate `Mesh`es in a group,
+   * each with its own material, which is 96 draw calls every frame for pure
+   * decoration — on a phone that is a meaningful slice of a 16.6ms budget, and
+   * the budget is really ~8ms once the device is hot. Per-spike brightness moves
+   * to `instanceColor`: the material is additive, so scaling the colour down is
+   * indistinguishable from lowering opacity, and it is the same trick the note
+   * halos already use.
+   */
+  private coverWave: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null =
+    null;
+  /** Static per-spike placement, rebuilt into a matrix each frame with the length. */
+  private readonly coverBarAngle: number[] = [];
   /** Per-bar random phase so the ring shimmers instead of pulsing as one. */
   private readonly coverBarSeed: number[] = [];
+  /** Where the spikes are seated, just outside the disc's rim. */
+  private coverBarRadius = 0;
 
   private readonly particles: THREE.Points;
   private readonly particlePositions: Float32Array;
@@ -421,6 +449,7 @@ export class Highway {
     this.accent = theme.accent ?? DEFAULT_ACCENT;
     this.camHeight = this.stage ? CAMERA_HEIGHT : CLASSIC_CAMERA_HEIGHT;
     this.beatGrid = beatGrid;
+    this.flashStride = flashStride(beatGrid);
     this.laneFlash = new Float32Array(laneCount);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: q.antialias, alpha: false });
@@ -548,8 +577,31 @@ export class Highway {
     return (lane - (this.laneCount - 1) / 2) * LANE_WIDTH;
   }
 
-  /** A note's tile colour: the theme's accent in `stage` style, the lane hue otherwise. */
+  /**
+   * A note's body colour — always the lane hue.
+   *
+   * The stage path used to return `this.accent` here, which made the `lane`
+   * argument dead: no shipped theme sets `style: 'classic'`, so every note on
+   * every theme rendered one flat colour while each theme's five validated,
+   * deliberately distinguishable lane hues went nowhere. Colour is how a player
+   * parses which lane a note is in at speed, and with four converging lanes it
+   * is doing real work — the theme picker showed five swatches and the highway
+   * showed four identical gems.
+   *
+   * The accent still carries the scene: it is on the halo, the trail, the rails,
+   * the PCB traces and the hit-bar arcs (`noteAuraHex`). Only the gem itself
+   * moved. If the single-colour look is ever wanted back, this is the one line.
+   */
   private noteHex(lane: number): number {
+    return laneColor(this.theme, lane);
+  }
+
+  /**
+   * The halo and trail behind a note. Accent on the stage path, so a highway of
+   * mixed-colour gems still reads in the theme's own colour rather than as four
+   * unrelated streams; the lane hue on classic, which has no accent language.
+   */
+  private noteAuraHex(lane: number): number {
     return this.stage ? this.accent : laneColor(this.theme, lane);
   }
 
@@ -911,59 +963,55 @@ export class Highway {
    */
   private buildCoverWave(center: THREE.Vector3, tilt: number, radius: number): void {
     const COUNT = 96;
-    const group = new THREE.Group();
-    group.position.copy(center);
-    group.rotation.x = tilt;
 
-    // One rod texture, shared across every spike.
-    const barTex = Highway.makeBarTexture();
+    // A quad whose pivot is its inner (bottom) end, so scaling Y grows it
+    // straight outward from the ring rather than from its middle. Wide enough
+    // that the textured rod reads as a solid beam of light, not a hairline.
+    // Shared by every instance, which is the whole point.
+    const geometry = new THREE.PlaneGeometry(0.14, 1);
+    geometry.translate(0, 0.5, 0);
+
+    const wave = new THREE.InstancedMesh(
+      geometry,
+      new THREE.MeshBasicMaterial({
+        map: Highway.makeBarTexture(),
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+        fog: false,
+        // No `vertexColors: true` — per-instance colour comes from
+        // `instanceColor`, and asking for a per-vertex attribute that does not
+        // exist renders everything black.
+      }),
+      COUNT,
+    );
+    wave.position.copy(center);
+    wave.rotation.x = tilt;
+    wave.renderOrder = -1;
+    // Rebuilt every frame from the spectrum.
+    wave.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
     for (let i = 0; i < COUNT; i++) {
-      const angle = (i / COUNT) * Math.PI * 2;
-
-      // A quad whose pivot is its inner (bottom) end, so scaling Y grows it
-      // straight outward from the ring rather than from its middle. Wide enough
-      // that the textured rod reads as a solid beam of light, not a hairline.
-      const geometry = new THREE.PlaneGeometry(0.14, 1);
-      geometry.translate(0, 0.5, 0);
-
-      const bar = new THREE.Mesh(
-        geometry,
-        new THREE.MeshBasicMaterial({
-          map: barTex,
-          color: this.accent,
-          transparent: true,
-          opacity: 0.95,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          toneMapped: false,
-          fog: false,
-        }),
-      );
-      // Point local +Y radially outward at this angle, seated just outside the rim.
-      bar.rotation.z = angle - Math.PI / 2;
-      bar.position.set(Math.cos(angle) * radius * 1.04, Math.sin(angle) * radius * 1.04, 0);
-      bar.scale.y = 0.001;
-
-      this.coverBars.push(bar);
+      this.coverBarAngle.push((i / COUNT) * Math.PI * 2);
       this.coverBarSeed.push(Math.random() * Math.PI * 2);
-      group.add(bar);
     }
+    this.coverBarRadius = radius * 1.04;
 
-    group.renderOrder = -1;
-    this.scene.add(group);
+    this.coverWave = wave;
+    this.scene.add(wave);
   }
 
   private updateCoverWave(songTime: number, pulse: number, spectrum?: Uint8Array): void {
-    if (this.coverBars.length === 0) return;
+    const wave = this.coverWave;
+    if (!wave) return;
 
-    const count = this.coverBars.length;
+    const count = wave.count;
     // The buffer is 512 but the analyser only fills its 256 real bins; the rest
     // stay zero, so cap here or the treble half of the ring reads dead.
     const bins = spectrum ? Math.min(spectrum.length, 256) : 0;
     for (let i = 0; i < count; i++) {
-      const bar = this.coverBars[i]!;
-
       // Map the ring symmetrically onto the spectrum: both sides sweep bass→treble
       // from the bottom of the circle up, so the firework is mirrored left/right.
       const half = i < count / 2 ? i : count - 1 - i;
@@ -981,9 +1029,29 @@ export class Highway {
       const shimmer = 0.5 + 0.5 * Math.sin(songTime * 5 + this.coverBarSeed[i]!);
       const length = 0.08 + level * 1.1 + pulse * 0.25 + shimmer * 0.06;
 
-      bar.scale.y = length;
-      (bar.material as THREE.MeshBasicMaterial).opacity = 0.35 + level * 0.6 + pulse * 0.2;
+      // Point local +Y radially outward at this angle, seated just outside the
+      // rim, and scale only the length axis so the spike grows straight out.
+      const angle = this.coverBarAngle[i]!;
+      this.dummy.position.set(
+        Math.cos(angle) * this.coverBarRadius,
+        Math.sin(angle) * this.coverBarRadius,
+        0,
+      );
+      this.dummy.rotation.set(0, 0, angle - Math.PI / 2);
+      this.dummy.scale.set(1, length, 1);
+      this.dummy.updateMatrix();
+      wave.setMatrixAt(i, this.dummy.matrix);
+
+      // What used to be per-material opacity. Additive blending makes a dimmer
+      // colour and a lower alpha the same picture, and only one of them can be
+      // per-instance.
+      this.color.setHex(this.accent);
+      this.color.multiplyScalar(0.35 + level * 0.6 + pulse * 0.2);
+      wave.setColorAt(i, this.color);
     }
+
+    wave.instanceMatrix.needsUpdate = true;
+    if (wave.instanceColor) wave.instanceColor.needsUpdate = true;
   }
 
   /**
@@ -2340,7 +2408,14 @@ export class Highway {
 
     this.renderer.setSize(width, height, false);
     this.composer?.setSize(width, height);
-    this.bloom?.resolution.set(width, height);
+    // Must come *after* `composer.setSize`, which resizes every pass back to the
+    // full canvas. `bloom.setSize` is what actually reallocates the mip chain's
+    // render targets — writing `bloom.resolution` alone (as this did) only set a
+    // number the targets were never rebuilt from, so it did nothing at all.
+    if (this.bloom) {
+      const s = this.quality.bloomScale;
+      this.bloom.setSize(Math.max(1, Math.round(width * s)), Math.max(1, Math.round(height * s)));
+    }
 
     const aspect = width / height;
     this.camera.aspect = aspect;
@@ -2638,41 +2713,60 @@ export class Highway {
     // pause, a backgrounded tab) reads as one slow frame and cannot trip this.
     this.slowFrameScore += dt > SLOW_FRAME_SEC ? 1 : -1;
     if (this.slowFrameScore < 0) this.slowFrameScore = 0;
-    if (this.slowFrameScore >= ADAPT_SLOW_BUDGET) this.downgradeToLow();
+    if (this.slowFrameScore < ADAPT_SLOW_BUDGET) return;
+
+    const next = nextTierDown(this.quality.tier);
+    if (next) this.downgradeTo(next);
+    // Reset the budget so the next rung has to be earned the same way. Without
+    // this a single bad stretch would cascade straight to the bottom on
+    // consecutive frames, which is the "lost the whole look at once" failure
+    // the medium tier exists to avoid.
+    this.slowFrameScore = 0;
+    this.framesSeen = 0;
   }
 
-  /** Apply the low profile to a running Highway and remember the decision. */
-  private downgradeToLow(): void {
-    const low = qualityProfile('low');
-    this.quality = low;
-    markAutoLow();
+  /** Apply a lower profile to a running Highway and remember the decision. */
+  private downgradeTo(tier: QualityTier): void {
+    const next = qualityProfile(tier);
+    this.quality = next;
+    markAutoTier(tier);
 
-    // Tear down the bloom chain: `render()` falls through to the direct path.
-    this.composer?.dispose();
-    this.composer = null;
-    this.bloom = null;
-
-    // Re-cap the pixel ratio and re-apply the current size so the smaller
-    // backing store takes effect.
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, low.pixelRatioCap));
-    this.resize(this.viewWidth, this.viewHeight);
+    if (next.bloom) {
+      // Still bloomed, just cheaper — `resize` re-applies the new `bloomScale`.
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, next.pixelRatioCap));
+      this.resize(this.viewWidth, this.viewHeight);
+    } else {
+      // Tear down the bloom chain: `render()` falls through to the direct path.
+      this.composer?.dispose();
+      this.composer = null;
+      this.bloom = null;
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, next.pixelRatioCap));
+      this.resize(this.viewWidth, this.viewHeight);
+    }
 
     // Thin the effects. Buffers stay at capacity; only the active counts shrink,
-    // and the draw ranges follow so overdraw drops with them.
-    this.starCount = Math.min(this.starCount, low.starCount);
+    // and the draw ranges follow so overdraw drops with them. `Math.min` so a
+    // second downgrade never raises a count back up.
+    this.starCount = Math.min(this.starCount, next.starCount);
     this.stars.geometry.setDrawRange(0, this.starCount);
-    this.particleBudget = Math.min(this.particleBudget, low.particleBudget);
+    this.particleBudget = Math.min(this.particleBudget, next.particleBudget);
     this.particles.geometry.setDrawRange(0, this.particleBudget);
     // The cursor may sit past the new budget; wrap it so fresh bursts land in
     // the visible range (particles already beyond it just fade out unseen).
     if (this.particleCursor >= this.particleBudget) this.particleCursor = 0;
-    if (this.noteTrails) this.noteTrails.visible = false;
+    if (this.noteTrails && !next.trails) this.noteTrails.visible = false;
   }
 
-  /** 1 on a beat, decaying to 0 before the next one. */
+  /**
+   * 1 on a flashing beat, decaying to 0 before the next one.
+   *
+   * Rate-limited and switchable — see `flash.ts`. A fast song flashes on every
+   * `flashStride`-th beat rather than every beat, which keeps a 240 BPM track
+   * from strobing the whole backdrop four times a second.
+   */
   private beatPulse(songTime: number): number {
     const grid = this.beatGrid;
-    if (grid.length === 0) return 0;
+    if (grid.length === 0 || !flashEffectsEnabled()) return 0;
 
     // Reset on a seek or restart.
     if (this.beatCursor > 0 && (grid[this.beatCursor - 1] ?? 0) > songTime) this.beatCursor = 0;
@@ -2680,8 +2774,12 @@ export class Highway {
       this.beatCursor++;
     }
 
-    const last = grid[this.beatCursor - 1];
+    const index = this.beatCursor - 1;
+    const last = grid[index];
     if (last === undefined) return 0;
+    // Skipped beats hold at 0 rather than decaying from the previous flash, so
+    // the gap reads as a rest instead of a slower fade.
+    if (index % this.flashStride !== 0) return 0;
     return Math.max(0, 1 - (songTime - last) * 5);
   }
 
@@ -2837,7 +2935,7 @@ export class Highway {
       this.dummy.updateMatrix();
       this.noteGlow.setMatrixAt(count, this.dummy.matrix);
 
-      this.color.setHex(this.noteHex(state.note.lane));
+      this.color.setHex(this.noteAuraHex(state.note.lane));
       // Eased back from 0.38 + 0.7: the halo was bright enough to bleed into
       // its neighbours through the bloom, which softened the tile's own edge.
       const haloScale = this.stage ? 0.85 : 1;
@@ -2857,7 +2955,7 @@ export class Highway {
         this.dummy.scale.set(TILE_WIDTH * 0.5 * curveWidth(trailZ), 1, trailLen);
         this.dummy.updateMatrix();
         this.noteTrails.setMatrixAt(count, this.dummy.matrix);
-        this.color.setHex(this.noteHex(state.note.lane));
+        this.color.setHex(this.noteAuraHex(state.note.lane));
         this.color.multiplyScalar((0.25 + nearness * 0.5) * missFade * spawnFade * reveal);
         this.noteTrails.setColorAt(count, this.color);
       }

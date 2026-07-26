@@ -88,6 +88,7 @@ export function EditorScreen({
           void clock.dispose();
           return;
         }
+        clock.setTrackGain(map.gainDb);
 
         clockRef.current = clock;
         setBeatmap(map);
