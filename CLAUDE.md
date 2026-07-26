@@ -246,6 +246,28 @@ scripts/
   that share a mood are lanes the player cannot tell apart at speed. The sky
   carries a theme's identity; the lanes carry its readability. `theme.test.ts`
   enforces count and uniqueness, but only an eye catches "too similar".
+- **Score is normalised to `MAX_SCORE` (1,000,000), and the migration is the
+  dangerous part.** The raw total scales with chart length — a flawless run earned
+  292,875 on a 232-note easy chart and 1,387,875 on a 962-note extreme one, the
+  same performance with no relationship between the numbers. `game/score.ts`
+  divides by `idealScore(notes)`, the raw score a flawless run would earn.
+  - **A raw record and a normalised one cannot be compared.** 1,387,875 beats any
+    normalised ceiling, so comparing across scales would reject every future clean
+    run on that chart *permanently* — one slot, no second copy, the same
+    irreversible shape as assisted runs overwriting clean ones. `BestScore.normalized`
+    marks the scale and `recordScore` **rescales** a legacy record using the
+    incoming run's `scoreMax`, which is the current chart's measured ceiling.
+  - **Precedence is assist rank → scale → score**, checked in that order, so a
+    migration can never be the loophole that lets an assisted run take a clean slot.
+  - `scoreMax` rides on the snapshot and the `RunResult` because it must come from
+    the **played** chart: intro skip and start grace make it shorter than the stored
+    one, so a divisor derived from `noteCounts` later would disagree.
+  - `normalizeScore` clamps to the ceiling. `idealScore` models interleaved hold
+    ticks approximately, so a genuinely flawless run can compute a hair over, and a
+    score reading 1,000,240 looks like a bug.
+  - Nothing yet compares scores *across* songs — no sort, no aggregate, no
+    leaderboard — so this is a legibility fix and a foundation, not the repair of
+    an active defect. Say so before treating it as urgent.
 - **Assist rank outranks score in `recordScore`.** There is one best slot per
   chart and `scoreMultiplierFor` returns 1 for every modifier set, so a 0.75x
   run posts the same numbers as a full-speed one. Comparing on score alone let

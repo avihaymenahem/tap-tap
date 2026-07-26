@@ -76,7 +76,10 @@ describe('forgetSong', () => {
  * score in the first place.
  */
 describe('recordScore assist ranking', () => {
-  const clean = { score: 1000, accuracy: 0.9, maxCombo: 50, grade: 'A' };
+  // `normalized` is what every run written by the app now carries. Without it a
+  // record is a legacy one on the retired raw scale, which is a different
+  // comparison entirely — covered in its own block below.
+  const clean = { score: 1000, accuracy: 0.9, maxCombo: 50, grade: 'A', normalized: true };
   const assisted = { ...clean, assisted: true };
 
   it('still takes the higher score between two clean runs', () => {
@@ -127,5 +130,62 @@ describe('onboarding + preview flags', () => {
     expect(getPreviewEnabled()).toBe(false);
     setPreviewEnabled(true);
     expect(getPreviewEnabled()).toBe(true);
+  });
+});
+
+/**
+ * Migrating the score scale.
+ *
+ * Raw scores scaled with a chart's length, so a flawless run on a 962-note chart
+ * earned 1,387,875 — above the normalised ceiling of 1,000,000. Comparing across
+ * the two scales would therefore reject every future clean run on that chart
+ * forever, with one slot and no second copy. That is the failure these cover.
+ */
+describe('recordScore scale migration', () => {
+  const legacy = { score: 1_387_875, accuracy: 0.99, maxCombo: 900, grade: 'S' };
+  const fresh = { score: 500_000, accuracy: 0.8, maxCombo: 400, grade: 'B', normalized: true };
+
+  it('rescales a legacy record instead of comparing it raw', () => {
+    recordScore('s', 'hard', legacy);
+    // The legacy 1,387,875 was flawless on this chart, so it rescales to the
+    // ceiling and a mid-table run must not beat it. Compared raw, 500,000 would
+    // have lost too — but for the wrong reason, and a *better* run would also
+    // have lost, forever.
+    expect(recordScore('s', 'hard', fresh, 1_387_875)).toBe(false);
+  });
+
+  it('lets a genuinely better run through, which raw comparison never would', () => {
+    recordScore('s', 'hard', { ...legacy, score: 700_000 });
+    // 700,000 raw out of a 1,387,875 ideal is ~504,000 normalised, so a 600,000
+    // normalised run is better and must take the slot. Compared raw, 600,000 would
+    // have lost to 700,000 and the record would have been stuck.
+    expect(recordScore('s', 'hard', { ...fresh, score: 600_000 }, 1_387_875)).toBe(true);
+    expect(getBestScore('s', 'hard')?.score).toBe(600_000);
+    expect(getBestScore('s', 'hard')?.normalized).toBe(true);
+  });
+
+  it('treats a legacy record as beatable when it cannot be rescaled', () => {
+    // Chosen deliberately: with no ideal to rescale against, an unbeatable slot is
+    // a worse outcome than restating one old number. Only reachable from a caller
+    // that omits `scoreMax`.
+    recordScore('s', 'hard', legacy);
+    expect(recordScore('s', 'hard', { ...fresh, score: 1 })).toBe(true);
+  });
+
+  it('still refuses an assisted run against a legacy clean record', () => {
+    // Assist rank outranks the scale question — it is checked first, so a
+    // migration can never be the loophole that lets an assisted run in.
+    recordScore('s', 'hard', legacy);
+    expect(
+      recordScore('s', 'hard', { ...fresh, score: 999_999, assisted: true }, 1_387_875),
+    ).toBe(false);
+  });
+
+  it('marks what it stores, so the next comparison is same-scale', () => {
+    recordScore('s', 'hard', { ...fresh, score: 400_000 }, 1_387_875);
+    expect(getBestScore('s', 'hard')?.normalized).toBe(true);
+    // And now a plain higher/lower comparison applies again.
+    expect(recordScore('s', 'hard', { ...fresh, score: 399_999 }, 1_387_875)).toBe(false);
+    expect(recordScore('s', 'hard', { ...fresh, score: 400_001 }, 1_387_875)).toBe(true);
   });
 });

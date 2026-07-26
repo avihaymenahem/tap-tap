@@ -10,6 +10,7 @@ import { playUiSound } from '../uisfx.js';
 import { approachSecFor, getScrollSpeed } from '../scrollSpeed.js';
 import { noteTicksEnabled } from '../noteTicks.js';
 import { musicLevel, sfxLevel } from '../mixer.js';
+import { normalizeScore } from '../game/score.js';
 import { TICK_LOOKAHEAD_SEC, cursorAt, ticksInWindow } from '../game/tickSchedule.js';
 import type { RunResult } from '../game/run.js';
 import { cancelHaptics, vibrateHold, vibrateMiss, vibrateTap } from '../haptics.js';
@@ -498,7 +499,9 @@ export function PlayScreen({
       const counts = foldUnreached(snap.counts, snap.totalNotes);
       const accuracy = accuracyOf(counts);
       return {
-        score: snap.score,
+        // Fixed scale, not the raw total — see `RunResult.score`.
+        score: normalizeScore(snap.score, snap.scoreMax),
+        scoreMax: snap.scoreMax,
         accuracy,
         maxCombo: snap.maxCombo,
         grade: gradeFor(accuracy),
@@ -689,7 +692,8 @@ export function PlayScreen({
       const snap = engine.snapshot;
       // Seven-segment digits: no thousands separators (DSEG7 has no comma) and
       // the '%' lives in a separate span (DSEG7 has no percent glyph).
-      if (scoreRef.current) scoreRef.current.textContent = String(snap.score);
+      if (scoreRef.current)
+        scoreRef.current.textContent = String(normalizeScore(snap.score, snap.scoreMax));
       if (comboRef.current) {
         const combo = snap.combo;
         comboRef.current.textContent = String(combo);

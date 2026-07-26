@@ -3,7 +3,24 @@ import type { Modifiers } from './modifiers.js';
 
 /** The outcome of one playthrough. */
 export interface RunResult {
+  /**
+   * Normalised against `MAX_SCORE` (`game/score.ts`), not the engine's raw total.
+   *
+   * The raw total scales with a chart's length, so the same performance posted
+   * 292,875 on a short chart and 1,387,875 on a long one — a figure that says
+   * nothing on its own. Everything player-facing is on the fixed scale; `scoreMax`
+   * below is what it was divided by.
+   */
   score: number;
+  /**
+   * The raw score a flawless run on the played chart would have earned.
+   *
+   * Kept so a stored record can be re-derived or a legacy one migrated later, and
+   * because it is the only honest divisor: it comes from the chart actually played,
+   * which the intro skip and start grace make shorter than the stored one.
+   * Optional — a run stored by an older build has none.
+   */
+  scoreMax?: number;
   accuracy: number;
   maxCombo: number;
   grade: string;

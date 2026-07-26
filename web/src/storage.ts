@@ -9,6 +9,7 @@ import {
   unlockedIds,
 } from './game/achievements.js';
 import type { RunResult } from './game/run.js';
+import { normalizeScore } from './game/score.js';
 
 /** Local persistence: calibration offset and per-chart best scores. */
 
@@ -48,6 +49,17 @@ export interface BestScore {
    * can only under-claim.
    */
   misses?: number;
+  /**
+   * True when `score` is on the normalised scale (`game/score.ts`, out of
+   * 1,000,000) rather than the engine's raw running total.
+   *
+   * Absent means a legacy record on the old raw scale, and the two **cannot be
+   * compared**. A flawless run on a 962-note chart earned 1,387,875 raw, which is
+   * above the normalised ceiling — so comparing across scales would reject every
+   * future clean run on that chart *permanently*, with one slot and no second copy.
+   * `recordScore` rescales the legacy value instead; see there.
+   */
+  normalized?: boolean;
 }
 
 function read<T>(key: string, fallback: T): T {
@@ -93,6 +105,25 @@ function scoreKey(songId: string, difficulty: DifficultyName): string {
   return `${songId}:${difficulty}`;
 }
 
+/**
+ * A stored record's score on the *current* scale, so it can be compared with a
+ * fresh run.
+ *
+ * Already-normalised records pass straight through. A legacy raw one is rescaled
+ * with `scoreMax` from the incoming run — the run was just played on this chart, so
+ * its ideal is the best available measure of the chart's ceiling.
+ *
+ * **When there is no `scoreMax`, the legacy record is treated as beatable** rather
+ * than compared raw. That direction is chosen deliberately: comparing a raw
+ * 1,387,875 against a normalised ceiling of 1,000,000 would lock the chart's record
+ * forever, and an unbeatable slot is a worse outcome than restating one old number.
+ */
+function comparableScore(previous: BestScore, scoreMax?: number): number {
+  if (previous.normalized === true) return previous.score;
+  if (scoreMax === undefined || !Number.isFinite(scoreMax) || scoreMax <= 0) return -1;
+  return normalizeScore(previous.score, scoreMax);
+}
+
 export function getBestScore(songId: string, difficulty: DifficultyName): BestScore | null {
   const all = read<Record<string, BestScore>>(SCORES_KEY, {});
   return all[scoreKey(songId, difficulty)] ?? null;
@@ -131,6 +162,7 @@ export function recordScore(
   songId: string,
   difficulty: DifficultyName,
   result: BestScore,
+  scoreMax?: number,
 ): boolean {
   const all = read<Record<string, BestScore>>(SCORES_KEY, {});
   const key = scoreKey(songId, difficulty);
@@ -141,7 +173,7 @@ export function recordScore(
     const isAssisted = result.assisted === true;
     if (isAssisted !== wasAssisted) {
       if (isAssisted) return false;
-    } else if (previous.score >= result.score) {
+    } else if (comparableScore(previous, scoreMax) >= result.score) {
       return false;
     }
   }

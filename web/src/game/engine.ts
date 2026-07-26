@@ -17,6 +17,7 @@ import {
   timingOf,
 } from './judge.js';
 import { HEALTH_CONFIG, applyHealthDelta, isDead } from './health.js';
+import { idealScore } from './score.js';
 
 /**
  * The game engine.
@@ -102,7 +103,18 @@ export interface EngineOptions {
 }
 
 export interface GameSnapshot {
+  /** Raw running total. Normalise against `scoreMax` for anything player-facing. */
   score: number;
+  /**
+   * The raw score a flawless run on this chart would earn (`game/score.ts`).
+   *
+   * Carried on the snapshot so every consumer can express a score against a
+   * fixed ceiling without needing the chart itself. Constant for the run, and
+   * computed from the *played* chart — which is what makes it the right
+   * divisor, since the played chart is not the stored one (intro skip, start
+   * grace) and a value derived from `noteCounts` later would disagree.
+   */
+  scoreMax: number;
   combo: number;
   maxCombo: number;
   counts: Record<Tier, number>;
@@ -172,8 +184,11 @@ export class GameEngine {
    */
   private completedHoldLanes: number[] = [];
 
+  private readonly scoreMax: number;
+
   constructor(chart: Chart, options: EngineOptions = {}) {
     this.laneCount = chart.laneCount;
+    this.scoreMax = idealScore(chart.notes);
     this.calibrationSec = options.calibrationSec ?? 0;
     this.windows = options.minGapSec !== undefined ? hitWindowsFor(options.minGapSec) : { ...HIT_WINDOWS };
     this.missWindow = this.windows.good;
@@ -428,6 +443,7 @@ export class GameEngine {
   get snapshot(): GameSnapshot {
     return {
       score: this.score,
+      scoreMax: this.scoreMax,
       combo: this.combo,
       maxCombo: this.maxCombo,
       counts: { ...this.counts },

@@ -2,6 +2,7 @@ import type { Beatmap, Chart, DifficultyName, Note } from '@tap-tap/shared';
 import { DIFFICULTIES, isHold, keymapFor, themeCatalog, themeFor } from '@tap-tap/shared';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { accentVars } from '../accent.js';
+import { normalizeScore } from '../game/score.js';
 import { getBeatmap, listCustomThemes } from '../data/index.js';
 import { AudioClock, bandLevel } from '../game/clock.js';
 import { GameEngine, type GameSnapshot } from '../game/engine.js';
@@ -348,7 +349,9 @@ export function VersusPlayScreen({
       const counts = foldUnreached(snap.counts, snap.totalNotes);
       const accuracy = accuracyOf(counts);
       return {
-        score: snap.score,
+        // Fixed scale, not the raw total — see `RunResult.score`.
+        score: normalizeScore(snap.score, snap.scoreMax),
+        scoreMax: snap.scoreMax,
         accuracy,
         maxCombo: snap.maxCombo,
         grade: gradeFor(accuracy),
@@ -479,7 +482,7 @@ export function VersusPlayScreen({
 
         const snap = engine.snapshot;
         const refs = refsFor(p as PlayerIndex);
-        if (refs.score.current) refs.score.current.textContent = snap.score.toLocaleString();
+        if (refs.score.current) refs.score.current.textContent = normalizeScore(snap.score, snap.scoreMax).toLocaleString();
         if (refs.combo.current) {
           refs.combo.current.textContent = snap.combo > 2 ? `${snap.combo}x` : '';
         }

@@ -7,6 +7,7 @@ import { loadRun } from '../lastRun.js';
 import { isAssisted } from '../game/modifiers.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS } from '../render/palette.js';
 import { getBestScore, recordScore } from '../storage.js';
+import { normalizeScore } from '../game/score.js';
 import { playUiSound } from '../uisfx.js';
 
 interface ResultsScreenProps {
@@ -56,7 +57,12 @@ export function ResultsScreen({
           // cannot say, because the played chart may be shorter than the stored
           // one (intro skip, start grace). See `BestScore.misses`.
           misses: result.counts.miss,
-        })
+          // `result.score` is already on the fixed scale; mark it so a legacy raw
+          // record in this slot is rescaled rather than compared against it.
+          normalized: true,
+        },
+        // Lets `recordScore` migrate a legacy record it finds here.
+        result.scoreMax)
       : false,
   );
 
@@ -146,7 +152,20 @@ export function ResultsScreen({
   // Measured against the record this run was up against, captured before it was
   // replaced. Shown whether the run beat it or not: falling 300 short is as
   // useful to know as clearing it by 300.
-  const scoreDelta = previousBest ? result.score - previousBest.score : null;
+  // Against the previous best *on the current scale*. A legacy record holds a raw
+  // total, which is a different unit — subtracting it would report a delta of
+  // hundreds of thousands the first time a chart is replayed. Rescaled with this
+  // run's own ideal, exactly as `recordScore` does; omitted entirely when there is
+  // nothing to rescale with, since no delta beats a fabricated one.
+  const previousScore =
+    previousBest === null
+      ? null
+      : previousBest.normalized === true
+        ? previousBest.score
+        : result.scoreMax !== undefined
+          ? normalizeScore(previousBest.score, result.scoreMax)
+          : null;
+  const scoreDelta = previousScore !== null ? result.score - previousScore : null;
   const accuracyDelta = previousBest ? result.accuracy - previousBest.accuracy : null;
   const signed = (n: number): string => (n >= 0 ? `+${n}` : `${n}`);
 
