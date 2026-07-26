@@ -653,6 +653,56 @@ adds latency that no amount of chart tuning will compensate for.
 
 ---
 
+## 5b. Measured performance on the physical device
+
+Numbers from the S25 (SM-S938B), v0.16.0, `scratchpad/both.mjs`. Recorded here
+because two separate performance decisions were previously sized from a figure
+this section replaces.
+
+**The panel is 120Hz.** `dumpsys SurfaceFlinger` reports `vsyncRate=120.00` for
+the whole of play and drops to 30 only when the device idles. The frame budget is
+therefore **8.3ms**, not the 16.6ms a 60fps target implies, and the render loop
+lands on it exactly rather than near it.
+
+**Sustained Extreme play, unplugged, starting warm (40°C skin) — no derate:**
+
+| window | rAF fps | p50 | p95 | p99 | HWUI p50 | HWUI p95 | thermal | skin |
+|---|---|---|---|---|---|---|---|---|
+| play, first half | 119.6 | 8.3ms | 8.4ms | 8.4ms | 8–9ms | 11–12ms | 2 | 40.1°C |
+| play, last half | 119.8 | 8.3ms | 8.4ms | 8.4ms | 7–9ms | 11–12ms | 2 | 40.7°C |
+| ready screen, 4 min | 120.2 | 8.3ms | 8.4ms | 8.4ms | 9ms | 10ms | 3 | 42.0°C |
+
+Flat. Jank 0.2–1.8%, and the refresh rate never fell.
+
+**What this does and does not license.**
+
+The AAA audit's Wave 2 sized its budget on a "~46% GPU throughput lost at steady
+state" figure that the document itself flags as recalled rather than sourced. It
+**did not reproduce** up to thermal status 3. Do not size a performance budget
+from it.
+
+But a derate *does* exist at **thermal status 4**, and this run never reached it.
+An earlier session — plugged in, so carrying charging heat, and running longer —
+hit status 4 at ~45°C skin with HWUI p50 climbing 8 → 23ms and fps falling to 89.
+That session had no in-page instrument, so **whether the render loop or only HWUI
+compositing degrades at status 4 is still open.** Getting to status 4 is the
+prerequisite for closing it, and charging is the confound to control for.
+
+**Measure both instruments in one window.** `dumpsys gfxinfo` is HWUI compositing
+the WebView's surface and can read a flawless 120fps while the loop inside the
+page stutters, because the compositor re-presents the last texture it has. The
+in-page rAF probe is what the game's loop actually gets and is blind to whether
+those frames reach the panel. Two non-overlapping windows, one from each, were
+believed simultaneously here and produced the wrong conclusion. Label every row by
+app state too: a run, the results card and the menu are different GPU loads, and an
+unlabelled table that mixes them looks exactly like throttling.
+
+**Not yet measured:** whether the shader warm-up (§ `Highway.warm()`) removed the
+124.8ms run-start frame. The probe was attached mid-run, so that window cannot see
+it. One unattributed 108.2ms frame appeared 31s in.
+
+---
+
 ## 6. Milestones
 
 - [x] **M1 — Ingest end-to-end.** URL in, beatmap JSON out. ~10s for a 130s track.
