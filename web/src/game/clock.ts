@@ -49,6 +49,23 @@ export class AudioClock {
    * quiet song would fade from a different starting point than a loud one.
    */
   private readonly trackGain: GainNode;
+  /**
+   * Bus every scheduled note tick passes through, so all of them can be silenced
+   * with one write.
+   *
+   * Ticks are committed to the graph up to `TICK_LOOKAHEAD_SEC` ahead of the
+   * playhead, and `pause()` stops the music source **without suspending the
+   * context** — so without this the ticks already scheduled would keep clicking
+   * away into a paused, silent game. Silencing a shared bus beats tracking every
+   * pending oscillator: no bookkeeping to get wrong, and it is the node a proper
+   * SFX mixer would want anyway.
+   *
+   * Deliberately *not* routed through `gain` (the outro fade) or `trackGain`
+   * (loudness normalisation). The music being normalised to a fixed target is
+   * exactly what makes one absolute tick level work across the whole library —
+   * before `gainDb` existed a fixed-level effect could not be balanced at all.
+   */
+  private readonly tickBus: GainNode;
 
   private source: AudioBufferSourceNode | null = null;
   private startedAtContextTime = 0;
@@ -83,6 +100,24 @@ export class AudioClock {
     this.trackGain.connect(this.gain);
     this.gain.connect(this.analyser);
     this.analyser.connect(ctx.destination);
+
+    this.tickBus = ctx.createGain();
+    this.tickBus.gain.value = 1;
+    this.tickBus.connect(ctx.destination);
+  }
+
+  /**
+   * Mute or unmute every note tick, pending ones included.
+   *
+   * Called with `false` on pause and `true` on start/resume. Pending ticks are not
+   * cancelled individually — they play into a muted bus and clean themselves up,
+   * which is why the scheduler's cursor has to be re-established on resume
+   * (`cursorAt`): their context times no longer line up with the song once the
+   * source restarts.
+   */
+  setTicksAudible(audible: boolean): void {
+    this.tickBus.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.tickBus.gain.value = audible ? 1 : 0;
   }
 
   /**
@@ -299,8 +334,10 @@ export class AudioClock {
     gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
 
     osc.connect(gain);
-    // Straight to the destination, bypassing the fade-out gain the outro uses.
-    gain.connect(this.ctx.destination);
+    // Through the tick bus, bypassing the outro fade and the loudness offset —
+    // see `tickBus` for why both are deliberate, and how a paused run silences
+    // whatever is still pending.
+    gain.connect(this.tickBus);
     osc.start(at);
     osc.stop(at + 0.06);
   }
@@ -439,6 +476,7 @@ export class AudioClock {
     this.stop();
     this.gain.disconnect();
     this.analyser.disconnect();
+    this.tickBus.disconnect();
     await this.ctx.close();
   }
 }

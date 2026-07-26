@@ -642,6 +642,38 @@ scripts/
   no holds, and that is the right chart for it — never manufacture them to fill
   a quota.
 
+**Note ticks are a guide, not hit feedback — and cannot be made into feedback**
+- A click on every note, scheduled ahead on the audio clock
+  (`game/tickSchedule.ts` + `AudioClock.playTickAt`). Off by default; it adds a
+  percussion layer to somebody's music.
+- **Do not try to make it conditional on the player hitting the note.** This is
+  the obvious ask and it is causally impossible, not merely hard. A note at T is
+  judged missed only once `T + missWindow` has passed, and the tap reaches the app
+  a full output latency after the finger moved — so at the instant the sound must
+  be committed to the graph (before T), whether it was hit is *unknowable*.
+  Anything conditional has to sound after the window closes, i.e. up to 190ms
+  late, which is the exact defect prescheduling exists to remove. Reactive
+  per-tap sounds are on PLAN's "explicitly not recommended" list for the same
+  reason: ~280ms over Bluetooth.
+- **Schedule against raw song time, never `judgementTime`.** The tick must
+  coincide with the *music*; the calibration shift exists to align *visuals* with
+  what the player hears. Using shifted time drags every tick off the beat by the
+  player's own latency.
+- **`AudioClock.tickBus` exists because `pause()` does not suspend the context.**
+  It stops the music source only, so ticks already committed keep clicking into a
+  paused, silent game. They are muted at the shared bus rather than tracked
+  individually — and because they then elapse silently, the scheduler's cursor
+  must be re-anchored with `cursorAt` on resume, since their context times no
+  longer line up once the source restarts.
+- The bus deliberately bypasses `trackGain` and the outro `gain`: the music being
+  normalised to a fixed target is what makes one absolute tick level work across
+  the library at all. This is the dependency that made loudness (§17) a blocker
+  for audio feedback.
+- `ticksInWindow` **drops** notes a stall skipped past rather than firing them in
+  a burst — a cluster of clicks at one instant is worse than the gap. It also
+  de-duplicates chord voices, which share a timestamp and would otherwise sound
+  as one click at double amplitude.
+
 **Scroll speed is the player's, not the chart's**
 - `approachSec` in `difficulty.ts` is the *base*; the run uses
   `approachSecFor(base, getScrollSpeed())` (`web/src/scrollSpeed.ts`). Higher

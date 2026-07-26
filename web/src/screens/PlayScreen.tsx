@@ -8,6 +8,8 @@ import { GameEngine, type GameSnapshot } from '../game/engine.js';
 import { accuracyOf, foldUnreached, gradeFor, type Tier } from '../game/judge.js';
 import { playUiSound } from '../uisfx.js';
 import { approachSecFor, getScrollSpeed } from '../scrollSpeed.js';
+import { noteTicksEnabled } from '../noteTicks.js';
+import { TICK_LOOKAHEAD_SEC, cursorAt, ticksInWindow } from '../game/tickSchedule.js';
 import type { RunResult } from '../game/run.js';
 import { cancelHaptics, vibrateHold, vibrateMiss, vibrateTap } from '../haptics.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
@@ -453,6 +455,15 @@ export function PlayScreen({
     let prevTier = 0;
     // Low-health warning state, toggled on the health bar only when it changes.
     let prevLow = false;
+    /**
+     * Note-tick scheduling state (`game/tickSchedule.ts`).
+     *
+     * Read once per run rather than per frame, and re-read in `start`/`restart`,
+     * so toggling the setting in the menu applies to the next run — the same
+     * treatment the modifiers get.
+     */
+    let ticksOn = false;
+    let tickCursor = 0;
 
     /** Replay a one-shot CSS animation by clearing the class and forcing reflow. */
     const restartAnim = (el: HTMLElement | null, cls: string): void => {
@@ -616,6 +627,24 @@ export function PlayScreen({
       // receptor on the beat rather than one output latency early; `update` and
       // `hitLane` take raw clock time and shift it themselves.
       const shownTime = engine.judgementTime(songTime);
+
+      // Hand the next few notes to the audio clock, sample-accurately.
+      //
+      // Against **raw** song time, not `shownTime`: the tick has to coincide with
+      // the music at the note's own time, and `contextTimeFor` maps song time onto
+      // the same timeline the buffer is playing on. Using the calibration-shifted
+      // time would drag every tick off the beat by the player's own output latency
+      // — which is the exact defect prescheduling exists to avoid.
+      if (ticksOn && clock.isPlaying) {
+        const window = ticksInWindow(
+          chartRef.current?.notes ?? [],
+          tickCursor,
+          songTime,
+          songTime + TICK_LOOKAHEAD_SEC,
+        );
+        tickCursor = window.cursor;
+        for (const t of window.times) clock.playTickAt(clock.contextTimeFor(t));
+      }
 
       for (const missed of engine.update(songTime)) {
         highway.burst(missed.note.lane, 'miss');
@@ -783,6 +812,11 @@ export function PlayScreen({
       outroStarted = false;
       prevCombo = 0;
       prevTier = 0;
+      // Re-read the setting and anchor the cursor at where playback actually
+      // begins — the intro skip means that is rarely zero.
+      ticksOn = noteTicksEnabled();
+      tickCursor = cursorAt(chartRef.current!.notes, introOffset);
+      clock.setTicksAudible(ticksOn);
       void clock.start(introOffset, LEAD_IN_SEC);
       applyPhase('playing');
       lastFrame = performance.now();
@@ -803,6 +837,9 @@ export function PlayScreen({
       releaseAllHeld();
 
       clock.pause();
+      // `pause` stops the music source but leaves the context running, so ticks
+      // already committed to the graph would click on into a silent, paused game.
+      clock.setTicksAudible(false);
       // Every pause opens on the main actions, never mid-calibration.
       setPauseView('menu');
       applyPhase('paused');
@@ -816,6 +853,11 @@ export function PlayScreen({
       playUiSound('back');
       // Re-hide the URL bar if leaving fullscreen (e.g. Escape) dropped it.
       enterFullscreen();
+      // Re-anchor the cursor: the ticks pending across the pause were scheduled
+      // against context times that no longer line up with the song once the source
+      // restarts, and they have already elapsed silently.
+      tickCursor = cursorAt(chartRef.current?.notes ?? [], clock.currentTime);
+      clock.setTicksAudible(ticksOn);
       void clock.resume(RESUME_COUNTDOWN_SEC);
       applyPhase('playing');
     };
@@ -833,6 +875,9 @@ export function PlayScreen({
       outroStarted = false;
       prevCombo = 0;
       prevTier = 0;
+      ticksOn = noteTicksEnabled();
+      tickCursor = cursorAt(chartRef.current!.notes, introOffset);
+      clock.setTicksAudible(ticksOn);
       void clock.start(introOffset, LEAD_IN_SEC);
       applyPhase('playing');
       lastFrame = performance.now();

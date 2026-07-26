@@ -11,6 +11,7 @@ import { isReadOnly } from '../api/serverConfig.js';
 import { GraphicsToggle } from '../components/GraphicsToggle.js';
 import { FlashToggle } from '../components/FlashToggle.js';
 import { HapticToggle } from '../components/HapticToggle.js';
+import { NoteTickToggle } from '../components/NoteTickToggle.js';
 import { ScrollSpeedToggle } from '../components/ScrollSpeedToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
 import { useCachedAudio, useOffline } from '../hooks/useOffline.js';
@@ -429,6 +430,7 @@ export function MenuScreen({
             <div className="dropdown" role="menu">
               <HapticToggle className="dropdown__item" />
               <SoundToggle className="dropdown__item" />
+              <NoteTickToggle className="dropdown__item" />
               <ScrollSpeedToggle className="dropdown__item" />
               <GraphicsToggle className="dropdown__item" />
               <FlashToggle className="dropdown__item" />

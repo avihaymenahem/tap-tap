@@ -73,6 +73,10 @@ describe('readWithProgress', () => {
 function fakeAudio(durationSec: number) {
   const nodes = { connect: () => {}, disconnect: () => {} };
   let started: { onended: (() => void) | null } | null = null;
+  /** Every gain node built, in construction order. */
+  const gains: { gain: { value: number } }[] = [];
+  /** Oscillators built by `playTickAt`, with the context time each was scheduled at. */
+  const oscillators: { startedAt: number | null; stoppedAt: number | null }[] = [];
 
   const ctx = {
     currentTime: 0,
@@ -82,15 +86,35 @@ function fakeAudio(durationSec: number) {
     baseLatency: 0.01,
     outputLatency: 0.02,
     createAnalyser: () => ({ ...nodes, fftSize: 0, smoothingTimeConstant: 0 }),
-    createGain: () => ({
-      ...nodes,
-      gain: {
-        value: 1,
-        cancelScheduledValues: () => {},
-        setValueAtTime: () => {},
-        exponentialRampToValueAtTime: () => {},
-      },
-    }),
+    createGain: () => {
+      const node = {
+        ...nodes,
+        gain: {
+          value: 1,
+          cancelScheduledValues: () => {},
+          setValueAtTime: () => {},
+          exponentialRampToValueAtTime: () => {},
+        },
+      };
+      gains.push(node);
+      return node;
+    },
+    createOscillator: () => {
+      const osc = {
+        ...nodes,
+        frequency: { value: 0 },
+        startedAt: null as number | null,
+        stoppedAt: null as number | null,
+        start(at: number) {
+          this.startedAt = at;
+        },
+        stop(at: number) {
+          this.stoppedAt = at;
+        },
+      };
+      oscillators.push(osc);
+      return osc;
+    },
     createBufferSource: () => {
       const source = {
         ...nodes,
@@ -117,6 +141,13 @@ function fakeAudio(durationSec: number) {
     ctx,
     /** Fire the natural end of playback, as the real buffer source would. */
     endPlayback: () => started?.onended?.(),
+    oscillators,
+    /**
+     * The tick bus: third gain built in the constructor, after `trackGain` and the
+     * outro `gain`. Positional because the fake's `connect` is a no-op and there is
+     * nothing else to identify it by; `clock.ts` documents the same ordering.
+     */
+    tickBus: () => gains[2],
   };
 }
 
@@ -202,5 +233,65 @@ describe('end of song', () => {
     // Pausing and restarting both stop the source. Treating that as the song
     // ending would send the player to the results screen mid-run.
     expect(ended).not.toHaveBeenCalled();
+  });
+});
+
+describe('note ticks', () => {
+  it('schedules a tick on the same timeline as the music', async () => {
+    // The whole point of prescheduling: a tick for note time T must sound at the
+    // moment the *music* for T does, whatever the output latency. Getting this
+    // wrong is inaudible on a desktop and ruins the feature on a phone.
+    const audio = fakeAudio(200);
+    const clock = await AudioClock.load('/audio.m4a');
+    await clock.start(0, 3); // three seconds of lead-in
+
+    clock.playTickAt(clock.contextTimeFor(2));
+
+    expect(audio.oscillators).toHaveLength(1);
+    // Audio starts at ctx 3 (the lead-in), so song time 2 is ctx 5.
+    expect(audio.oscillators[0]!.startedAt).toBeCloseTo(5, 5);
+    // And it stops shortly after, rather than running for the rest of the song.
+    expect(audio.oscillators[0]!.stoppedAt).toBeGreaterThan(5);
+    expect(audio.oscillators[0]!.stoppedAt! - 5).toBeLessThan(0.2);
+  });
+
+  it('follows the rate, so a tick stays on its beat at any speed', async () => {
+    const audio = fakeAudio(200);
+    const clock = await AudioClock.load('/audio.m4a');
+    clock.setRate(1.5);
+    await clock.start(0);
+
+    clock.playTickAt(clock.contextTimeFor(3));
+    // Three song-seconds at 1.5x is two real seconds.
+    expect(audio.oscillators[0]!.startedAt).toBeCloseTo(2, 5);
+  });
+
+  it('never schedules a tick in the past', async () => {
+    // A stale window could ask for a time already gone; the Web Audio spec would
+    // fire it immediately, which is a click nowhere near a beat.
+    const audio = fakeAudio(200);
+    const clock = await AudioClock.load('/audio.m4a');
+    await clock.start(0);
+    audio.ctx.currentTime = 10;
+
+    clock.playTickAt(clock.contextTimeFor(1)); // ctx time 1, long past
+    expect(audio.oscillators[0]!.startedAt).toBe(10);
+  });
+
+  it('silences pending ticks when the run pauses, and restores on resume', async () => {
+    // `pause` stops the music source but does **not** suspend the context, so
+    // ticks already committed to the graph would click on into a paused, silent
+    // game. They are muted at the shared bus rather than cancelled one by one.
+    const audio = fakeAudio(200);
+    const clock = await AudioClock.load('/audio.m4a');
+    await clock.start(0);
+
+    expect(audio.tickBus()!.gain.value).toBe(1);
+
+    clock.setTicksAudible(false);
+    expect(audio.tickBus()!.gain.value).toBe(0);
+
+    clock.setTicksAudible(true);
+    expect(audio.tickBus()!.gain.value).toBe(1);
   });
 });
