@@ -514,63 +514,38 @@ scripts/
   to show up.
 
 **three.js**
-- **Transition stalls are the real performance defect on this device — not heat.**
-  Ten minutes of continuous Extreme play holds 8.3ms p50 / 8.4ms p95 on *every*
-  row with no derate at all (PLAN.md §5b), but every run and song boundary drops
-  frames: **324.5ms and 357.9ms** worst frames, 4 frames over 50ms, HWUI jank to
-  6.7%. Spikes land ~177s apart — a song length — each followed by a smaller one,
-  consistent with finish → results mount → next run start compounding. This is
-  **2–3x worse than a clean menu→play start**, so measuring only a cold start
-  understates it. Any performance work should go here.
-- **The run-start stall is NOT fixed, and `Highway.warm()` did not fix it.**
-  Measured on the S25 at v0.16.0 by driving the real UI with trusted CDP input so a
-  fresh mount fell inside the window: **108.2ms and 116.5ms** in the bucket
-  containing the PLAY tap, against a **124.8ms** pre-fix baseline. That is inside
-  run-to-run variance. Keep `warm()` — it genuinely absorbs 604ms of
-  compile-plus-first-frame on desktop and moving that off frame 1 is right — but do
-  not believe it addressed this.
-  - **Check battery saver before trusting any derate.** At 13–14% and draining, an
-    auto-enabled saver caps the GPU and reads exactly like thermal throttling.
-    `settings get global low_power` per row is now in the harness, because "a
-    degraded window" and "a degraded window for a different reason" are the same
-    trap that two non-overlapping instruments already caused here once.
-  - **Ruled out by measurement, so do not re-litigate:** a fullscreen resize
-    (`document.fullscreenElement` was already `true` on the menu and the viewport
-    stayed 384x832 across the stall — `enterFullscreen()` in `start()` is a no-op);
-    a `setVisibility` shader recompile (it only writes a field).
-  - **Leading remaining hypothesis, untested:** `warm()` renders the *empty*
-    highway, so the note/glow/trail/hold-body instance buffers have nothing in them
-    and are likely uploaded for the first time on the first frame that has real
-    notes. If so the fix is to warm with representative note state rather than
-    none. The other candidates inside `start()` are `makeEngine` (a full engine
-    rebuild) and `clock.start()` (source node on a multi-minute buffer).
-  - **Measuring this needs the probe attached BEFORE the mount**, and driving the
-    router by `history.pushState` does not work — the router's canonicalising
-    effect reverts the URL and you measure an already-warm screen for 25 seconds.
-    Use `Input.dispatchTouchEvent` on the real controls; it is also the only way to
-    get the trusted gesture the AudioContext unlock needs.
-- **Shaders compile on first *draw*, so `Highway.warm()` exists and must be
-  awaited before the clock starts.** Nothing rendered during the ready phase —
-  the loop only starts inside `start()` — so every program in the scene plus the
-  whole bloom chain compiled on frame 1 of the song, with the music already
-  playing. That is the **124.8ms frame** measured at every menu→play transition
-  on the S25, the one hitch that survived every other explanation (thermal, GL
-  memory, note ticks, adaptive downgrade, audio underruns).
-  - **`compileAsync` alone would have fixed about a fifth of it.** It walks the
-    scene graph and the post chain is not in it, so the bloom's mip levels and
-    the output pass only compile when the composer first runs. Measured: high
-    tier 110.7ms compile + **493.2ms first frame** (36 programs); low tier 92.7ms
-    + 164.4ms (15 programs). The throwaway frame in `warm()` is the larger half.
-  - **`scene.traverse`, not `traverseVisible`, is what makes it complete.** The
-    hold-body and shockwave pools are built in the constructor with
-    `visible = false` and are compiled up front rather than the first time a hold
-    or a hit appears. **Anything that adds a mesh to the scene after construction
-    reintroduces a mid-song compile `warm()` cannot catch.**
-  - Call it **after** `resize` — the composer's targets are sized there, and
-    warming first allocates them twice. Versus warms both sides (two bloom
-    chains); the tutorial had to have its metronome *reordered* to be scheduled
-    after the warm-up, because a 0.7s audio deadline set before the stall is a
-    deadline the stall eats.
+- **The transition stall is LOADING time, not gameplay stutter — and a warm-up
+  was tried and reverted.** Sustained play holds 8.3ms p50 with no derate at all
+  (PLAN.md §5b), but every song boundary shows a long frame: worst measured
+  **324.5ms** and **357.9ms**. Those land while the loading spinner is up, before
+  the music starts, so the symptom is a frozen loading screen rather than dropped
+  frames during a run. Do not describe it as in-play stutter; that framing was
+  used here once and was wrong.
+  - **Measured phase breakdown of a run's setup** (desktop, high tier, ~1030ms
+    total): audio fetch+decode **399ms**, `new Highway` **111ms**, resize 23ms,
+    beatmap fetch 18ms, chart prep 0.4ms. Teardown is a non-issue —
+    `highway.dispose()` is **1.3ms** for 63 objects, composer and renderer
+    included, so do not go looking there.
+  - **`Highway.warm()` existed briefly and was removed.** It precompiled shaders
+    during loading (`compileAsync` plus one throwaway `composer.render()`) to move
+    them off the run's first frame. On desktop it absorbed ~478ms. **On the device
+    it did not help**: the run-start frame measured 108.2ms and 116.5ms against a
+    124.8ms baseline, inside run-to-run variance. So it added ~478ms to every load
+    for no measured benefit and was reverted. If you re-attempt this, measure the
+    device frame first — the desktop number is not evidence that it helps.
+  - **What is ruled out for the run-start frame, so nobody re-litigates it:** a
+    fullscreen resize (`document.fullscreenElement` is already `true` on the menu
+    and the viewport never changes), a `setVisibility` shader recompile (it only
+    writes a field), and shader compilation itself (precompiling it changed
+    nothing). The untested candidates left are `makeEngine` and `clock.start()`.
+  - **Measuring any of this needs the probe attached BEFORE the mount**, and
+    driving the router with `history.pushState` does not work — the canonicalising
+    effect reverts the URL and you measure an already-warm screen. Use
+    `Input.dispatchTouchEvent` on the real controls, which is also the only way to
+    get the trusted gesture the AudioContext unlock needs. `scripts/measure-runstart.mjs`.
+  - **Check battery saver before believing any derate.** At 13-14% and draining an
+    auto-enabled saver caps the GPU and reads exactly like thermal throttling; the
+    harness samples `low_power` per row for that reason.
 - **Backdrop coordinates: measure, do not derive.** The sky plane is 200x120 at
   world y=8, so `uv.y = 0.5 + (worldY - 8) / 120`. But the on-screen horizon is
   **not** eye level in that space — the track's far edge sits at `uv.y ≈ 0.414`,

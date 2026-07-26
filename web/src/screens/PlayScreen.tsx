@@ -398,13 +398,6 @@ export function PlayScreen({
         highwayRef.current.resize(canvas.clientWidth, canvas.clientHeight);
         highwayRef.current.setVisibility(modsRef.current.visibility);
 
-        // Compile the shaders here, while the loading spinner is still up. Left
-        // to the first frame of the run they cost a measured 124.8ms on an S25 —
-        // landing on the opening notes, with the music already playing. Awaited
-        // rather than fired off, so `ready` genuinely means ready.
-        await highwayRef.current.warm();
-        if (cancelled) return;
-
         setBeatmap(map);
         setThemeAccent(theme.accent ?? DEFAULT_ACCENT);
         onTitleRef.current(map.title);

@@ -2359,57 +2359,6 @@ export class Highway {
   }
 
   /**
-   * Compile every shader and allocate every render target, before the run starts.
-   *
-   * three.js compiles a material's program the first time it is *drawn*, not when
-   * it is created — so with nothing rendering during the ready phase, every
-   * program in the scene plus the whole bloom chain compiled on frame 1 of the
-   * song, with the music already playing. Measured on the physical S25: a
-   * **124.8ms frame** at the menu→play transition, three frames over 50ms, on
-   * every single run. It is the one hitch that survived every other explanation
-   * (thermal, GL memory, note ticks, adaptive downgrade, audio underruns).
-   *
-   * **`compileAsync` alone is not enough, and that is the trap here.** It walks
-   * the scene graph, and the post chain is not in it — the bloom's five mip
-   * levels and the output pass only compile when the composer first runs. The
-   * throwaway frame below is what covers them, and it is the larger half:
-   *
-   *     tier   programs   compileAsync   first frame   total
-   *     high      36         110.7ms       493.2ms     603.9ms
-   *     low       15          92.7ms       164.4ms     257.1ms
-   *
-   * So shipping just the `compileAsync` call would have left roughly four fifths
-   * of the stall exactly where it was.
-   *
-   * `scene.traverse` — not `traverseVisible` — is what makes this complete: the
-   * hold-body and shockwave pools are built in the constructor with
-   * `visible = false`, and they are compiled here rather than the first time a
-   * hold or a hit appears mid-song. Anything new that adds a mesh to the scene
-   * *after* construction reintroduces a mid-song compile that this cannot catch.
-   *
-   * Call it after `resize` — the composer's targets are sized there, and warming
-   * first would allocate them twice.
-   */
-  async warm(): Promise<void> {
-    if (this.disposed) return;
-    await this.renderer.compileAsync(this.scene, this.camera);
-    // Re-check: this is the one await in the class, so a screen torn down while
-    // the driver was compiling would otherwise draw into a disposed context.
-    if (this.disposed) return;
-    /*
-     * The post chain is not in the scene graph — `compileAsync` walks the scene
-     * and cannot see the bloom's five mip levels or the output pass, so those
-     * only compile when the composer first runs. One throwaway frame does it,
-     * and forces the render targets to be allocated at the same time.
-     *
-     * Safe to draw: notes have not been positioned yet, so this paints the empty
-     * highway, which is exactly what the ready screen shows anyway.
-     */
-    if (this.composer) this.composer.render();
-    else this.renderer.render(this.scene, this.camera);
-  }
-
-  /**
    * Draw one frame.
    *
    * @param songTime  seconds into the song, from the audio clock (may be negative during lead-in)
