@@ -183,6 +183,22 @@ export interface Onset {
    */
   low: number;
   mid: number;
+  /**
+   * 0..1 — how much of this onset's attack survived a percussive mask
+   * (`core/analysis/hpss.ts`). 1 is a drum hit; 0 is a note or chord change.
+   *
+   * Harmonic/percussive separation is the *correct* axis for difficulty in a way
+   * density is not: an easy chart wants the beat you can already hear, and harder
+   * charts progressively layer in the melody. That is how a human charter builds a
+   * spread, and it needs to be known per onset rather than per song.
+   *
+   * **Optional, and absent means "not measured".** Every song analysed before this
+   * existed has no value here, and generation must treat that as "admit the onset"
+   * rather than as zero — reading a missing field as "not percussive" would empty
+   * the charts of every un-regenerated song. Populated on re-analysis, which
+   * `ANALYSIS_VERSION` forces.
+   */
+  percussive?: number;
   high: number;
 }
 

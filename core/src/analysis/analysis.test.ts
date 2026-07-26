@@ -334,3 +334,84 @@ describe('onset precision under a vibrato drone', () => {
     expect(scored().precision).toBeGreaterThan(0.3);
   });
 });
+
+/**
+ * The per-onset percussive share (`Onset.percussive`) — the harmonic/percussive
+ * split surfaced where chart generation can use it.
+ *
+ * This is also where a lag bug was caught. The mask centres its window on the frame
+ * it emits, so its first output describes frame `lag`, not frame 0. Indexing the
+ * outputs from zero shifted every reading half a window — 8 frames, ~93ms — later
+ * than the flux it is divided by, which on a click track compares each hit against
+ * the silence after it. Every drum in the library read as harmonic (mean 0.000) and
+ * the *false* onsets scored higher than the real ones. The assertions below fail
+ * loudly on that shape.
+ */
+describe('per-onset percussive share', () => {
+  const shares = (pcm: Float32Array) =>
+    detectOnsets(pcm, 44100).onsets.map((o) => o.percussive ?? -1);
+
+  const mean = (xs: readonly number[]) =>
+    xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+
+  it('is populated on every onset', () => {
+    const all = shares(clickTrack({ bpm: 120, durationSec: 8 }).pcm);
+    expect(all.length).toBeGreaterThan(0);
+    expect(all.every((v) => v >= 0 && v <= 1)).toBe(true);
+  });
+
+  it('reads high on percussion', () => {
+    expect(mean(shares(clickTrack({ bpm: 120, durationSec: 12 }).pcm))).toBeGreaterThan(0.8);
+    expect(mean(shares(drumLoop({ bpm: 128, durationSec: 12 }).pcm))).toBeGreaterThan(0.8);
+  });
+
+  it('reads low on a sustained tone', () => {
+    expect(mean(shares(vibratoTone({ durationSec: 12 }).pcm))).toBeLessThan(0.2);
+  });
+
+  it('tells real onsets from the false ones a wobbling tone produces', () => {
+    // The payoff, and the thing SuperFlux failed to do. Clicks over a vibrato drone:
+    // the drone manufactures spurious onsets, and the percussive share separates
+    // them from the genuine hits by a wide margin.
+    const clicks = clickTrack({ bpm: 120, durationSec: 20 });
+    const drone = vibratoTone({ durationSec: 20, centreHz: 440, depthHz: 40, rateHz: 5.5 });
+    const mixed = new Float32Array(clicks.pcm.length);
+    for (let i = 0; i < mixed.length; i++) {
+      mixed[i] = clicks.pcm[i]! * 0.9 + (drone.pcm[i] ?? 0) * 0.5;
+    }
+
+    const onsets = detectOnsets(mixed, 44100).onsets;
+    const near = (t: number) => clicks.clickTimes.some((k) => Math.abs(k - t) <= 0.05);
+    const real = onsets.filter((o) => near(o.t)).map((o) => o.percussive ?? 0);
+    const spurious = onsets.filter((o) => !near(o.t)).map((o) => o.percussive ?? 0);
+
+    expect(real.length).toBeGreaterThan(0);
+    expect(spurious.length).toBeGreaterThan(0);
+    expect(mean(real)).toBeGreaterThan(0.8);
+    expect(mean(spurious)).toBeLessThan(0.2);
+  });
+
+  it('lifts precision from a third to essentially all when filtered on', () => {
+    // Measured 37.9% -> 100.0% at any threshold from 0.10 to 0.75, with recall
+    // unchanged at 97.5%. The floor is what makes this a discriminator rather than a
+    // tuning exercise; a knife-edge threshold would be worth much less.
+    const clicks = clickTrack({ bpm: 120, durationSec: 20 });
+    const drone = vibratoTone({ durationSec: 20, centreHz: 440, depthHz: 40, rateHz: 5.5 });
+    const mixed = new Float32Array(clicks.pcm.length);
+    for (let i = 0; i < mixed.length; i++) {
+      mixed[i] = clicks.pcm[i]! * 0.9 + (drone.pcm[i] ?? 0) * 0.5;
+    }
+
+    const onsets = detectOnsets(mixed, 44100).onsets;
+    const near = (a: number, list: readonly number[]) =>
+      list.some((b) => Math.abs(a - b) <= 0.05);
+
+    for (const threshold of [0.1, 0.25, 0.5, 0.75]) {
+      const kept = onsets.filter((o) => (o.percussive ?? 1) >= threshold).map((o) => o.t);
+      const precision = kept.length ? kept.filter((t) => near(t, clicks.clickTimes)).length / kept.length : 0;
+      const recall = clicks.clickTimes.filter((t) => near(t, kept)).length / clicks.clickTimes.length;
+      expect(precision, `precision at ${threshold}`).toBeGreaterThan(0.9);
+      expect(recall, `recall at ${threshold}`).toBeGreaterThan(0.9);
+    }
+  });
+});

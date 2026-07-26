@@ -888,6 +888,30 @@ cheer ─┴→ sfxVol ───────────────────
 - **DSP is tested against synthetic audio with known ground truth** — click
   tracks at a known BPM, alternating kick/hat for band classification. Do not
   test DSP by eyeballing a real song.
+- **`Onset.percussive` is the harmonic/percussive split, and it works.** HPSS by
+  median filtering (`analysis/hpss.ts`): a median along *time* keeps what is
+  steady (harmonic), a median along *frequency* keeps what is broadband
+  (percussive), and the two become soft masks. Measured on ground truth — a click
+  track keeps 100% of its energy, a vibrato tone 0%. Per onset it reads 0.95+ on
+  real hits and 0.015 on the false onsets a wobbling tone manufactures, and
+  filtering on it takes precision from **37.9% to 100%** with recall unchanged, at
+  any threshold from 0.10 to 0.75. That is the problem SuperFlux failed to solve.
+  - **The mask lags by half its time window, and mis-indexing that is silent.**
+    Its first output describes frame `lag`, not frame 0. Numbering the outputs
+    from zero shifts every reading ~93ms later than the flux it divides, which
+    compares each drum hit against the silence after it: every percussion track
+    reads as harmonic and the *false* onsets outscore the real ones. It shipped
+    that way for one test run. `analysis.test.ts` asserts the shape that catches it.
+  - Frames 0..lag-1 get no mask and read 0. Deliberate — every song opens on
+    silence or an intro `startOffsetFor` discards.
+  - **It is measured but not yet consumed.** Generation ignores it, so no chart has
+    changed. Spending it — easy charting the percussive layer, harder difficulties
+    layering the melody in — is a separate change that moves every chart and needs
+    the corpus re-recorded.
+  - Costs ~3.3s per 4-minute song on desktop. `ANALYSIS_VERSION` is 4 because of
+    it, so the library needs one re-analysis to gain the field; absent means
+    "not measured" and generation must read that as *admit the onset*, never as
+    zero, or an un-regenerated song would chart empty.
 - **Score an onset change on precision *and* recall, never on a count.**
   SuperFlux (max-filtering across frequency before differencing) was built,
   measured and reverted: recall never moved off 97.5% while precision fell from

@@ -1,5 +1,6 @@
 import type { Onset } from '@tap-tap/shared';
 import { RealFFT, hannWindow } from './fft.js';
+import { PercussiveMask } from './hpss.js';
 
 /**
  * Spectral-flux onset detection with an adaptive median threshold.
@@ -146,6 +147,45 @@ export function detectOnsets(
   const bandLow = new Float64Array(frameCount);
   const bandMid = new Float64Array(frameCount);
   const bandHigh = new Float64Array(frameCount);
+  /**
+   * Flux of the percussive-masked spectrogram, frame for frame with `odf`.
+   *
+   * Its ratio to `odf` is what ends up on each onset as `percussive`. Measured in
+   * parallel rather than by running the whole detector twice: onset *times* must not
+   * move — every chart in the library is timed against them — so the masked
+   * spectrogram is only ever used to ask "how much of this attack was percussive",
+   * never "was there an attack".
+   */
+  const percussiveOdf = new Float64Array(frameCount);
+  const mask = new PercussiveMask(bins);
+  let prevMasked: Float64Array | null = null;
+  /** How many mask outputs have arrived. */
+  let maskedCount = 0;
+
+  const takeMasked = (masked: Float64Array): void => {
+    /*
+     * Output k describes frame `lag + k`, **not** frame k.
+     *
+     * The mask centres its window on the frame it emits, so the first output only
+     * arrives once `timeFrames` frames have been pushed and describes the middle of
+     * them. Indexing these from zero silently shifts every percussive reading half a
+     * window later than the flux it is divided by — 8 frames, ~93ms — which on a
+     * click track compares each hit against the silence after it and reports every
+     * drum in the library as harmonic. It did exactly that.
+     */
+    const frame = mask.lag + maskedCount;
+    if (prevMasked && frame < frameCount) {
+      let flux = 0;
+      for (let b = 0; b < bins; b++) {
+        const d = masked[b]! - prevMasked[b]!;
+        if (d > 0) flux += d;
+      }
+      percussiveOdf[frame] = flux;
+    }
+    // The mask reuses its output buffer, so this has to be a copy.
+    prevMasked = Float64Array.from(masked);
+    maskedCount++;
+  };
 
   const frame = new Float64Array(frameSize);
   const re = new Float64Array(bins);
@@ -161,6 +201,9 @@ export function detectOnsets(
     fft.transform(frame, re, im);
 
     for (let b = 0; b < bins; b++) mag[b] = Math.hypot(re[b]!, im[b]!);
+
+    const masked = mask.push(mag);
+    if (masked) takeMasked(masked);
 
     let flux = 0;
     let low = 0;
@@ -188,6 +231,8 @@ export function detectOnsets(
     prevMag = mag;
     mag = swap;
   }
+
+  for (const masked of mask.flush()) takeMasked(masked);
 
   const odfHopSec = hopSize / sampleRate;
   // Frame f covers samples [f*hop, f*hop+frameSize). A transient anywhere in
@@ -229,6 +274,10 @@ export function detectOnsets(
       low: low / norm,
       mid: mid / norm,
       high: high / norm,
+      // Share of this attack that survived the percussive mask. Clamped: the two
+      // flux figures come from different spectrograms, so their ratio can sit a
+      // hair above 1 where masking happened to sharpen an edge.
+      percussive: odf[f]! > 0 ? Math.min(1, percussiveOdf[f]! / odf[f]!) : 0,
     };
   });
 

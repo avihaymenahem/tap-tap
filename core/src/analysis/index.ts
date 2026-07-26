@@ -21,8 +21,13 @@ export { FFT, hannWindow } from './fft.js';
  *      energy, so a transient over a sustained tone lands in the band that
  *      actually attacked. Version 2 onsets misclassify hits over a ringing
  *      bass or pad, which skews lane assignment on most real mixes.
+ *   4  each onset carries `percussive` — the share of its attack that survives a
+ *      harmonic/percussive split (`hpss.ts`). This is the axis difficulty should
+ *      actually move along: the beat you can hear versus the melody over it.
+ *      Version 3 onsets have no value, and generation reads absent as "admit",
+ *      so an un-regenerated song keeps exactly the charts it has.
  */
-export const ANALYSIS_VERSION = 3;
+export const ANALYSIS_VERSION = 4;
 
 /** Full offline analysis of a decoded mono track. */
 export function analyze(
