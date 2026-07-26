@@ -36,6 +36,18 @@ export interface BestScore {
    * bests of their standing.
    */
   assisted?: boolean;
+  /**
+   * Misses in the recorded run — what the clear lamp's full-combo rung is
+   * derived from (`game/lamps.ts`).
+   *
+   * Stored rather than inferred because the played chart is not the stored
+   * chart: `PlayScreen` drops notes ahead of an intro skip and inside the start
+   * grace window, so comparing `maxCombo` against the chart's note count
+   * under-reports a genuine full combo on any song with a long quiet opening.
+   * Optional, and `lampFor` falls back to that comparison when absent, which
+   * can only under-claim.
+   */
+  misses?: number;
 }
 
 function read<T>(key: string, fallback: T): T {
@@ -84,6 +96,23 @@ function scoreKey(songId: string, difficulty: DifficultyName): string {
 export function getBestScore(songId: string, difficulty: DifficultyName): BestScore | null {
   const all = read<Record<string, BestScore>>(SCORES_KEY, {});
   return all[scoreKey(songId, difficulty)] ?? null;
+}
+
+/**
+ * Every stored best, keyed `songId:difficulty`.
+ *
+ * For callers that need many at once — the menu draws a lamp per difficulty per
+ * row, and doing that through `getBestScore` is one `JSON.parse` of the whole map
+ * per lamp (four per song, thirty-plus songs, on every keystroke of the search
+ * box). One read, then look up in memory.
+ */
+export function getBestScores(): Record<string, BestScore> {
+  return read<Record<string, BestScore>>(SCORES_KEY, {});
+}
+
+/** The key `getBestScores` stores a chart under. */
+export function bestScoreKey(songId: string, difficulty: DifficultyName): string {
+  return scoreKey(songId, difficulty);
 }
 
 /**

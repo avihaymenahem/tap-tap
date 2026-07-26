@@ -25,7 +25,9 @@ import {
   sortSongs,
 } from '../songSearch.js';
 import {
+  bestScoreKey,
   getBestScore,
+  getBestScores,
   getFavorites,
   getLastSong,
   getPreviewEnabled,
@@ -35,6 +37,7 @@ import {
   setStoredSort,
   toggleFavorite,
 } from '../storage.js';
+import { LAMP_LABELS, type Lamp, lampFor } from '../game/lamps.js';
 
 interface MenuScreenProps {
   onPlay: (songId: string, difficulty: DifficultyName) => void;
@@ -290,20 +293,52 @@ export function MenuScreen({
     ? (themeFor(catalog, selectedSong.themeId).accent ?? DEFAULT_ACCENT)
     : DEFAULT_ACCENT;
 
-  // Grade badges for the list. Memoised because `getBestScore` re-parses the
-  // whole stored score map per call — fine once, not thirty times per
-  // keystroke of search. Scores only change on the results screen, so songs +
-  // difficulty are the only real inputs.
+  // Grade badges for the list. Memoised because the stored score map is one
+  // blob — reading it per song per difficulty would re-parse it thirty-plus
+  // times on every keystroke of search. Read once here and look up in memory.
+  // Scores only change on the results screen, so songs + difficulty are the only
+  // real inputs.
   const gradeBySong = useMemo(() => {
+    const scores = getBestScores();
     const grades = new Map<string, string>();
     for (const song of songs ?? []) {
       const has = DIFFICULTY_NAMES.filter((name) => (song.noteCounts[name] ?? 0) > 0);
       const resolved = nearestAvailable(difficulty, has);
-      const grade = resolved ? getBestScore(song.songId, resolved)?.grade : undefined;
+      const grade = resolved
+        ? scores[bestScoreKey(song.songId, resolved)]?.grade
+        : undefined;
       if (grade) grades.set(song.songId, grade);
     }
     return grades;
   }, [songs, difficulty]);
+
+  /**
+   * Clear lamps per song: one per difficulty, so a row reads as a completion map
+   * rather than a single verdict at whichever difficulty happens to be selected.
+   *
+   * Independent of `difficulty` on purpose — the whole point is seeing what is
+   * left on the *other* rungs — so this only recomputes when the library does.
+   */
+  const lampsBySong = useMemo(() => {
+    const scores = getBestScores();
+    const map = new Map<string, { difficulty: DifficultyName; lamp: Lamp; assisted: boolean }[]>();
+    for (const song of songs ?? []) {
+      const row = DIFFICULTY_NAMES.filter((name) => (song.noteCounts[name] ?? 0) > 0).map(
+        (name) => {
+          const best = scores[bestScoreKey(song.songId, name)];
+          return {
+            difficulty: name,
+            lamp: lampFor(best, song.noteCounts[name] ?? 0),
+            assisted: best?.assisted === true,
+          };
+        },
+      );
+      // Nothing to show for a song with no cleared chart at all — an all-empty
+      // strip is noise on every untouched row, which is most of a fresh library.
+      if (row.some((entry) => entry.lamp !== 'none')) map.set(song.songId, row);
+    }
+    return map;
+  }, [songs]);
 
   // Move the focused selection through the currently filtered list (the hero's
   // prev/next and the desktop arrow keys). Wraps around, and carries the same
@@ -715,6 +750,37 @@ export function MenuScreen({
                               className={`song-card__grade grade--${gradeBySong.get(song.songId)}`}
                             >
                               {gradeBySong.get(song.songId)}
+                            </span>
+                          )}
+                          {/* One pip per difficulty: what is still unclaimed on
+                              this song, without changing difficulty to find out.
+                              Titled per pip so the state is never colour-only. */}
+                          {lampsBySong.has(song.songId) && (
+                            <span
+                              className="song-card__lamps"
+                              role="img"
+                              // The pips carry information available nowhere else
+                              // on the row, so the group gets a real accessible
+                              // name rather than being hidden as decoration. The
+                              // individual pips are then decorative within it —
+                              // `title` on a span is not reliably announced.
+                              aria-label={lampsBySong
+                                .get(song.songId)!
+                                .map((e) => `${e.difficulty} ${LAMP_LABELS[e.lamp].toLowerCase()}`)
+                                .join(', ')}
+                            >
+                              {lampsBySong.get(song.songId)!.map((entry) => (
+                                <span
+                                  key={entry.difficulty}
+                                  aria-hidden="true"
+                                  className={`lamp lamp--${entry.lamp}${
+                                    entry.assisted ? ' lamp--assisted' : ''
+                                  }`}
+                                  title={`${entry.difficulty}: ${LAMP_LABELS[entry.lamp]}${
+                                    entry.assisted ? ' (assisted)' : ''
+                                  }`}
+                                />
+                              ))}
                             </span>
                           )}
                         </div>

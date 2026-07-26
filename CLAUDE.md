@@ -680,6 +680,32 @@ scripts/
   family as the `backdrop-filter` stacking trap below; diagnose it the same way,
   with `elementFromPoint`.
 
+**Clear lamps**
+- Four rungs — not cleared / cleared / full combo / all perfect — **derived** from
+  the stored best (`game/lamps.ts`), not recorded as a verdict, so the ladder can
+  gain a rung without a migration. One pip per difficulty on each song row, which
+  is the point: the grade badge only ever speaks for the *selected* difficulty.
+- **There is deliberately no "played" rung.** `recordScore` is skipped for a
+  failed run, so a failed attempt leaves no trace whatsoever — the app cannot
+  tell "tried and lost" from "never touched" and must not imply it can. It also
+  means a stored best *is* a clear.
+- **`BestScore.misses` exists because the played chart is not the stored chart.**
+  `PlayScreen` drops notes ahead of an intro skip and inside the start grace
+  window, so `maxCombo >= noteCounts[difficulty]` under-reports a real full combo
+  on any song with a long quiet opening. Counting misses sidesteps the played
+  length entirely. Absent on older records, where `lampFor` falls back to that
+  comparison — which can only ever **under**-claim, since the played chart is a
+  subset of the stored one. Under-claiming is the right direction for a badge.
+- Perfect requires `accuracy >= 1` *and* no misses. The second half is redundant
+  today and is there so a future tier whose score ties with `perfect` cannot
+  silently start handing out gold.
+- A song with nothing cleared renders no strip at all — an all-empty ladder on
+  every untouched row is noise, and most of a fresh library is untouched rows.
+- The perfect pip is `--gold`, from the fixed trim family rather than the song
+  accent, because an all-perfect clear is an achievement tier and not a themed
+  element. Assisted clears keep their pip but lose its glow, mirroring how
+  `recordScore` lets an assisted run hold a slot without outranking a clean one.
+
 **Favorites**
 - **Per-device, in `localStorage`** alongside scores and calibration — *not* a
   field on the beatmap. Chosen knowingly: it keeps starring instant and working

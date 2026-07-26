@@ -52,6 +52,10 @@ export function ResultsScreen({
           maxCombo: result.maxCombo,
           grade: result.grade,
           assisted,
+          // The exact full-combo signal for the clear lamp — `maxCombo` alone
+          // cannot say, because the played chart may be shorter than the stored
+          // one (intro skip, start grace). See `BestScore.misses`.
+          misses: result.counts.miss,
         })
       : false,
   );
