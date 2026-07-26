@@ -485,6 +485,28 @@ scripts/
   to show up.
 
 **three.js**
+- **Shaders compile on first *draw*, so `Highway.warm()` exists and must be
+  awaited before the clock starts.** Nothing rendered during the ready phase —
+  the loop only starts inside `start()` — so every program in the scene plus the
+  whole bloom chain compiled on frame 1 of the song, with the music already
+  playing. That is the **124.8ms frame** measured at every menu→play transition
+  on the S25, the one hitch that survived every other explanation (thermal, GL
+  memory, note ticks, adaptive downgrade, audio underruns).
+  - **`compileAsync` alone would have fixed about a fifth of it.** It walks the
+    scene graph and the post chain is not in it, so the bloom's mip levels and
+    the output pass only compile when the composer first runs. Measured: high
+    tier 110.7ms compile + **493.2ms first frame** (36 programs); low tier 92.7ms
+    + 164.4ms (15 programs). The throwaway frame in `warm()` is the larger half.
+  - **`scene.traverse`, not `traverseVisible`, is what makes it complete.** The
+    hold-body and shockwave pools are built in the constructor with
+    `visible = false` and are compiled up front rather than the first time a hold
+    or a hit appears. **Anything that adds a mesh to the scene after construction
+    reintroduces a mid-song compile `warm()` cannot catch.**
+  - Call it **after** `resize` — the composer's targets are sized there, and
+    warming first allocates them twice. Versus warms both sides (two bloom
+    chains); the tutorial had to have its metronome *reordered* to be scheduled
+    after the warm-up, because a 0.7s audio deadline set before the stall is a
+    deadline the stall eats.
 - **Backdrop coordinates: measure, do not derive.** The sky plane is 200x120 at
   world y=8, so `uv.y = 0.5 + (worldY - 8) / 120`. But the on-screen horizon is
   **not** eye level in that space — the track's far edge sits at `uv.y ≈ 0.414`,

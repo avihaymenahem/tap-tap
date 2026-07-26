@@ -66,7 +66,8 @@ export function TutorialScreen({
   const rafRef = useRef<number | null>(null);
   const startAtRef = useRef(0);
   /** The intro "Start" button drives this, set up once the loop is installed. */
-  const startRef = useRef<(() => void) | null>(null);
+  /** Async since it awaits the shader warm-up before scheduling the metronome. */
+  const startRef = useRef<(() => void | Promise<void>) | null>(null);
 
   useWakeLock(true);
 
@@ -155,17 +156,13 @@ export function TutorialScreen({
       }
     };
 
-    const start = (): void => {
+    const start = async (): Promise<void> => {
       const canvas = canvasRef.current;
       if (!canvas || phaseRef.current !== 'intro') return;
 
       const ctx = new AudioContext();
       void ctx.resume();
       ctxRef.current = ctx;
-
-      const metro = startMetronome(ctx, { bpm: TUTORIAL_BPM, startAt: ctx.currentTime + 0.7 });
-      metronomeRef.current = metro;
-      startAtRef.current = metro.startAt;
 
       // A synthetic beat grid in song-time so the backdrop still pulses.
       const beatGrid: number[] = [];
@@ -186,6 +183,23 @@ export function TutorialScreen({
       });
       highway.resize(canvas.clientWidth, canvas.clientHeight);
       highwayRef.current = highway;
+
+      /*
+       * Compile the shaders *before* the metronome is scheduled, which is why the
+       * two were reordered. three.js compiles a program the first time it is
+       * drawn, so this used to happen on frame 1 — a measured 124.8ms elsewhere —
+       * landing inside the 0.7s lead before the first click, or on top of the
+       * first beat the lesson asks the player to tap. The audio deadline has to
+       * be set after the stall, not before it.
+       */
+      await highway.warm();
+      // Cleanup nulls `startRef`, so this is the teardown signal: the effect was
+      // torn down while the driver was compiling and there is nothing to start.
+      if (startRef.current === null) return;
+
+      const metro = startMetronome(ctx, { bpm: TUTORIAL_BPM, startAt: ctx.currentTime + 0.7 });
+      metronomeRef.current = metro;
+      startAtRef.current = metro.startAt;
 
       engineRef.current = new GameEngine(lesson.chart, {
         calibrationSec: resolveCalibration(getStoredCalibration(), latencyOf(ctx)),

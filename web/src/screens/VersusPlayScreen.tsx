@@ -272,6 +272,14 @@ export function VersusPlayScreen({
           };
         });
 
+        // Compile both sides' shaders while the loading state is still up. Two
+        // highways means two full bloom chains, so the first-frame compile that
+        // costs a measured 124.8ms on one is worse here — and it would land on
+        // the opening notes of a match, where one player eating the stall is a
+        // fairness problem and not just a rough edge.
+        await Promise.all(sidesRef.current.map((side) => side.highway.warm()));
+        if (cancelled) return;
+
         setBeatmap(map);
         applyPhase('ready');
         setEngineReady(true);
