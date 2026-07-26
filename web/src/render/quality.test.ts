@@ -168,7 +168,77 @@ describe('the tier ladder', () => {
       expect(next.pixelRatioCap).toBeLessThanOrEqual(prev.pixelRatioCap);
       expect(next.starCount).toBeLessThanOrEqual(prev.starCount);
       expect(next.particleBudget).toBeLessThanOrEqual(prev.particleBudget);
+      // The aura is not part of the highway, so it needs its own guarantee — it
+      // was the surface that stayed at full cost when the tier only reached
+      // `highway.ts`.
+      expect(next.auraParticles).toBeLessThanOrEqual(prev.auraParticles);
+      expect(next.auraDensity).toBeLessThanOrEqual(prev.auraDensity);
     }
+  });
+});
+
+describe('the aura knobs', () => {
+  it('drops the aura bloom pass only at low', async () => {
+    const { qualityProfile } = await freshQuality({});
+    // The blurred composite is what makes the neon read as light, so it survives
+    // medium for the same reason the highway's bloom does.
+    expect(qualityProfile('high').auraBloom).toBe(true);
+    expect(qualityProfile('medium').auraBloom).toBe(true);
+    expect(qualityProfile('low').auraBloom).toBe(false);
+  });
+
+  it('keeps density a fraction, never an amplifier', async () => {
+    const { qualityProfile, QUALITY_TIERS } = await freshQuality({});
+    for (const tier of QUALITY_TIERS) {
+      const p = qualityProfile(tier);
+      // A tier may only ever remove cost. Above 1 would mean a lower tier
+      // emitting *more* than the top one.
+      expect(p.auraDensity).toBeGreaterThan(0);
+      expect(p.auraDensity).toBeLessThanOrEqual(1);
+      expect(p.auraParticles).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('publishQualityTier', () => {
+  /** Minimal stand-in for `<html>`; the module only ever sets one attribute. */
+  function stubDocument(): { attrs: Map<string, string> } {
+    const attrs = new Map<string, string>();
+    vi.stubGlobal('document', {
+      documentElement: {
+        setAttribute: (k: string, v: string) => void attrs.set(k, v),
+      },
+    });
+    return { attrs };
+  }
+
+  it('publishes the resolved tier so CSS can gate on it', async () => {
+    const { publishQualityTier } = await freshQuality({ stored: { 'tap-tap.quality': 'low' } });
+    const { attrs } = stubDocument();
+    publishQualityTier();
+    expect(attrs.get('data-quality')).toBe('low');
+  });
+
+  it('takes an explicit tier, for the renderer’s live downgrade', async () => {
+    const { publishQualityTier } = await freshQuality({});
+    const { attrs } = stubDocument();
+    publishQualityTier('medium');
+    expect(attrs.get('data-quality')).toBe('medium');
+  });
+
+  it('follows the renderer down when a downgrade is remembered', async () => {
+    // markAutoTier is called from the render loop; the DOM must follow, or the
+    // CSS stays expensive on a device that just proved it cannot keep up.
+    const { markAutoTier } = await freshQuality({});
+    const { attrs } = stubDocument();
+    markAutoTier('low');
+    expect(attrs.get('data-quality')).toBe('low');
+  });
+
+  it('does not throw without a document (SSR/tests)', async () => {
+    const { publishQualityTier } = await freshQuality({});
+    vi.stubGlobal('document', undefined);
+    expect(() => publishQualityTier('low')).not.toThrow();
   });
 });
 

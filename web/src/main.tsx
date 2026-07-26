@@ -4,6 +4,7 @@ import { App } from './App.js';
 import { loadServerConfig } from './api/serverConfig.js';
 import { isNativePlatform, seedIfEmpty } from './data/index.js';
 import { registerServiceWorker } from './pwa.js';
+import { publishQualityTier } from './render/quality.js';
 import './styles.css';
 
 const container = document.getElementById('root');
@@ -21,6 +22,11 @@ const root = createRoot(container);
  * supports, and Vite only rejects it at build time.
  */
 async function boot(): Promise<void> {
+  // Before the first render: the stylesheet gates its always-on blur and ambient
+  // animation on `data-quality`, and a weak device must not paint one expensive
+  // frame before finding out which tier it is on.
+  publishQualityTier();
+
   if (isNativePlatform()) {
     // Populate the library from bundled assets the first time it is empty, so a
     // fresh install is not a blank menu. No-op once the user has any song.

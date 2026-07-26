@@ -373,6 +373,57 @@ scripts/
 - The sun is hidden under 560px and dimmed on admin. Both are deliberate — it
   reads as a nub or a blob otherwise.
 
+**The graphics tier reaches outside WebGL — `data-quality` is the mechanism**
+- **`QualityProfile` is no longer only the highway's.** For a long time the four
+  call sites of `render/quality.ts` all fed `new Highway(...)`, so a player who
+  set Graphics to **Low** still got every always-on `backdrop-filter`, every
+  `filter: blur()` and every infinite keyframe at full cost. That was reported
+  as "Low does nothing" on a budget phone, and it was accurate.
+- **`publishQualityTier()` writes `data-quality` onto `<html>`** and the
+  stylesheet gates itself against it (one block, near the `retro-bg`
+  reduced-motion rules). CSS cannot read a TS profile, so this attribute is the
+  only bridge. Called from `main.tsx` before the first render, from
+  `GraphicsToggle` on change (the CSS half applies **immediately**, unlike the
+  highway), and from `markAutoTier` so the DOM follows the renderer's live
+  downgrade. An *attribute*, not a class: it is one-of-N, so setting it replaces
+  the old tier for free where a missed class removal would match two at once.
+- **Two rules for anything added to that block: only ever remove cost, and kill
+  `backdrop-filter` before you touch opacity fades.** A `backdrop-filter` over a
+  surface that changes every frame re-samples and re-blurs *per frame* — it is
+  strictly worse than anything else on the list.
+- **`SongAura` is the most expensive surface in the app outside the highway**,
+  and it is on the hero — where five `backdrop-filter` regions sit on top of it,
+  each re-blurring every frame precisely because the canvas changes every frame.
+  It reads `auraParticles`, `auraDensity`, `auraBloom` and `pixelRatioCap`.
+  `auraBloom: false` makes it draw straight to the visible canvas: no offscreen
+  buffer, no full-buffer `filter: blur()`, one composite instead of three.
+  Measured on the hero: **0 offscreen canvases at low vs 5 at high.**
+- **The tier is resolved once per mount**, like the `Highway` resolves it at
+  construction, because it sizes buffers and the particle pool. The hero
+  remounts on every open, so a change in settings lands the next time it opens.
+- **`stage-sparks` animates `background-position`, which is a paint property.**
+  Its own comment used to claim it "costs almost nothing" — true of drawing the
+  tile once, false of animating it: it repaints six stacked radial gradients
+  across the whole viewport every frame, forever. First thing the low tier
+  switches off.
+- **The backdrop is paused whenever a hero covers it** (`body:has(.song-hero:not(
+  .song-hero--closing))`), at *every* tier — an open hero is `position: fixed;
+  inset: 0` over an opaque gradient, so that repaint was pure waste.
+  `animation-play-state: paused`, not `animation: none`, so the closing hero
+  reveals the animation where it left off instead of snapping to the base
+  keyframe; `:not(--closing)` is what lets it resume as it uncovers.
+- **`prefers-reduced-motion` must stop the loop, not just the emission.**
+  `SongAura` used to suppress spawning only, leaving the rAF loop, the breathing
+  core ring and all three composites running forever — the full cost of the
+  effect, still visibly animating, for a player who asked for neither. It now
+  draws one static frame and never schedules.
+- **`ThemePreview` is deliberately not `adaptive`.** It builds a real `Highway`,
+  but in a small canvas and rebuilt on every debounced theme edit — letting it
+  persist an `autoTier` would record a downgrade decision from a load nothing
+  else in the app resembles. `TutorialScreen` *is* adaptive: it is a real
+  highway, it is the first thing a new player sees, and catching a weak device
+  there means their first real song starts at the right tier.
+
 **Play visuals (tiles, hit-zones, impact)**
 - **Notes are wide flat tap-tiles, not pills** — a textured unit plane laid flat
   (`rotateX(-PI/2)`) and sized per-instance to `TILE_WIDTH × TILE_DEPTH`, tilted

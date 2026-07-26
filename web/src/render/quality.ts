@@ -95,6 +95,32 @@ export interface QualityProfile {
   particleBudget: number;
   /** Light-streak trails behind the falling notes. */
   trails: boolean;
+  /**
+   * Hard cap on the `SongAura` particle pool.
+   *
+   * The aura is a canvas-2D system and **not** part of the WebGL highway, which
+   * is why it needs its own number. For a long time the tier turned nothing
+   * outside `highway.ts`, so a player who pinned `low` still got the full aura
+   * on the hero — the heaviest screen in the app, and the one where "Low" was
+   * reported as doing nothing at all.
+   */
+  auraParticles: number;
+  /**
+   * Multiplier on the aura's emission rates, so a lower tier *thins* the effect
+   * rather than running at full density until `auraParticles` starts culling
+   * mid-flight. The cap is the ceiling; this is what the look is tuned against.
+   */
+  auraDensity: number;
+  /**
+   * The aura's two-pass canvas bloom: a full-buffer `filter: blur()` into a
+   * half-res canvas, then two full-canvas additive composites of the result.
+   *
+   * By far the most expensive thing it does — `filter` on a 2D context is not
+   * reliably GPU-accelerated, and this one runs over the whole buffer every
+   * frame. Off means the particles are drawn straight to the visible canvas: no
+   * offscreen buffer, no blur, one composite instead of three.
+   */
+  auraBloom: boolean;
 }
 
 const HIGH: QualityProfile = {
@@ -109,6 +135,9 @@ const HIGH: QualityProfile = {
   starCount: 560,
   particleBudget: 1500,
   trails: true,
+  auraParticles: 760,
+  auraDensity: 1,
+  auraBloom: true,
 };
 
 /**
@@ -131,6 +160,11 @@ const MEDIUM: QualityProfile = {
   starCount: 360,
   particleBudget: 800,
   trails: true,
+  // The aura keeps its bloom here for the same reason the highway does: it is
+  // what makes the neon read as light rather than as coloured shapes.
+  auraParticles: 420,
+  auraDensity: 0.65,
+  auraBloom: true,
 };
 
 const LOW: QualityProfile = {
@@ -142,6 +176,9 @@ const LOW: QualityProfile = {
   starCount: 180,
   particleBudget: 400,
   trails: false,
+  auraParticles: 180,
+  auraDensity: 0.4,
+  auraBloom: false,
 };
 
 const PROFILES: Record<QualityTier, QualityProfile> = {
@@ -248,6 +285,33 @@ export function markAutoTier(tier: QualityTier): void {
   } catch {
     // Private mode — it just will not be remembered next song.
   }
+  // The DOM is expensive on exactly the devices that get here, so let the CSS
+  // follow the renderer down rather than staying heavy for the rest of the
+  // session. One attribute write, once, on a device already struggling.
+  publishQualityTier(tier);
+}
+
+/** The attribute CSS keys off. Mirrored in `styles.css` — see `publishQualityTier`. */
+const TIER_ATTR = 'data-quality';
+
+/**
+ * Publish the resolved tier onto `<html>` as `data-quality`.
+ *
+ * The tier used to reach nothing but `highway.ts`, so every always-on
+ * `backdrop-filter`, `filter: blur()` and infinite keyframe animation in the app
+ * ran at full cost however low the player set Graphics. Those live in CSS, and
+ * CSS cannot read a TypeScript profile — so the tier is published as an
+ * attribute and the stylesheet gates itself against it.
+ *
+ * An attribute rather than a class because it is one-of-N, not a flag: setting
+ * it replaces the previous tier for free, where classes would need removing
+ * first and a missed removal leaves two tiers matching at once.
+ *
+ * Call it at startup and whenever the setting changes. Safe to call repeatedly.
+ */
+export function publishQualityTier(tier?: QualityTier): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute(TIER_ATTR, tier ?? resolveQuality());
 }
 
 /**

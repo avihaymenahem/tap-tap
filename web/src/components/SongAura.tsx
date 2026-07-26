@@ -1,5 +1,6 @@
 import { useEffect, useRef, type CSSProperties, type JSX } from 'react';
 import { AURA_PRESETS, type AuraVariant, pickAuraVariant, rgbFromAccent } from '../render/aura.js';
+import { qualityProfile, resolveQuality } from '../render/quality.js';
 
 /**
  * The living halo behind an album disc — recolouring embers / light-rays / glow
@@ -15,6 +16,15 @@ import { AURA_PRESETS, type AuraVariant, pickAuraVariant, rgbFromAccent } from '
  * The accent and variant are read from refs each frame, so recolouring when the
  * selected song changes never tears down the loop. The colour/variant maths is
  * the pure, unit-tested `render/aura.ts`; this file is only the drawing.
+ *
+ * **This is the most expensive surface in the app outside the highway**, and it
+ * runs on the hero — the screen with five `backdrop-filter` regions layered over
+ * it, each of which re-blurs every frame precisely because this canvas changes
+ * every frame. It therefore reads `QualityProfile` (particle cap, emission
+ * density, pixel ratio, and whether the bloom pass runs at all) rather than
+ * drawing flat out on every device. It did not for a long time, which is why
+ * setting Graphics to Low appeared to do nothing on the one screen that most
+ * needed it.
  */
 
 interface SongAuraProps {
@@ -52,7 +62,6 @@ interface Particle {
 }
 
 const TAU = Math.PI * 2;
-const MAX_PARTICLES = 760;
 
 /** A bright-headed streak: transparent tail → accent → white-hot head, soft edge. */
 function makeStreakSprite(r: number, g: number, b: number): HTMLCanvasElement {
@@ -185,18 +194,38 @@ export function SongAura({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const raw = canvas.getContext('2d');
+    if (!raw) return;
+    // Captured non-null: `draw` below is a hoisted function declaration, so the
+    // guard above does not narrow the context inside it.
+    const ctx: CanvasRenderingContext2D = raw;
 
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
 
-    // Offscreen buffers: `buf` is the crisp particle layer, `glow` a half-res
-    // blurred copy composited underneath it for bloom.
-    const buf = document.createElement('canvas');
-    const bctx = buf.getContext('2d')!;
-    const glow = document.createElement('canvas');
-    const gctx = glow.getContext('2d')!;
+    /*
+     * Resolved once per mount, exactly like the `Highway` resolves it at
+     * construction — and for the same reason: these numbers size buffers and the
+     * particle pool, so they cannot change mid-loop. The hero is remounted on
+     * every open, so a change made in settings is in force the next time it
+     * appears.
+     */
+    const qp = qualityProfile(resolveQuality());
+    const dpr = Math.min(qp.pixelRatioCap, window.devicePixelRatio || 1);
+    const maxParticles = qp.auraParticles;
+
+    /*
+     * Offscreen buffers, only when there is a bloom pass to need them: `buf` is
+     * the crisp particle layer and `glow` a half-res blurred copy composited
+     * underneath it. Without bloom the particles go straight to the visible
+     * canvas, which drops two full-canvas composites, a full-buffer clear and
+     * the `filter: blur()` — the single most expensive operation in this file.
+     */
+    const buf = qp.auraBloom ? document.createElement('canvas') : null;
+    const bctx = buf?.getContext('2d') ?? null;
+    const glow = qp.auraBloom ? document.createElement('canvas') : null;
+    const gctx = glow?.getContext('2d') ?? null;
+    /** Where particles are drawn: the offscreen buffer, or the canvas itself. */
+    const target = bctx ?? ctx;
 
     let W = 0;
     let H = 0;
@@ -205,14 +234,17 @@ export function SongAura({
       H = Math.max(1, Math.round(canvas.clientHeight * dpr));
       canvas.width = W;
       canvas.height = H;
-      buf.width = W;
-      buf.height = H;
-      glow.width = Math.max(1, Math.round(W / 2));
-      glow.height = Math.max(1, Math.round(H / 2));
+      if (buf) {
+        buf.width = W;
+        buf.height = H;
+      }
+      if (glow) {
+        glow.width = Math.max(1, Math.round(W / 2));
+        glow.height = Math.max(1, Math.round(H / 2));
+      }
+      // Under reduced motion there is no loop to pick the new size up.
+      if (reduce) draw(performance.now());
     };
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
 
     // Sprites, re-tinted only when accent/variant changes.
     let spriteKey = '';
@@ -239,7 +271,7 @@ export function SongAura({
     let raf = 0;
 
     const spawn = (kind: Kind): void => {
-      if (particles.length >= MAX_PARTICLES) return;
+      if (particles.length >= maxParticles) return;
       const p = AURA_PRESETS[variantRef.current];
       // Emit rim tracks the disc (smaller dimension); ray *reach* uses the
       // larger dimension so rays cross clear to the far screen edges rather than
@@ -312,8 +344,7 @@ export function SongAura({
       }
     };
 
-    const frame = (now: number): void => {
-      raf = requestAnimationFrame(frame);
+    function draw(now: number): void {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       ensureSprites();
@@ -326,17 +357,19 @@ export function SongAura({
       const t = now / 1000;
       const inten = intensityRef.current;
 
-      // --- draw particle layer onto the buffer -----------------------------
-      bctx.setTransform(1, 0, 0, 1, 0, 0);
-      bctx.clearRect(0, 0, W, H);
-      bctx.globalCompositeOperation = 'lighter';
+      // --- draw the particle layer -----------------------------------------
+      // `target` is the offscreen buffer when there is a bloom pass to blur it,
+      // and the visible canvas itself when there is not.
+      target.setTransform(1, 0, 0, 1, 0, 0);
+      target.clearRect(0, 0, W, H);
+      target.globalCompositeOperation = 'lighter';
 
       // Core ring hugging the disc, breathing.
       const breathe = 1 + preset.pulse * 0.16 * Math.sin(t * 2.4);
       const coreD = disc * half * 2 * 1.5 * breathe + preset.halo * half;
-      bctx.globalAlpha = (0.32 + 0.12 * Math.sin(t * 2.4)) * inten;
-      bctx.drawImage(core, cx - coreD / 2, cy - coreD / 2, coreD, coreD);
-      bctx.globalAlpha = 1;
+      target.globalAlpha = (0.32 + 0.12 * Math.sin(t * 2.4)) * inten;
+      target.drawImage(core, cx - coreD / 2, cy - coreD / 2, coreD, coreD);
+      target.globalAlpha = 1;
 
       // A slow rotation of the whole ray field, so the starburst churns rather
       // than sitting dead still.
@@ -344,13 +377,16 @@ export function SongAura({
 
       // Emit.
       if (!reduce) {
-        emitAcc += preset.spawnRate * inten * dt;
+        // Thinned by the tier, so a lower tier emits less rather than emitting
+        // at full rate and letting `maxParticles` cull mid-flight — which would
+        // show as streaks vanishing in mid-air.
+        emitAcc += preset.spawnRate * inten * qp.auraDensity * dt;
         const primary: Kind = variantRef.current === 'burst' ? 'ray' : 'ember';
         while (emitAcc >= 1) {
           spawn(primary);
           emitAcc -= 1;
         }
-        sparkAcc += preset.sparkleRate * inten * dt;
+        sparkAcc += preset.sparkleRate * inten * qp.auraDensity * dt;
         while (sparkAcc >= 1) {
           spawn('sparkle');
           sparkAcc -= 1;
@@ -370,25 +406,25 @@ export function SongAura({
         if (q.kind === 'ray') {
           q.rad += q.vx * dt;
           q.vx *= dragK;
-          bctx.globalAlpha = fade * inten;
-          bctx.save();
-          bctx.translate(cx, cy);
-          bctx.rotate(q.angle + fieldRot);
-          bctx.drawImage(streak, q.rad - q.len, -q.size / 2, q.len, q.size);
+          target.globalAlpha = fade * inten;
+          target.save();
+          target.translate(cx, cy);
+          target.rotate(q.angle + fieldRot);
+          target.drawImage(streak, q.rad - q.len, -q.size / 2, q.len, q.size);
           // Flare rays get a second pass for a brighter, fatter beam.
-          if (q.flare > 0) bctx.drawImage(streak, q.rad - q.len, -q.size / 2, q.len, q.size);
-          bctx.restore();
+          if (q.flare > 0) target.drawImage(streak, q.rad - q.len, -q.size / 2, q.len, q.size);
+          target.restore();
         } else if (q.kind === 'sparkle') {
           q.rot += q.spin * dt;
           // Twinkle: a fast shimmer on top of the birth/death fade.
           const tw = fade * (0.55 + 0.45 * Math.sin(t * 9 + q.seed * TAU));
           const s = q.size * (0.7 + 0.5 * fade);
-          bctx.globalAlpha = Math.max(0, tw) * inten;
-          bctx.save();
-          bctx.translate(cx + q.x, cy + q.y);
-          bctx.rotate(q.rot);
-          bctx.drawImage(sparkle, -s / 2, -s / 2, s, s);
-          bctx.restore();
+          target.globalAlpha = Math.max(0, tw) * inten;
+          target.save();
+          target.translate(cx + q.x, cy + q.y);
+          target.rotate(q.rot);
+          target.drawImage(sparkle, -s / 2, -s / 2, s, s);
+          target.restore();
         } else {
           // ember / mote
           if (preset.swirl !== 0) {
@@ -407,13 +443,21 @@ export function SongAura({
           q.y += q.vy * dt;
           const flick = 0.75 + 0.25 * Math.sin(t * 14 + q.seed * 40);
           const s = q.size * (0.6 + 0.4 * fade);
-          bctx.globalAlpha = fade * flick * inten;
-          bctx.drawImage(blob, cx + q.x - s / 2, cy + q.y - s / 2, s, s);
+          target.globalAlpha = fade * flick * inten;
+          target.drawImage(blob, cx + q.x - s / 2, cy + q.y - s / 2, s, s);
         }
       }
-      bctx.globalAlpha = 1;
+      target.globalAlpha = 1;
 
       // --- bloom: blurred half-res copy under the crisp layer ---------------
+      // Skipped entirely on the low tier, where `target` *is* the visible canvas
+      // and the particles are already on screen. That removes a full-buffer
+      // `filter: blur()` and two full-canvas composites per frame.
+      if (!buf || !glow || !gctx) {
+        target.globalCompositeOperation = 'source-over';
+        return;
+      }
+
       gctx.setTransform(1, 0, 0, 1, 0, 0);
       gctx.globalCompositeOperation = 'source-over';
       gctx.clearRect(0, 0, glow.width, glow.height);
@@ -431,9 +475,27 @@ export function SongAura({
       ctx.drawImage(buf, 0, 0); // crisp cores on top
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
+    }
+
+    const loop = (now: number): void => {
+      raf = requestAnimationFrame(loop);
+      draw(now);
     };
 
-    raf = requestAnimationFrame(frame);
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+
+    /*
+     * Under reduced motion the loop does not run at all — one static frame and
+     * stop. Suppressing only *emission* (which is what this used to do) left the
+     * rAF loop, the breathing core ring and every composite running forever: all
+     * the cost of the effect, and still visibly animated, for a player who asked
+     * for neither.
+     */
+    if (reduce) draw(performance.now());
+    else raf = requestAnimationFrame(loop);
+
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();

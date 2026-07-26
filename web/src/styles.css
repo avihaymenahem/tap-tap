@@ -160,8 +160,12 @@ button {
 .retro-bg__sparks {
   position: absolute;
   inset: 0;
-  /* Pink/cyan embers drifting up — one repeated tile so it costs almost
-     nothing. */
+  /* Pink/cyan embers drifting up — one repeated tile, so it costs almost nothing
+     to *draw*. Animating it is another matter: `stage-sparks` moves
+     `background-position`, which is a paint property, so this repaints six
+     stacked gradients across the whole viewport every frame. That is why it is
+     the first thing the low tier switches off, and why it is paused whenever a
+     hero covers it. */
   background-image:
     radial-gradient(2px 2px at 18% 82%, rgba(255, 120, 200, 0.9), transparent),
     radial-gradient(1.5px 1.5px at 68% 66%, rgba(120, 220, 255, 0.7), transparent),
@@ -273,6 +277,99 @@ button {
   .retro-bg__sparks {
     animation: none;
   }
+}
+
+/*
+ * Stop the backdrop animating while it cannot be seen.
+ *
+ * `.song-hero` is `position: fixed; inset: 0` over an opaque gradient base, so
+ * an open hero hides the backdrop completely — and the backdrop kept repainting
+ * the whole viewport behind it anyway, on the app's most expensive screen. This
+ * is wasted work at *every* tier, not just low.
+ *
+ * `animation-play-state: paused` rather than `animation: none`, so the closing
+ * hero reveals the animation where it left off instead of snapping to the base
+ * keyframe. `:not(--closing)` is what lets it resume as soon as the hero starts
+ * uncovering it, rather than a frozen backdrop sliding into view.
+ */
+body:has(.song-hero:not(.song-hero--closing)) .retro-bg__glow,
+body:has(.song-hero:not(.song-hero--closing)) .retro-bg__sparks {
+  animation-play-state: paused;
+}
+
+/* ===================================================================== *
+ * Low graphics tier — the CSS half of the Graphics setting.
+ *
+ * `data-quality` is written onto <html> by `publishQualityTier`
+ * (render/quality.ts) at boot and whenever the setting changes. It exists
+ * because the tier used to reach nothing but `highway.ts`: a player who set
+ * Graphics to Low still got every always-on `backdrop-filter`, every
+ * `filter: blur()` and every infinite keyframe animation at full cost. On the
+ * hero that is a canvas particle system with five live `backdrop-filter`
+ * regions stacked on top of it, and Low was reported as doing nothing there.
+ *
+ * Two rules for anything added below:
+ *   1. Only ever *remove* cost. A tier must never introduce a new paint.
+ *   2. `backdrop-filter` over a surface that changes every frame is the most
+ *      expensive thing on this list — it re-samples and re-blurs its backdrop
+ *      per frame. Those go first, not the opacity fades.
+ * ===================================================================== */
+
+/*
+ * Always-on ambient motion. `stage-sparks` is the worst of these and its own
+ * comment used to claim it "costs almost nothing": it animates
+ * `background-position`, which is a *paint* property, so it repaints six stacked
+ * radial gradients across the whole viewport every frame, forever.
+ */
+:root[data-quality='low'] .retro-bg__glow,
+:root[data-quality='low'] .retro-bg__sparks,
+:root[data-quality='low'] .song-hero__disc,
+:root[data-quality='low'] .menu__play::before,
+:root[data-quality='low'] .results__burst,
+/* These two run *during a run*, competing with the highway for the frame:
+   `start-pulse` while the ready overlay is up, and `health-pulse` for as long as
+   health stays low — which on a struggling device is most of the song. */
+:root[data-quality='low'] .btn--start,
+:root[data-quality='low'] .play__health-fill--low {
+  animation: none;
+}
+
+/* Six `drop-shadow`-filtered SVG bolts, two instances live on the hero. */
+:root[data-quality='low'] .arcs {
+  display: none;
+}
+
+/*
+ * Every always-on `backdrop-filter`. The hero group is the one that matters —
+ * those five sit directly over the aura canvas — but the card blurs go too:
+ * they are over the animating backdrop, so they also re-blur continuously.
+ * A flat, slightly more opaque panel replaces the blur so the text stays legible.
+ */
+:root[data-quality='low'] .song-hero__play,
+:root[data-quality='low'] .song-hero__close,
+:root[data-quality='low'] .song-hero__nav,
+:root[data-quality='low'] .song-hero .best-score,
+:root[data-quality='low'] .results__card,
+:root[data-quality='low'] .achievements__card,
+:root[data-quality='low'] .settings__card,
+:root[data-quality='low'] .calibration__card,
+:root[data-quality='low'] .play__overlay,
+:root[data-quality='low'] .vs-card,
+:root[data-quality='low'] .dropdown,
+:root[data-quality='low'] .admin-song,
+:root[data-quality='low'] .admin__section,
+:root[data-quality='low'] .admin__input {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/*
+ * A 70px blur over a larger-than-viewport image. Kept at a fraction of the
+ * radius rather than dropped: it is the hero's colour wash, and removing it
+ * outright leaves the art reading as a hard-edged photo behind the disc.
+ */
+:root[data-quality='low'] .song-hero__wash {
+  filter: blur(18px) saturate(1.3) brightness(0.7);
 }
 
 /* Screens paint over the backdrop, never under it. */

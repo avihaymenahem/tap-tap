@@ -3,6 +3,7 @@ import {
   QUALITY_SETTING_LABELS,
   getQualitySetting,
   nextQualitySetting,
+  publishQualityTier,
   setQualitySetting,
 } from '../render/quality.js';
 import { playUiSound } from '../uisfx.js';
@@ -40,6 +41,11 @@ export function GraphicsToggle({ className }: { className: string }): JSX.Elemen
         const next = nextQualitySetting(getQualitySetting());
         setQualitySetting(next);
         setSetting(next);
+        // The CSS half of the tier applies *immediately* — unlike the highway,
+        // which is baked at construction. So picking Low visibly lightens the
+        // screen you are standing on, rather than looking like it did nothing
+        // until the next song.
+        publishQualityTier();
         playUiSound('tick');
       }}
     >

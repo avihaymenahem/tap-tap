@@ -15,7 +15,7 @@ import { cancelHaptics, vibrateTap } from '../haptics.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
-import { qualityProfile, resolveQuality } from '../render/quality.js';
+import { adaptiveAllowed, qualityProfile, resolveQuality } from '../render/quality.js';
 import { getStoredCalibration, setTutorialSeen } from '../storage.js';
 import { playUiSound } from '../uisfx.js';
 
@@ -178,6 +178,11 @@ export function TutorialScreen({
         theme: DEFAULT_THEME,
         beatGrid,
         quality: qualityProfile(resolveQuality()),
+        // The tutorial is a real highway on a first launch, and it is the very
+        // first thing a new player sees. Letting it adapt means a weak device is
+        // caught here and remembered, so the player's first actual song starts
+        // at the tier that device can hold instead of learning it all over again.
+        adaptive: adaptiveAllowed(),
       });
       highway.resize(canvas.clientWidth, canvas.clientHeight);
       highwayRef.current = highway;
