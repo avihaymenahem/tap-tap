@@ -1407,12 +1407,39 @@ kbd {
 /* The song's own art, blurred to a broad colour field over the accent wash —
    the reference takes its whole-screen colour from the cover. Very dim; the
    gradient wash and the aura do the heavy lifting. */
+/*
+ * The blurred cover art behind everything. Bled past three edges so the 70px
+ * blur never shows a soft vignette inside the frame.
+ *
+ * **Flush at the bottom, and that is not a style choice.** `.song-hero` is the
+ * scroll container (it has to be — see its own `overflow-y` comment), and a
+ * decorative layer hanging below the content box is scrollable overflow like any
+ * other: at 812px this produced 81px of empty dead space under the controls that
+ * the player could scroll into for no reason. Only the bottom bleed had to go —
+ * overflow above the origin is not reachable, so the top and side bleed are free.
+ *
+ * Two fixes that look obvious and do **not** work, both measured: `position:
+ * fixed` (`.song-hero` keeps a `transform: scale(1)` from `hero-in ... both`,
+ * which makes it the containing block, so a fixed child still counts), and
+ * `transform: scale(1.2)` on a full-bleed box (the scrollable region includes
+ * descendants' *transformed* border boxes). Anything new that bleeds past this
+ * container's bottom edge will reintroduce the scroll.
+ */
 .song-hero__wash {
   position: absolute;
-  inset: -10%;
+  /*
+   * Explicit height, no `bottom`. This is an `<img>` — a replaced element — so
+   * `height: auto` resolves from the intrinsic aspect ratio and *ignores* the
+   * `bottom` inset, which collapses the wash to a 257px band instead of sizing
+   * it to the box. `top: -10%` + `height: 110%` lands the bottom edge exactly on
+   * the container's, which is the whole point.
+   */
+  top: -10%;
+  right: -10%;
+  left: -10%;
   z-index: 0;
   width: 120%;
-  height: 120%;
+  height: 110%;
   object-fit: cover;
   filter: blur(70px) saturate(1.3) brightness(0.7);
   opacity: 0.45;

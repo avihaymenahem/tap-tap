@@ -372,6 +372,29 @@ scripts/
   "simplify" them back to `rgba(255,255,255,0.05)`.
 - The sun is hidden under 560px and dimmed on admin. Both are deliberate — it
   reads as a nub or a blob otherwise.
+- **A decorative layer that bleeds past a scroll container's *bottom* edge is
+  scrollable overflow, and reads as a bug.** `.song-hero__wash` is bled 10%
+  past its edges so the 70px blur shows no vignette inside the frame; because
+  `.song-hero` is also the scroller, that produced **81px of empty dead space**
+  under the controls at 812px. Only the bottom bleed had to go — overflow above
+  the scroll origin is unreachable, so top and sides are free. **Two obvious
+  fixes do not work, both measured:** `position: fixed` (the hero keeps a
+  `transform: scale(1)` from `hero-in ... both`, so it is the containing block
+  and a fixed child still counts) and `transform: scale()` on a full-bleed box
+  (the scrollable region includes descendants' *transformed* border boxes).
+- **`height: auto` on a positioned `<img>` ignores the `bottom` inset.** It is a
+  replaced element, so the height comes from the intrinsic aspect ratio — setting
+  `inset: -10% -10% 0` and dropping the height collapsed the wash from full-bleed
+  to a 257px band. Size it with `top` + an explicit `height` and no `bottom`.
+  This also makes the first fix *look* like it worked: overflow went to zero
+  because the layer had shrunk, not because it was flush.
+- **Verify hero/scroller layout with animations forced off.** With the Browser
+  pane hidden, CSS animations are frozen at their `from` keyframe, so `.song-hero`
+  measures 824px instead of 812 (stuck at `scale(1.015)`) and `.rise` children sit
+  translated down — inventing a few px of overflow that does not exist in the real
+  app. `scrollHeight`/`clientHeight` are layout values and stay honest;
+  `getBoundingClientRect` does not. Set `animation: none` on the hero and its
+  `.rise` descendants before trusting a rect.
 
 **The graphics tier reaches outside WebGL — `data-quality` is the mechanism**
 - **`QualityProfile` is no longer only the highway's.** For a long time the four
