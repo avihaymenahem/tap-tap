@@ -514,6 +514,14 @@ scripts/
   to show up.
 
 **three.js**
+- **Transition stalls are the real performance defect on this device — not heat.**
+  Ten minutes of continuous Extreme play holds 8.3ms p50 / 8.4ms p95 on *every*
+  row with no derate at all (PLAN.md §5b), but every run and song boundary drops
+  frames: **324.5ms and 357.9ms** worst frames, 4 frames over 50ms, HWUI jank to
+  6.7%. Spikes land ~177s apart — a song length — each followed by a smaller one,
+  consistent with finish → results mount → next run start compounding. This is
+  **2–3x worse than a clean menu→play start**, so measuring only a cold start
+  understates it. Any performance work should go here.
 - **The run-start stall is NOT fixed, and `Highway.warm()` did not fix it.**
   Measured on the S25 at v0.16.0 by driving the real UI with trusted CDP input so a
   fresh mount fell inside the window: **108.2ms and 116.5ms** in the bucket
@@ -521,6 +529,11 @@ scripts/
   run-to-run variance. Keep `warm()` — it genuinely absorbs 604ms of
   compile-plus-first-frame on desktop and moving that off frame 1 is right — but do
   not believe it addressed this.
+  - **Check battery saver before trusting any derate.** At 13–14% and draining, an
+    auto-enabled saver caps the GPU and reads exactly like thermal throttling.
+    `settings get global low_power` per row is now in the harness, because "a
+    degraded window" and "a degraded window for a different reason" are the same
+    trap that two non-overlapping instruments already caused here once.
   - **Ruled out by measurement, so do not re-litigate:** a fullscreen resize
     (`document.fullscreenElement` was already `true` on the menu and the viewport
     stayed 384x832 across the stall — `enterFullscreen()` in `start()` is a no-op);

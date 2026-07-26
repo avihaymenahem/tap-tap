@@ -674,28 +674,48 @@ lands on it exactly rather than near it.
 
 Flat. Jank 0.2–1.8%, and the refresh rate never fell.
 
-**What this does and does not license.**
+**Settled: there is no thermal derate on this device.** A second capture ran
+**ten minutes of continuous Extreme play**, plugged in, with battery saver verified
+off on every row (it stays off — so no power-limiting confound):
 
-The AAA audit's Wave 2 sized its budget on a "~46% GPU throughput lost at steady
-state" figure that the document itself flags as recalled rather than sourced. It
-**did not reproduce** up to thermal status 3. Do not size a performance budget
-from it.
+| | rAF p50 | rAF p95 | fps | HWUI p50 | thermal | skin | AP |
+|---|---|---|---|---|---|---|---|
+| first row | 8.3ms | 8.4ms | 119.7 | 8ms | 3 | 42.9°C | 50.8°C |
+| last row (590s) | 8.3ms | 8.4ms | 119.8 | 6ms | 3 | 42.2°C | 47.8°C |
 
-But a derate *does* exist at **thermal status 4**, and this run never reached it.
-An earlier session — plugged in, so carrying charging heat, and running longer —
-hit status 4 at ~45°C skin with HWUI p50 climbing 8 → 23ms and fps falling to 89.
-That session had no in-page instrument, so **whether the render loop or only HWUI
-compositing degrades at status 4 is still open.** Getting to status 4 is the
-prerequisite for closing it, and charging is the confound to control for.
+`8.3ms` p50 on **all 59 play rows**, and `8.4ms` p95 on 58 of 59. The temperatures
+**fell** over ten minutes of load, which suggests ~42°C is simply this game's
+thermal equilibrium on this phone — and that gameplay alone may not be able to
+drive it to status 4 at all.
 
-**Measure both instruments in one window.** `dumpsys gfxinfo` is HWUI compositing
-the WebView's surface and can read a flawless 120fps while the loop inside the
-page stutters, because the compositor re-presents the last texture it has. The
-in-page rAF probe is what the game's loop actually gets and is blind to whether
-those frames reach the panel. Two non-overlapping windows, one from each, were
-believed simultaneously here and produced the wrong conclusion. Label every row by
-app state too: a run, the results card and the menu are different GPU loads, and an
-unlabelled table that mixes them looks exactly like throttling.
+So the AAA audit's "~46% GPU throughput lost at steady state" figure — which that
+document flags as recalled rather than sourced — **does not reproduce**, and Wave 2
+should not be budgeted from it. The earlier session that showed HWUI p50 climbing
+8 → 23ms remains unexplained but is now the outlier rather than the rule; it was
+plugged in and possibly at a low battery, and battery saver was never checked.
+
+**The real defect is run and song boundaries, and it is worse than a clean start.**
+The same capture shows a stall at every transition:
+
+| when | worst frame | frames >33ms | frames >50ms |
+|---|---|---|---|
+| run start | 166.4ms | 4 | 3 |
+| song boundary (165s) | **324.5ms** | 7 | 4 |
+| next bucket (176s) | 174.7ms | 5 | 3 |
+| song boundary (342s) | 174.8ms | 9 | 4 |
+| next bucket (352s) | 141.4ms | 4 | 2 |
+| finish → results (611s) | 357.9ms | 7 | 4 |
+
+The spikes sit ~177s apart, which is a song length, and each is followed by a
+smaller one in the next bucket — consistent with finish → results mount → next run
+start, compounding. HWUI p95 rises to 25–31ms and jank to 4.7–6.7% at the same
+moments, so these are visibly dropped frames rather than an instrumentation
+artefact.
+
+That is **2–3x worse than the 108–116ms measured at a clean menu→play start**, and
+it means the transition stall — not heat — is the performance work worth doing.
+`Highway.warm()` did not fix it; see CLAUDE.md for what is ruled out and what the
+leading hypothesis is.
 
 **Not yet measured:** whether the shader warm-up (§ `Highway.warm()`) removed the
 124.8ms run-start frame. The probe was attached mid-run, so that window cannot see

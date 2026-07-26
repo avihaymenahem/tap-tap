@@ -39,8 +39,8 @@ const WS = process.argv[2];
 const MINUTES = Number(process.argv[3] ?? 6);
 const INTERVAL_SEC = Number(process.argv[4] ?? 10);
 
-const ADB = process.env.ADB ?? 'C:/Users/avihay/AppData/Local/Android/Sdk/platform-tools/adb.exe';
-const SERIAL = process.env.SERIAL ?? '10.0.0.7:5555';
+const ADB = 'C:/Users/avihay/AppData/Local/Android/Sdk/platform-tools/adb.exe';
+const SERIAL = '10.0.0.7:5555';
 const PKG = 'com.taptap.game';
 
 const { execFile } = await import('node:child_process');
@@ -124,6 +124,20 @@ async function gfx() {
   };
 }
 
+async function power() {
+  const [bat, saver] = await Promise.all([
+    adb(['shell', 'dumpsys', 'battery']),
+    adb(['shell', 'settings', 'get', 'global', 'low_power']),
+  ]);
+  const level = (bat.match(/^\s*level:\s*(\d+)/m) ?? [])[1] ?? '-';
+  const temp = (bat.match(/^\s*temperature:\s*(\d+)/m) ?? [])[1];
+  return {
+    level,
+    temp: temp ? (Number(temp) / 10).toFixed(1) : '-',
+    saver: saver.trim() === '1' ? 'ON!' : 'off',
+  };
+}
+
 async function hz() {
   const out = await adb(['shell', 'dumpsys', 'SurfaceFlinger']);
   const m = out.match(/activeMode=\{id=\d+[^}]*vsyncRate=([0-9.]+)/);
@@ -155,7 +169,7 @@ ws.addEventListener('open', async () => {
     'T+'.padEnd(6) + 'STATE'.padEnd(7) + 'HZ'.padEnd(5) +
     '| rAF: fps'.padEnd(11) + 'p50'.padEnd(7) + 'p95'.padEnd(7) + 'p99'.padEnd(7) + 'max'.padEnd(8) + '>33'.padEnd(5) + '>50'.padEnd(5) +
     '| HWUI: p50'.padEnd(12) + 'p95'.padEnd(6) + 'p99'.padEnd(6) + 'jank%'.padEnd(7) +
-    '| TH'.padEnd(5) + 'SKIN'.padEnd(7) + 'AP';
+    '| TH'.padEnd(5) + 'SKIN'.padEnd(7) + 'AP'.padEnd(7) + '| BAT'.padEnd(7) + 'SAVER';
   console.log(head);
   console.log('-'.repeat(head.length));
 
@@ -165,13 +179,15 @@ ws.addEventListener('open', async () => {
 
   for (let i = 0; i < totalSamples; i++) {
     await new Promise((r) => setTimeout(r, INTERVAL_SEC * 1000));
-    const [raw, g, t, rate, st] = await Promise.all([evaluate(READ), gfx(), thermal(), hz(), state()]);
+    const [raw, g, t, rate, st, pw] = await Promise.all([
+      evaluate(READ), gfx(), thermal(), hz(), state(), power(),
+    ]);
     const r = raw ? JSON.parse(raw) : null;
     const el = Math.round((Date.now() - t0) / 1000);
     const jankPct = g.total !== '-' && Number(g.total) > 0
       ? ((Number(g.janky) / Number(g.total)) * 100).toFixed(1)
       : '-';
-    samples.push({ el, st, rate, raf: r, hwui: g, therm: t });
+    samples.push({ el, st, rate, raf: r, hwui: g, therm: t, pw });
     console.log(
       `${el}s`.padEnd(6) + st.padEnd(7) + rate.padEnd(5) +
       `| ${r ? r.fps : '-'}`.padEnd(11) +
@@ -179,7 +195,8 @@ ws.addEventListener('open', async () => {
       `${r ? r.p99 : '-'}`.padEnd(7) + `${r ? r.max : '-'}`.padEnd(8) +
       `${r ? r.o33 : '-'}`.padEnd(5) + `${r ? r.o50 : '-'}`.padEnd(5) +
       `| ${g.p50}`.padEnd(12) + `${g.p95}`.padEnd(6) + `${g.p99}`.padEnd(6) + `${jankPct}`.padEnd(7) +
-      `| ${t.status}`.padEnd(5) + `${t.skin}`.padEnd(7) + `${t.ap}`,
+      `| ${t.status}`.padEnd(5) + `${t.skin}`.padEnd(7) + `${t.ap}`.padEnd(7) +
+      `| ${pw.level}%`.padEnd(7) + (pw.saver === 'ON!' ? 'SAVER ON <== confound' : 'off'),
     );
     await adb(['shell', 'dumpsys', 'gfxinfo', PKG, 'reset']);
   }
@@ -197,6 +214,11 @@ ws.addEventListener('open', async () => {
     console.log(`HWUI p50   ${avg(first, (s) => Number(s.hwui.p50) || 0)}ms ->  ${avg(last, (s) => Number(s.hwui.p50) || 0)}ms`);
     console.log(`HWUI p95   ${avg(first, (s) => Number(s.hwui.p95) || 0)}ms ->  ${avg(last, (s) => Number(s.hwui.p95) || 0)}ms`);
     console.log(`thermal    ${first[0].therm.status} -> ${last[last.length - 1].therm.status}   skin ${first[0].therm.skin} -> ${last[last.length - 1].therm.skin}`);
+    console.log(`battery    ${first[0].pw.level}% -> ${last[last.length - 1].pw.level}%   saver ${first[0].pw.saver} -> ${last[last.length - 1].pw.saver}`);
+    const saverEver = samples.some((x) => x.pw?.saver === 'ON!');
+    console.log(saverEver
+      ? 'WARNING: battery saver was ON at some point — any derate here is NOT attributable to heat.'
+      : 'battery saver stayed off for the whole window — a derate here is attributable to load/heat.');
   }
 
   console.log('\ncleanup:', await evaluate('(()=>{cancelAnimationFrame(window.__p.raf);delete window.__p;return "removed"})()'));
