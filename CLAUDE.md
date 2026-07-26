@@ -189,6 +189,9 @@ scripts/
   measure-frames.mjs  on-device frame timing: HWUI + in-page rAF in ONE window,
                 labelled by app state (see PLAN.md §5b). Ask before running it —
                 it reads a live phone mid-run.
+  measure-runstart.mjs  the menu->play stall, sampled at 1s. Drives the real UI
+                with trusted CDP taps, so it QUITS whatever run is in progress —
+                ask first.
 ```
 
 ## Invariants — do not break these
@@ -511,6 +514,28 @@ scripts/
   to show up.
 
 **three.js**
+- **The run-start stall is NOT fixed, and `Highway.warm()` did not fix it.**
+  Measured on the S25 at v0.16.0 by driving the real UI with trusted CDP input so a
+  fresh mount fell inside the window: **108.2ms and 116.5ms** in the bucket
+  containing the PLAY tap, against a **124.8ms** pre-fix baseline. That is inside
+  run-to-run variance. Keep `warm()` — it genuinely absorbs 604ms of
+  compile-plus-first-frame on desktop and moving that off frame 1 is right — but do
+  not believe it addressed this.
+  - **Ruled out by measurement, so do not re-litigate:** a fullscreen resize
+    (`document.fullscreenElement` was already `true` on the menu and the viewport
+    stayed 384x832 across the stall — `enterFullscreen()` in `start()` is a no-op);
+    a `setVisibility` shader recompile (it only writes a field).
+  - **Leading remaining hypothesis, untested:** `warm()` renders the *empty*
+    highway, so the note/glow/trail/hold-body instance buffers have nothing in them
+    and are likely uploaded for the first time on the first frame that has real
+    notes. If so the fix is to warm with representative note state rather than
+    none. The other candidates inside `start()` are `makeEngine` (a full engine
+    rebuild) and `clock.start()` (source node on a multi-minute buffer).
+  - **Measuring this needs the probe attached BEFORE the mount**, and driving the
+    router by `history.pushState` does not work — the router's canonicalising
+    effect reverts the URL and you measure an already-warm screen for 25 seconds.
+    Use `Input.dispatchTouchEvent` on the real controls; it is also the only way to
+    get the trusted gesture the AudioContext unlock needs.
 - **Shaders compile on first *draw*, so `Highway.warm()` exists and must be
   awaited before the clock starts.** Nothing rendered during the ready phase —
   the loop only starts inside `start()` — so every program in the scene plus the
