@@ -1140,12 +1140,11 @@ New screens and elements should reuse it rather than invent parallel systems:
 
 ## Open items
 
-- **Long notes are the next feature** — designed in PLAN.md §6f, not built.
-  Milestones L1–L5. Two things to know before starting: sustain spans come from
-  the **cached waveform**, not from new analysis output, so the existing library
-  needs no re-analysis; and L2 (the engine state machine) should land before any
-  rendering, because it is the part that can be designed wrong. Three scoring
-  and forgiveness questions are open at the end of that section.
+- **Long notes are BUILT** (PLAN.md §6f, L1–L5) — this entry used to say they were
+  the next feature and unbuilt, which contradicted the Holds section above it and
+  `difficulty.ts`. `holdShare` is 0.1 / 0.14 / 0.18 / 0.2 and `holds.test.ts` pins
+  those. If two places here disagree about a feature, `difficulty.ts` is the
+  authority.
 
 - **Phone access is solved — via Tailscale, not the firewall.** No allow rule was
   ever created; Tailscale sidesteps the inbound block. See the sharing section.
