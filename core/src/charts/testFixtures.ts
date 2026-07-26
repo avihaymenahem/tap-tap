@@ -10,8 +10,14 @@ import type { AnalysisResult, Onset } from '@tap-tap/shared';
  * were built. One of the three had a fix built against it and reverted. A number
  * measured on one fixture describes that fixture; the only way a chart claim
  * earns the word "regression" is by holding across songs that stress different
- * paths. Hence four, each documented with what it exercises that the others
- * cannot.
+ * paths. Hence seven, each documented with what it exercises that the others
+ * cannot — and adding one is the right move whenever a new feature has a branch
+ * none of them reach. `layered` and `melodic` were both added for that reason:
+ * the harmonic/percussive gate has a difficulty ladder and a relaxation path, and
+ * no pre-existing fixture could enter either. **Resist the temptation to add the
+ * new feature to an existing fixture instead** — that was tried with `slow`, and
+ * a fixture measuring two features at once is a fixture whose failures can no
+ * longer be attributed to one.
  *
  * **Why these are `AnalysisResult`s and not audio.** Running the real
  * `analyze` path would couple every chart baseline to the DSP, so bumping
@@ -57,6 +63,10 @@ export function structuredSong(): AnalysisResult {
       low: phase === 0 ? 0.7 : 0.15,
       mid: phase === 1 ? 0.7 : 0.15,
       high: phase === 2 ? 0.7 : 0.15,
+      // Kick and hat are drum hits; the mid phase is a melodic stab. Keyed to the
+      // existing band phase rather than a period of its own, because this fixture's
+      // job is rests and the density correlation — `layered` carries the ladder.
+      percussive: phase === 1 ? 0.3 : phase === 0 ? 0.95 : 0.9,
     });
   }
   return { duration, bpm: 120, bpmConfidence: 0.9, beatGrid: beatsEvery(0.5, duration), onsets };
@@ -83,6 +93,10 @@ export function hatHeavySong(): AnalysisResult {
       low: kick ? 0.85 : 0.05,
       mid: kick ? 0.2 : 0.12,
       high: kick ? 0.1 : 0.8,
+      // Everything here is a drum, so every tier admits every onset. That is the
+      // point: this fixture is the negative control proving the layering gate does
+      // not quietly thin a chart on a song that is *all* percussion.
+      percussive: kick ? 0.96 : 0.9,
     });
   }
   return { duration, bpm: 120, bpmConfidence: 0.9, beatGrid: beatsEvery(0.5, duration), onsets };
@@ -111,6 +125,10 @@ export function rubatoSong(): AnalysisResult {
       low: phase === 0 || phase === 3 ? 0.7 : 0.12,
       mid: phase === 1 ? 0.65 : 0.15,
       high: phase === 2 || phase === 4 ? 0.6 : 0.1,
+      // Deliberately *not* sitting on a tier threshold (0.6 / 0.4 / 0.2): a value
+      // exactly equal to one would make the baseline turn on the `>=` in the gate,
+      // which is the knife-edge the `slow` fixture's aliasing note warns about.
+      percussive: phase === 1 ? 0.35 : phase === 0 || phase === 3 ? 0.9 : 0.62,
     });
     t += 0.19 + ((i * 53) % 17) / 100;
     i++;
@@ -143,6 +161,10 @@ export function fullKitSong(): AnalysisResult {
       low: kick ? 0.85 : snare ? 0.3 : 0.08,
       mid: kick ? 0.38 : snare ? 0.72 : 0.25,
       high: kick ? 0.22 : snare ? 0.48 : 0.75,
+      // A kit, so all of it is percussive — this fixture exists for `secondaryBand`
+      // and chords, and holding its layering flat keeps the chord baselines a
+      // reading of chording rather than of the gate.
+      percussive: kick ? 0.95 : snare ? 0.93 : 0.9,
     });
   }
   return { duration, bpm: 120, bpmConfidence: 0.9, beatGrid: beatsEvery(0.5, duration), onsets };
@@ -180,6 +202,15 @@ export function slowSong(): AnalysisResult {
     const beatPhase = i % 4;
     const bandPhase = i % 3;
     onsets.push({
+      // **Uniformly percussive on purpose — this fixture must not exercise the
+      // layering gate.** A spread was tried here and it was a mistake: the layer
+      // period interacted with the every-Nth-onset selection a tight gap produces,
+      // and easy lost all six of its rests while its density correlation fell
+      // 0.727 → 0.264 and hard's leap rate jumped 0.006 → 0.328. None of that was
+      // generation changing — it was one fixture measuring two features at once,
+      // so a future failure here could no longer be attributed. Spacing is this
+      // fixture's job; `layered` carries the layering ladder.
+      percussive: 0.9,
       // Downbeats loudest, so selection has a real ordering to follow instead of
       // a flat field where which onsets survive is an artefact of tie-breaking.
       strength: beatPhase === 0 ? 0.9 : beatPhase === 2 ? 0.6 : 0.4,
@@ -198,7 +229,94 @@ export function slowSong(): AnalysisResult {
   };
 }
 
-export type FixtureName = 'structured' | 'hatHeavy' | 'rubato' | 'fullKit' | 'slow';
+/**
+ * Four separable layers on a sixteenth grid: drums on the quarters, bass on the
+ * off-beat eighths, a pad and a lead filling the rest.
+ *
+ * **This is the fixture the harmonic/percussive ladder is read off.** Its four
+ * `percussive` values (0.95 / 0.5 / 0.3 / 0.1) straddle all four tier floors
+ * (0.6 / 0.4 / 0.2 / 0), so each difficulty admits a genuinely different pool and
+ * the escalation is *rhythmic* rather than merely denser:
+ *
+ *     easy     quarters                      (drums)
+ *     medium   quarters + off-beat eighths   (+ bass)
+ *     hard     three sixteenths in four      (+ pad)
+ *     extreme  every sixteenth               (+ lead)
+ *
+ * Which is the shape deliverable 13 asked for — "escalate rhythm, not just
+ * count" — and no other fixture can show it. The layering spread deliberately
+ * lives *here* and nowhere else: it was first put on `slow`, where it collided
+ * with that fixture's own periods and moved numbers for reasons that had nothing
+ * to do with generation. One fixture, one feature.
+ */
+export function layeredSong(): AnalysisResult {
+  const duration = 60;
+  const sixteenth = 0.125; // 120 BPM
+  const onsets: Onset[] = [];
+  for (let i = 0; i * sixteenth < duration; i++) {
+    const slot = i % 4;
+    // Layer identity drives percussive share, strength and band together, the way
+    // it does in real music: the kick is the loudest and the lowest, the lead the
+    // brightest and the least percussive.
+    const layer =
+      slot === 0
+        ? { percussive: 0.95, strength: 0.92, low: 0.82, mid: 0.3, high: 0.14 } // drum
+        : slot === 2
+          ? { percussive: 0.5, strength: 0.7, low: 0.66, mid: 0.42, high: 0.12 } // bass
+          : slot === 1
+            ? { percussive: 0.3, strength: 0.52, low: 0.16, mid: 0.68, high: 0.2 } // pad
+            : { percussive: 0.1, strength: 0.56, low: 0.1, mid: 0.26, high: 0.7 }; // lead
+    onsets.push({ t: Number((i * sixteenth).toFixed(4)), ...layer });
+  }
+  return { duration, bpm: 120, bpmConfidence: 0.9, beatGrid: beatsEvery(0.5, duration), onsets };
+}
+
+/**
+ * A song with no percussion: solo-piano-shaped, every onset a note or a chord
+ * change and nothing above the layering gate's lowest floor.
+ *
+ * This is the fixture that keeps the harmonic/percussive gate honest in the one
+ * direction that could take the library down. Easy asks for `percussive >= 0.6`
+ * and there is nothing here above 0.18, so a gate that merely filtered would
+ * chart this song **empty** at three of four difficulties — while a human charter
+ * would happily chart its melody. `admitPercussive` therefore relaxes toward the
+ * most percussive onsets whenever the gate cannot fill the density budget, and
+ * this is the only fixture where that branch runs at all.
+ *
+ * It is also the closest thing in the corpus to a genuine acoustic track, which
+ * is a real part of anyone's library and the exact case an absolute threshold is
+ * most likely to be wrong about.
+ */
+export function melodicSong(): AnalysisResult {
+  const duration = 60;
+  const onsets: Onset[] = [];
+  for (let t = 0; t < duration; t += 0.3) {
+    const i = Math.round(t / 0.3);
+    // A melodic contour rather than a flat field, so lane assignment has real
+    // movement to follow and the chart is not an artefact of tie-breaking.
+    const step = i % 7;
+    onsets.push({
+      t: Number(t.toFixed(4)),
+      strength: 0.35 + ((i * 29) % 13) / 26,
+      low: step < 2 ? 0.62 : 0.14,
+      mid: step >= 2 && step < 5 ? 0.6 : 0.18,
+      high: step >= 5 ? 0.58 : 0.12,
+      // All below even hard's 0.2 floor: a chord change reads as harmonic, and a
+      // piano's hammer gives only a slight percussive edge. Nothing here is a drum.
+      percussive: step === 0 ? 0.18 : 0.06 + (i % 3) * 0.02,
+    });
+  }
+  return { duration, bpm: 100, bpmConfidence: 0.85, beatGrid: beatsEvery(0.6, duration), onsets };
+}
+
+export type FixtureName =
+  | 'structured'
+  | 'hatHeavy'
+  | 'rubato'
+  | 'fullKit'
+  | 'slow'
+  | 'layered'
+  | 'melodic';
 
 /** The corpus, built fresh so a test can never mutate another's fixture. */
 export function chartCorpus(): Record<FixtureName, AnalysisResult> {
@@ -208,6 +326,8 @@ export function chartCorpus(): Record<FixtureName, AnalysisResult> {
     rubato: rubatoSong(),
     fullKit: fullKitSong(),
     slow: slowSong(),
+    layered: layeredSong(),
+    melodic: melodicSong(),
   };
 }
 

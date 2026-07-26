@@ -1000,10 +1000,30 @@ cheer ─┴→ sfxVol ───────────────────
     that way for one test run. `analysis.test.ts` asserts the shape that catches it.
   - Frames 0..lag-1 get no mask and read 0. Deliberate — every song opens on
     silence or an intro `startOffsetFor` discards.
-  - **It is measured but not yet consumed.** Generation ignores it, so no chart has
-    changed. Spending it — easy charting the percussive layer, harder difficulties
-    layering the melody in — is a separate change that moves every chart and needs
-    the corpus re-recorded.
+  - **It is now spent, via `params.minPercussive` and `admitPercussive`** (PLAN.md
+    §2.10). Easy charts the beat (floor 0.6), medium adds the bass (0.4), hard adds
+    sustained harmony (0.2), extreme takes the whole mix (0). The gate filters the
+    **pool**, before `selectNotes` — a selection *bonus* was the tempting shape and
+    is wrong, because a loud melodic onset would still outrank a quiet drum hit and
+    put the melody on an easy chart. Two properties are load-bearing:
+    - **Absent admits, and is never read as zero** — the migration case; see below.
+    - **The gate relaxes rather than starving a chart.** A song with no percussion
+      has nothing above easy's floor, and a pure filter would chart it empty while
+      a human would chart its melody. When the admitted set cannot fill the density
+      budget, the most percussive of the rejected onsets are taken back until it
+      can. This is also what makes an *absolute* threshold safe here, against the
+      usual per-song-percentile rule: the floor is a preference, not a requirement.
+    - **Only easy and medium moved on the corpus**; hard and extreme are untouched
+      (their floors admit everything the fixtures carry), and the three
+      all-percussive fixtures are **byte-identical**, which is the negative control
+      proving the gate does not thin a drum track. The cost is measurably lower
+      density correlation on the sparser tiers — `structured` medium fell 0.743 →
+      0.425 against a >0.4 bound it now only just clears. That is the trade: an
+      easy chart follows the *drums'* intensity, not the whole mix's.
+    - `layered` and `melodic` were added to the corpus for this — the ladder and the
+      relaxation branch respectively. Putting the spread on `slow` instead was tried
+      and reverted: it collided with that fixture's own periods and moved numbers
+      for reasons unrelated to generation. **One fixture, one feature.**
   - Costs ~3.3s per 4-minute song on desktop. `ANALYSIS_VERSION` is 4 because of
     it, so the library needs one re-analysis to gain the field; absent means
     "not measured" and generation must read that as *admit the onset*, never as

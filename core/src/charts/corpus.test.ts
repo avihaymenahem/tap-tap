@@ -51,11 +51,11 @@ interface Row {
   pattern: number;
 }
 
-/** Measured at 3e8213a, seed `CORPUS_SEED`. Generation is deterministic. */
+/** Measured at caea3a3 + the layering gate, seed `CORPUS_SEED`. Generation is deterministic. */
 const BASELINE: Record<FixtureName, Record<DifficultyName, Row>> = {
   structured: {
-    easy: { nps: 1.183, corr: 0.778, entropy: 0.884, maxLane: 0.338, chord: 0, onGrid: 1, stream: 1, leap: 0.329, gapBeats: 1, rests: 9, pattern: 0.212 },
-    medium: { nps: 1.483, corr: 0.743, entropy: 0.96, maxLane: 0.337, chord: 0, onGrid: 0.989, stream: 1, leap: 0.148, gapBeats: 1, rests: 12, pattern: 0.216 },
+    easy: { nps: 0.933, corr: 0.681, entropy: 0.915, maxLane: 0.429, chord: 0, onGrid: 0.982, stream: 1, leap: 0.073, gapBeats: 2, rests: 30, pattern: 0.215 },
+    medium: { nps: 1.183, corr: 0.425, entropy: 0.968, maxLane: 0.366, chord: 0, onGrid: 0.986, stream: 1, leap: 0.071, gapBeats: 1.5, rests: 9, pattern: 0.134 },
     hard: { nps: 2.817, corr: 0.84, entropy: 0.843, maxLane: 0.331, chord: 0, onGrid: 0.994, stream: 112, leap: 0.012, gapBeats: 0.5, rests: 3, pattern: 0.073 },
     extreme: { nps: 3.317, corr: 0.687, entropy: 0.961, maxLane: 0.332, chord: 0, onGrid: 0.995, stream: 112, leap: 0.167, gapBeats: 0.5, rests: 1, pattern: 0.069 },
   },
@@ -66,8 +66,8 @@ const BASELINE: Record<FixtureName, Record<DifficultyName, Row>> = {
     extreme: { nps: 4, corr: 0, entropy: 0.986, maxLane: 0.333, chord: 0, onGrid: 0.996, stream: 240, leap: 0.163, gapBeats: 0.5, rests: 0, pattern: 0.067 },
   },
   rubato: {
-    easy: { nps: 1.2, corr: 0.657, entropy: 0.966, maxLane: 0.389, chord: 0, onGrid: 0.333, stream: 1, leap: 0.085, gapBeats: 1.535, rests: 9, pattern: 0.007 },
-    medium: { nps: 1.983, corr: 0.417, entropy: 0.956, maxLane: 0.395, chord: 0, onGrid: 0.277, stream: 2, leap: 0.186, gapBeats: 1.043, rests: 0, pattern: 0.003 },
+    easy: { nps: 1.2, corr: 0.445, entropy: 0.996, maxLane: 0.278, chord: 0, onGrid: 0.278, stream: 1, leap: 0.07, gapBeats: 1.535, rests: 12, pattern: 0.013 },
+    medium: { nps: 1.883, corr: 0.264, entropy: 0.989, maxLane: 0.31, chord: 0, onGrid: 0.274, stream: 2, leap: 0.063, gapBeats: 1.083, rests: 2, pattern: 0.011 },
     hard: { nps: 3.55, corr: 0.857, entropy: 0.952, maxLane: 0.394, chord: 0, onGrid: 0.282, stream: 7, leap: 0.241, gapBeats: 0.551, rests: 0, pattern: 0.001 },
     extreme: { nps: 3.717, corr: 0.878, entropy: 0.961, maxLane: 0.399, chord: 0, onGrid: 0.274, stream: 7, leap: 0.293, gapBeats: 0.531, rests: 0, pattern: 0.001 },
   },
@@ -82,6 +82,18 @@ const BASELINE: Record<FixtureName, Record<DifficultyName, Row>> = {
     medium: { nps: 1.35, corr: 0.77, entropy: 0.964, maxLane: 0.346, chord: 0, onGrid: 0.963, stream: 1, leap: 0.163, gapBeats: 1, rests: 0, pattern: 0.188 },
     hard: { nps: 2.667, corr: 0.672, entropy: 0.815, maxLane: 0.331, chord: 0, onGrid: 0.994, stream: 1, leap: 0.006, gapBeats: 0.5, rests: 0, pattern: 0.067 },
     extreme: { nps: 2.667, corr: 0.672, entropy: 0.961, maxLane: 0.331, chord: 0, onGrid: 0.994, stream: 1, leap: 0.17, gapBeats: 0.5, rests: 0, pattern: 0.067 },
+  },
+  layered: {
+    easy: { nps: 1.15, corr: 0, entropy: 0.978, maxLane: 0.319, chord: 0, onGrid: 1, stream: 1, leap: 0, gapBeats: 1, rests: 22, pattern: 0.289 },
+    medium: { nps: 2.117, corr: 0, entropy: 0.981, maxLane: 0.307, chord: 0.058, onGrid: 1, stream: 1, leap: 0.008, gapBeats: 1, rests: 0, pattern: 0.203 },
+    hard: { nps: 4.033, corr: 0, entropy: 0.941, maxLane: 0.368, chord: 0.142, onGrid: 0.996, stream: 16, leap: 0.038, gapBeats: 0.5, rests: 0, pattern: 0.085 },
+    extreme: { nps: 5.25, corr: 0, entropy: 0.998, maxLane: 0.276, chord: 0.313, onGrid: 0.997, stream: 240, leap: 0.109, gapBeats: 0.5, rests: 0, pattern: 0.075 },
+  },
+  melodic: {
+    easy: { nps: 0.967, corr: 0.049, entropy: 0.964, maxLane: 0.379, chord: 0, onGrid: 1, stream: 1, leap: 0.088, gapBeats: 1.5, rests: 8, pattern: 0.073 },
+    medium: { nps: 1.167, corr: 0.427, entropy: 0.965, maxLane: 0.386, chord: 0, onGrid: 0.986, stream: 1, leap: 0.232, gapBeats: 1.5, rests: 4, pattern: 0.07 },
+    hard: { nps: 3.35, corr: 0.863, entropy: 0.976, maxLane: 0.289, chord: 0, onGrid: 0.99, stream: 201, leap: 0.14, gapBeats: 0.5, rests: 0, pattern: 0.067 },
+    extreme: { nps: 3.35, corr: 0.863, entropy: 0.993, maxLane: 0.289, chord: 0, onGrid: 0.99, stream: 201, leap: 0.14, gapBeats: 0.5, rests: 0, pattern: 0.067 },
   },
 };
 
@@ -333,6 +345,40 @@ describe('chart corpus — what each fixture alone can say', () => {
       expect(row('slow', difficulty).gapBeats, `${difficulty} slow vs fullKit gapBeats`).toBe(
         row('fullKit', difficulty).gapBeats,
       );
+    }
+  });
+  /**
+   * The layering ladder (§2.10). `layered` is the only fixture whose four
+   * `percussive` values straddle all four tier floors, so it is the only place
+   * this can be asserted at all.
+   *
+   * Density is asserted **strictly** increasing here, unlike the shared
+   * non-decreasing check: the pool itself grows by a whole layer at every rung,
+   * so a tie would mean the gate had stopped separating them.
+   */
+  it('layered: each tier admits one more layer than the last', () => {
+    let previous = 0;
+    for (const difficulty of DIFFICULTY_NAMES) {
+      const nps = row('layered', difficulty).nps;
+      expect(nps, `layered/${difficulty} density over the tier below`).toBeGreaterThan(previous);
+      previous = nps;
+    }
+  });
+
+  /**
+   * The gate must never empty a chart — the failure that would look like the
+   * generator breaking rather than a threshold being wrong.
+   *
+   * `melodic` has nothing above 0.18, so easy (0.6), medium (0.4) and hard (0.2)
+   * all enter `admitPercussive`'s relaxation branch. No other fixture does.
+   */
+  it('melodic: charts a song with no percussion at every difficulty', () => {
+    for (const difficulty of DIFFICULTY_NAMES) {
+      const chart = generateChart(corpus.melodic, DIFFICULTIES[difficulty], CORPUS_SEED);
+      expect(chart.notes.length, `melodic/${difficulty} note count`).toBeGreaterThan(0);
+      // And not merely non-empty — it should reach a playable density, the same
+      // bar any other song gets.
+      expect(row('melodic', difficulty).nps, `melodic/${difficulty} density`).toBeGreaterThan(0.5);
     }
   });
 });

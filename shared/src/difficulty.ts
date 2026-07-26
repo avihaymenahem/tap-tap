@@ -63,6 +63,34 @@ export interface DifficultyParams {
   onGridBonus: number;
 
   /**
+   * Floor on `Onset.percussive` for an onset to be eligible at all — the
+   * harmonic/percussive layering axis (PLAN.md §2.10).
+   *
+   * This is the difficulty axis density is a poor substitute for. An easy chart
+   * should be **the beat you can already hear**: the kick, the snare, the hats.
+   * Harder charts progressively admit the harmonic layer — the bass line, the
+   * melody, the chord changes — which is how a human charter builds a spread.
+   * Before this, every difficulty saw the same onsets and differed only in how
+   * many of them survived, so clearing easy taught you nothing that prepared you
+   * for medium.
+   *
+   * **An absolute threshold, deliberately, against the usual rule here.** Band
+   * classification and sustain-ending both use per-song percentiles because the
+   * quantity is continuous and a master's balance shifts it. This one is
+   * measured against ground truth and is sharply *bimodal*: real drum hits read
+   * 0.95+ and the false onsets a wobbling tone manufactures read 0.015
+   * (`analysis.test.ts`). There is nothing in between to be wrong about, and a
+   * percentile would instead throw away half the kit on a pure drum track, where
+   * every onset is legitimately percussive.
+   *
+   * **Zero means "admit everything"** and is what extreme uses — the full mix,
+   * melody included. `admitPercussive` also relaxes this whenever the gate would
+   * starve the density budget, so a song with no percussion still charts; the
+   * floor expresses a preference, not a hard requirement.
+   */
+  minPercussive: number;
+
+  /**
    * 0..1 — the most of a chart's notes that may become holds.
    *
    * A ceiling, not a target: a song with no sustained sounds gets no holds, and
@@ -137,6 +165,9 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     approachSec: 1.9,
     // Strongly on-beat: a beginner should almost never face a syncopated note.
     onGridBonus: 2.5,
+    // The beat only. A first chart should be the drums a listener is already
+    // nodding along to, with the melody left out entirely.
+    minPercussive: 0.6,
     // Few and long — on easy a hold is a rest, not a demand. Re-enabled with the
     // holds overhaul (tick scoring + strong tail bonus + on-beat generation).
     holdShare: 0.1,
@@ -157,6 +188,9 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     targetNps: 2,
     approachSec: 1.6,
     onGridBonus: 1.6,
+    // Beat plus the bass line — the first melodic layer, and the one that most
+    // often doubles the kick, so it reinforces the groove rather than fighting it.
+    minPercussive: 0.4,
     holdShare: 0.14,
     minHoldSec: 0.5,
     maxHoldSec: 1.8,
@@ -178,6 +212,9 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     approachSec: 1.3,
     // The old flat value; hard is where off-beat detail starts to belong.
     onGridBonus: 1.2,
+    // Most of the mix: drums, bass and sustained harmony. Only the softest
+    // melodic movement is still held back.
+    minPercussive: 0.2,
     // More and shorter than easy/medium.
     holdShare: 0.18,
     minHoldSec: 0.4,
@@ -219,6 +256,9 @@ export const DIFFICULTIES: Record<DifficultyName, DifficultyParams> = {
     approachSec: 0.95,
     // Barely tips toward the grid: extreme should keep syncopation as texture.
     onGridBonus: 1.1,
+    // Everything, melody included. Zero is the documented "admit all" value and
+    // is also what an un-regenerated song effectively gets at every tier.
+    minPercussive: 0,
     // Same shape as hard, a touch shorter.
     holdShare: 0.2,
     minHoldSec: 0.35,

@@ -1,7 +1,14 @@
 import type { AnalysisResult, Onset } from '@tap-tap/shared';
 import { DIFFICULTIES, DIFFICULTY_NAMES } from '@tap-tap/shared';
 import { describe, expect, it } from 'vitest';
-import { buildGrid, generateAllCharts, generateChart, snapNear, snapToGrid } from './generate.js';
+import {
+  admitPercussive,
+  buildGrid,
+  generateAllCharts,
+  generateChart,
+  snapNear,
+  snapToGrid,
+} from './generate.js';
 
 /** Matches the 4-decimal rounding `generate.ts` applies to note times. */
 const round = (t: number): number => Number(t.toFixed(4));
@@ -463,5 +470,73 @@ describe('generateAllCharts', () => {
     const extreme = generateChart(analysis, DIFFICULTIES.extreme, 5);
     const uniques = (c: typeof hard) => new Set(c.notes.map((n) => n.t)).size;
     expect(uniques(extreme)).toBeGreaterThan(uniques(hard));
+  });
+});
+
+/**
+ * The harmonic/percussive layering gate (§2.10).
+ *
+ * Two of these three cases are about not taking the library down, and they are
+ * the reason `admitPercussive` is exported rather than being an internal detail:
+ * a missing measurement must admit, and a song with no percussion must still
+ * chart. The third is the feature itself.
+ */
+describe('admitPercussive', () => {
+  /** `PoolOnset` in all but name — the gate only reads `t` and `percussive`. */
+  const onsetsWith = (values: readonly (number | undefined)[]) =>
+    values.map((percussive, i) => ({
+      t: i * 0.5,
+      strength: 0.8,
+      low: 0.5,
+      mid: 0.3,
+      high: 0.2,
+      percussive,
+      onGrid: true,
+    }));
+
+  it('admits an onset with no measurement, never reads it as zero', () => {
+    // The migration case: every song analysed before ANALYSIS_VERSION 4. Reading
+    // `undefined` as 0 would empty easy, medium and hard for the whole library.
+    const pool = onsetsWith([undefined, undefined, undefined, undefined]);
+    const kept = admitPercussive(pool, 60, DIFFICULTIES.easy);
+    expect(kept).toHaveLength(pool.length);
+  });
+
+  it('keeps a mixed pool layered by tier', () => {
+    // 0.95 drum / 0.5 bass / 0.3 pad / 0.1 lead against floors 0.6/0.4/0.2/0.
+    // Long enough that the density budget never forces a relaxation.
+    const pool = onsetsWith(
+      Array.from({ length: 400 }, (_, i) => [0.95, 0.5, 0.3, 0.1][i % 4]!),
+    );
+    const at = (d: 'easy' | 'medium' | 'hard' | 'extreme'): number =>
+      admitPercussive(pool, 4, DIFFICULTIES[d]).length;
+    expect(at('easy')).toBe(100); // drums only
+    expect(at('medium')).toBe(200); // + bass
+    expect(at('hard')).toBe(300); // + pad
+    expect(at('extreme')).toBe(400); // everything
+  });
+
+  it('relaxes rather than starving a song with no percussion', () => {
+    // Solo piano: nothing clears easy's 0.6 floor. A gate that only filtered would
+    // hand back an empty pool and chart the song blank.
+    const pool = onsetsWith(Array.from({ length: 200 }, (_, i) => 0.05 + (i % 3) * 0.02));
+    const kept = admitPercussive(pool, 60, DIFFICULTIES.easy);
+    const budget = Math.floor(DIFFICULTIES.easy.targetNps * 60);
+    expect(kept.length).toBeGreaterThanOrEqual(budget);
+  });
+
+  it('relaxes toward the most percussive first', () => {
+    // When it has to reach back, it should take the bass before the lead — the
+    // same ordering the ladder itself expresses.
+    const pool = onsetsWith([0.05, 0.5, 0.05, 0.45, 0.05]);
+    const kept = admitPercussive(pool, 1, DIFFICULTIES.easy);
+    const shares = kept.map((o) => o.percussive);
+    expect(shares).toContain(0.5);
+    expect(Math.min(...(shares as number[]))).toBeGreaterThan(0.05);
+  });
+
+  it('is a no-op at a zero floor', () => {
+    const pool = onsetsWith([0, 0.1, 0.9, undefined]);
+    expect(admitPercussive(pool, 60, DIFFICULTIES.extreme)).toBe(pool);
   });
 });

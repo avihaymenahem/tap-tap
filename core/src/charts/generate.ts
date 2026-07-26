@@ -87,7 +87,12 @@ export function generateChart(
   //    (§2.9), so the greedy selector locks onto the groove and develops motifs
   //    instead of keeping a different subset of a steady pattern every bar —
   //    repetition is most of what makes a chart feel handcrafted and learnable.
-  const pool = [...byTime.values()];
+  //    Before any of that, drop the layers this difficulty does not chart: easy
+  //    sees the drums, extreme sees the whole mix (§2.10). Gating the pool rather
+  //    than scoring inside `selectNotes` is what produces genuine *layering* — a
+  //    bonus would still let a loud melodic onset outrank a quiet drum hit and
+  //    put the melody on an easy chart.
+  const pool = admitPercussive([...byTime.values()], analysis.duration, params);
   if (gridTrusted) assignPatternBonus(pool, analysis.beatGrid, params.subdivision);
   const accepted = selectNotes(pool, analysis.duration, params);
 
@@ -490,6 +495,60 @@ const MIN_DENSITY_FRACTION = 0.25;
  * sections still get more notes — which is what makes a chart track the music —
  * but no section gets none.
  */
+/**
+ * Keep only the layers this difficulty charts — the harmonic/percussive spread
+ * (§2.10). Easy gets the beat; extreme gets the whole mix.
+ *
+ * Two safety properties, and both of them are the difference between a feature
+ * and a library-wide outage:
+ *
+ * 1. **An onset with no `percussive` value is admitted, never treated as zero.**
+ *    The field arrived with `ANALYSIS_VERSION` 4, so every song analysed before
+ *    it has nothing here. Reading a missing field as "not percussive" would
+ *    empty the easy, medium and hard charts of the entire un-regenerated library
+ *    — the failure would look like the generator breaking rather than a
+ *    migration, and it would be invisible until someone opened a chart. The
+ *    measurement is only allowed to *subtract* from what a chart would otherwise
+ *    have been, and only where it actually exists.
+ *
+ * 2. **The gate relaxes rather than starving a chart.** A song with no
+ *    percussion — solo piano, strings, an ambient track — has no onsets above
+ *    easy's floor at all, and a hard gate would chart it empty while a human
+ *    would happily chart its melody. So when the admitted set cannot fill the
+ *    density budget, the most percussive of the rejected onsets are taken back
+ *    until it can. The floor is a preference, not a requirement, which is also
+ *    why it is safe to state it as an absolute number.
+ */
+export function admitPercussive(
+  pool: PoolOnset[],
+  duration: number,
+  params: DifficultyParams,
+): PoolOnset[] {
+  if (params.minPercussive <= 0) return pool;
+
+  const admitted: PoolOnset[] = [];
+  const held: PoolOnset[] = [];
+  for (const onset of pool) {
+    // `undefined` — not measured — admits. See (1) above.
+    if (onset.percussive === undefined || onset.percussive >= params.minPercussive) {
+      admitted.push(onset);
+    } else {
+      held.push(onset);
+    }
+  }
+
+  // What `selectNotes` will try to place. Falling short of this is what "starved"
+  // means; it is the same budget that function computes, deliberately, so the two
+  // cannot drift into disagreeing about whether a chart is thin.
+  const budget = Math.max(1, Math.floor(params.targetNps * duration));
+  if (admitted.length >= budget || held.length === 0) return admitted;
+
+  // Most percussive first, so relaxing reaches for the bass line before the pad
+  // and the pad before the lead — the same ordering the ladder itself expresses.
+  held.sort((a, b) => (b.percussive ?? 0) - (a.percussive ?? 0));
+  return admitted.concat(held.slice(0, budget - admitted.length));
+}
+
 function selectNotes(pool: PoolOnset[], duration: number, params: DifficultyParams): PoolOnset[] {
   const budget = Math.max(1, Math.floor(params.targetNps * duration));
   const windowCount = Math.max(1, Math.ceil(duration / SELECTION_WINDOW_SEC));

@@ -397,6 +397,72 @@ charts (correlation > 0.4, no lane over 0.6 of the chart, on-grid share > 0.7).
 
 ---
 
+### 2.10 Layer-based difficulty: easy charts the beat, extreme charts the mix
+
+Density was doing a job it is bad at. Every difficulty saw the same onset pool and
+differed only in how many survived, so the ladder was "the same chart, sparser".
+Clearing easy taught a player nothing that prepared them for medium — which is the
+substance of the old "easy and medium are the same chart at different densities"
+finding, even though that finding's *numbers* failed to reproduce on a second
+fixture.
+
+The axis a human charter actually uses is **which instruments are charted**. An
+easy chart is the beat you can already hear: kick, snare, hats. Harder charts
+progressively layer in the harmonic content — the bass line, then sustained
+harmony, then the melody. `Onset.percussive` (§ HPSS, `analysis/hpss.ts`) measures
+exactly that per onset, and `params.minPercussive` spends it:
+
+| difficulty | floor | admits |
+|---|---|---|
+| easy | 0.6 | drums |
+| medium | 0.4 | + bass |
+| hard | 0.2 | + sustained harmony |
+| extreme | 0 | the whole mix, melody included |
+
+**It gates the pool, not the score.** Adding a selection *bonus* inside
+`selectNotes` is the tempting shape and produces no layering at all: a loud
+melodic onset still outranks a quiet drum hit, so the melody lands on the easy
+chart anyway. `admitPercussive` runs before selection, and everything downstream —
+density budgeting, spacing, lane assignment, chords, holds — is untouched.
+
+**An absolute threshold, deliberately.** Band classification and sustain-ending
+both use per-song percentiles, because those quantities are continuous and a
+master's balance shifts them. This one is measured against ground truth and is
+sharply bimodal — real hits read 0.95+, the false onsets a wobbling tone
+manufactures read 0.015 — so there is little between the modes to be wrong about.
+A percentile would be actively worse: on a pure drum track it would discard half
+the kit, every onset of which is legitimately percussive.
+
+**Two safety properties, both about not taking the library down:**
+
+1. **A missing measurement admits the onset.** The field arrived with
+   `ANALYSIS_VERSION` 4, so every song analysed before it has nothing there.
+   Reading absent as zero would empty easy, medium and hard for the entire
+   un-regenerated library, and it would look like the generator breaking rather
+   than a migration.
+2. **The gate relaxes rather than starving a chart.** A solo piano track has
+   nothing above easy's floor; a pure filter would chart it blank while a human
+   would happily chart its melody. When the admitted set cannot fill the density
+   budget, the most percussive of the rejected onsets are taken back until it can.
+   The floor is a preference, not a requirement — which is the other half of why
+   an absolute number is safe here.
+
+**What it did to the corpus.** Only easy and medium moved; hard and extreme are
+untouched, because their floors admit everything the fixtures carry. The three
+all-percussive fixtures (`hatHeavy`, `fullKit`, `slow`) are byte-identical, which
+is the negative control: the gate does not quietly thin a drum track. On
+`structured`, easy gained real phrasing — rests 9 → 30, median gap 1 → 2 beats,
+full-board leaps 0.329 → 0.073 — because removing the melodic band removes the
+mid-lane crossings. The cost is density correlation on the sparser tiers:
+`structured` medium fell 0.743 → 0.425 against a >0.4 bound it now only just
+clears. That trade is intrinsic and arguably correct — an easy chart tracks the
+*drums'* intensity, not the whole mix's — but it is the number to watch if the
+floors are ever retuned.
+
+**No `ANALYSIS_VERSION` bump.** The analysis output is unchanged; only generation
+is. Chart changes reach the library through a plain regenerate, and the library
+already owed one to gain the field at all.
+
 ## 3. Data contract: beatmap JSON
 
 Defined once in `shared/src/beatmap.ts` and imported by both workspaces.
