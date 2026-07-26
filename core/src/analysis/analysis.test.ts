@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { analyze, detectOnsets, gridAlignment } from './index.js';
 import { FFT, hannWindow } from './fft.js';
 import {
+  vibratoTone,
   alternatingClicks,
   clickTrack,
   drumLoop,
@@ -283,5 +284,53 @@ describe('gridAlignment', () => {
   it('declines to judge when there is too little evidence', () => {
     expect(gridAlignment([onset(1)], grid)).toBeNull();
     expect(gridAlignment([], [])).toBeNull();
+  });
+});
+
+/**
+ * Onset quality under sustained tonal content, scored against known ground truth.
+ *
+ * This exists because of a rejected change. SuperFlux — max-filtering the previous
+ * frame across frequency before differencing, the standard fix for vibrato and pitch
+ * slides manufacturing flux — was implemented, measured here, and removed: it took
+ * precision from 37.9% to 16.1% while recall never moved off 97.5%, because
+ * flattening the ODF puts the *relative* adaptive median threshold closer to the
+ * noise floor. See the long note in `onsets.ts`.
+ *
+ * The floors below are what that attempt violated, so a re-attempt has a number to
+ * beat rather than an opinion to argue with.
+ */
+describe('onset precision under a vibrato drone', () => {
+  const DURATION = 20;
+  const TOLERANCE = 0.05;
+
+  function scored() {
+    const clicks = clickTrack({ bpm: 120, durationSec: DURATION });
+    const drone = vibratoTone({ durationSec: DURATION, centreHz: 440, depthHz: 40, rateHz: 5.5 });
+    const mixed = new Float32Array(clicks.pcm.length);
+    for (let i = 0; i < mixed.length; i++) {
+      mixed[i] = clicks.pcm[i]! * 0.9 + (drone.pcm[i] ?? 0) * 0.5;
+    }
+
+    const detected = detectOnsets(mixed, 44100).onsets.map((o) => o.t);
+    const truth = clicks.clickTimes;
+    const near = (a: number, list: readonly number[]) =>
+      list.some((b) => Math.abs(a - b) <= TOLERANCE);
+
+    return {
+      precision: detected.length ? detected.filter((d) => near(d, truth)).length / detected.length : 0,
+      recall: truth.length ? truth.filter((t) => near(t, detected)).length / truth.length : 0,
+    };
+  }
+
+  it('finds essentially every real onset', () => {
+    expect(scored().recall).toBeGreaterThan(0.9);
+  });
+
+  it('does not drown them in false positives', () => {
+    // 37.9% as measured. The floor sits between that and the 16.1% the rejected
+    // change produced, so it catches that specific regression without pinning a
+    // number that ordinary retuning would trip over.
+    expect(scored().precision).toBeGreaterThan(0.3);
   });
 });

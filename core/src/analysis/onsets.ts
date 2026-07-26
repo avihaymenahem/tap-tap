@@ -1,5 +1,5 @@
 import type { Onset } from '@tap-tap/shared';
-import { FFT, hannWindow } from './fft.js';
+import { RealFFT, hannWindow } from './fft.js';
 
 /**
  * Spectral-flux onset detection with an adaptive median threshold.
@@ -82,13 +82,41 @@ export interface OnsetAnalysis {
   odfOriginSec: number;
 }
 
+/**
+ * **SuperFlux was tried here and measured worse. Do not re-add it without changing
+ * the thresholding too.**
+ *
+ * The idea is sound and standard: max-filter the previous frame across frequency
+ * before differencing, so vibrato and pitch slides — which merely walk energy into a
+ * neighbouring bin — stop manufacturing flux (Böck & Widmer, 2013). Implemented at
+ * half-widths of 1 to 4 bins and measured on click tracks under a vibrato drone,
+ * scored against the known click times at a 50ms tolerance:
+ *
+ *   half-width 0 (this code):  precision 37.9%  recall 97.5%  F1 54.5%
+ *   half-width 1..4:           precision 16.1%  recall 97.5%  F1 27.6%
+ *
+ * It found every real onset either way, and more than doubled the false ones (103 →
+ * 261 detections against 40 real). The reason is an interaction with what follows,
+ * not with the filter itself: subtracting a maximum flattens the ODF for sustained
+ * content, and the threshold downstream is a *relative* adaptive median, so a flatter
+ * curve puts the bar closer to the noise floor and far more spurious peaks clear it.
+ * Genuine onsets still tower over it, which is why recall never moved.
+ *
+ * SuperFlux in the paper comes with a log-magnitude filterbank spectrogram and its
+ * own thresholding; lifting one piece into a linear-magnitude ODF with a median
+ * threshold does not transfer. `vibratoTone` in `testAudio.ts` is the fixture, and
+ * `analysis.test.ts` pins the precision so a re-attempt has a number to beat.
+ */
+
 export function detectOnsets(
   pcm: Float32Array,
   sampleRate: number,
   opts: OnsetOptions = DEFAULT_ONSET_OPTIONS,
 ): OnsetAnalysis {
   const { frameSize, hopSize } = opts;
-  const fft = new FFT(frameSize);
+  // Real-input transform: audio samples are real, so a complex FFT would do twice
+  // the work for the same spectrum. See `RealFFT`.
+  const fft = new RealFFT(frameSize);
   const window = hannWindow(frameSize);
   const bins = frameSize / 2;
   const hzPerBin = sampleRate / frameSize;
@@ -119,29 +147,28 @@ export function detectOnsets(
   const bandMid = new Float64Array(frameCount);
   const bandHigh = new Float64Array(frameCount);
 
-  const re = new Float64Array(frameSize);
-  const im = new Float64Array(frameSize);
+  const frame = new Float64Array(frameSize);
+  const re = new Float64Array(bins);
+  const im = new Float64Array(bins);
   let prevMag = new Float64Array(bins);
   let mag = new Float64Array(bins);
 
   for (let f = 0; f < frameCount; f++) {
     const start = f * hopSize;
     for (let i = 0; i < frameSize; i++) {
-      re[i] = pcm[start + i]! * window[i]!;
-      im[i] = 0;
+      frame[i] = pcm[start + i]! * window[i]!;
     }
-    fft.transform(re, im);
+    fft.transform(frame, re, im);
+
+    for (let b = 0; b < bins; b++) mag[b] = Math.hypot(re[b]!, im[b]!);
 
     let flux = 0;
     let low = 0;
     let mid = 0;
     let high = 0;
     for (let b = 0; b < bins; b++) {
-      const m = Math.hypot(re[b]!, im[b]!);
-      mag[b] = m;
-
       // Half-wave rectified difference: only energy *increases* signal an onset.
-      const d = m - prevMag[b]!;
+      const d = mag[b]! - prevMag[b]!;
       if (d > 0) {
         flux += d;
         // Attribute the rise to its band. See the band-density note above:

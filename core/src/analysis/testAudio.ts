@@ -283,3 +283,42 @@ export function sine(freqHz: number, durationSec: number, sampleRate = 44100): F
   }
   return pcm;
 }
+
+/**
+ * One sustained note with vibrato — a single attack, then pitch wobbling around a
+ * centre frequency for the rest of the take.
+ *
+ * Ground truth for SuperFlux: after the initial attack there are **no** onsets here,
+ * however much the pitch moves. A plain bin-to-bin spectral flux disagrees, because
+ * vibrato walks energy between neighbouring bins and every walk registers as a rise
+ * in the bin it arrives at. That is the false-positive the maximum filter exists to
+ * remove, and this is the signal that shows whether it does.
+ */
+export function vibratoTone({
+  centreHz = 440,
+  depthHz = 30,
+  rateHz = 6,
+  durationSec,
+  sampleRate = 44100,
+}: {
+  centreHz?: number;
+  depthHz?: number;
+  rateHz?: number;
+  durationSec: number;
+  sampleRate?: number;
+}): { pcm: Float32Array; sampleRate: number } {
+  const pcm = new Float32Array(Math.floor(durationSec * sampleRate));
+  // Integrated phase, so the frequency sweeps continuously rather than the phase
+  // jumping each sample — a phase discontinuity is itself a broadband onset.
+  let phase = 0;
+  const attack = Math.floor(sampleRate * 0.01);
+  for (let i = 0; i < pcm.length; i++) {
+    const t = i / sampleRate;
+    const hz = centreHz + depthHz * Math.sin(2 * Math.PI * rateHz * t);
+    phase += (2 * Math.PI * hz) / sampleRate;
+    // Ramp in once, then hold — so the only genuine onset is at the very start.
+    const envelope = i < attack ? i / attack : 1;
+    pcm[i] = Math.sin(phase) * 0.6 * envelope;
+  }
+  return { pcm, sampleRate };
+}

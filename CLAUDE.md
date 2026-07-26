@@ -888,6 +888,21 @@ cheer ─┴→ sfxVol ───────────────────
 - **DSP is tested against synthetic audio with known ground truth** — click
   tracks at a known BPM, alternating kick/hat for band classification. Do not
   test DSP by eyeballing a real song.
+- **Score an onset change on precision *and* recall, never on a count.**
+  SuperFlux (max-filtering across frequency before differencing) was built,
+  measured and reverted: recall never moved off 97.5% while precision fell from
+  37.9% to 16.1%. Onset *counts* alone said almost nothing — they were identical
+  on a click track and a drum loop at every filter width, because the adaptive
+  median threshold is **relative**, so uniformly scaling the ODF does not change
+  which peaks clear it. Anything that flattens the ODF instead lowers the bar
+  toward the noise floor and floods the result with false positives. The fixture
+  is `vibratoTone` and the floors are pinned in `analysis.test.ts`; the full
+  reasoning is on the note in `onsets.ts`.
+- **A numerically-equivalent optimisation does not bump `ANALYSIS_VERSION`.**
+  `RealFFT` halves the transform (measured 1.89x) and is asserted equal to the
+  complex one bin for bin, so the analysis *output* is unchanged and forcing a
+  decode per song would buy the player nothing. Bump the version when the output
+  improves, not when the code gets faster.
 - **Chart quality is measured, not listened to.** The diagnostic that matters:
   decode audio → per-second RMS → per-second note count → correlate. Near zero
   or negative means the charts are fighting the music. This caught two separate
