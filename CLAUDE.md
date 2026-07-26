@@ -642,6 +642,42 @@ scripts/
   no holds, and that is the right chart for it — never manufacture them to fill
   a quota.
 
+**The gameplay audio graph, and what is deliberately not on it**
+```
+source → trackGain → gain(fade) → duck → outroFilter → analyser
+                                                          ↓
+ticks ─┐                                              musicVol
+cheer ─┴→ sfxVol ───────────────────────────────────→ master → destination
+```
+- **The analyser's position is load-bearing, twice.** After normalisation *and*
+  the filter, so the spectrum reflects what the track actually sounds like; but
+  before `musicVol`, so a player turning the music down does not flatten the
+  scene's reactivity with it.
+- **Fade, duck and level are three separate nodes on purpose.** Sharing one would
+  make the outro fade multiply a per-track offset, so a quiet song would fade from
+  a different starting point than a loud one — the same reason `trackGain` was
+  split out for loudness.
+- **`fadeOut` sweeps the lowpass as well as the gain.** A gain fade alone just
+  gets quieter; rolling the top off with it is what makes a track read as
+  receding. Exponential, because pitch is perceived logarithmically — a linear
+  sweep spends most of its time in the top octave where there is least to hear.
+  `start` resets the filter and the duck, or a restart begins muffled.
+- **Ducking is wired to the cheer, not to the note ticks — deliberately.** Web
+  Audio has no sidechain, so it is scheduled gain automation, and it suits *sparse*
+  events. Notes arrive 2–5 times a second, so an audible duck envelope would
+  overlap its neighbours and leave the music permanently dipped and pumping. The
+  balance problem ducking would have solved there was already solved by loudness
+  normalisation (§17): with the music pinned to a fixed target, one absolute tick
+  level works library-wide.
+- **UI sounds are not on this graph and should stay off it.** `uisfx.ts` owns its
+  own `AudioContext`, created lazily on the first menu noise and alive whether or
+  not a song is loaded, while `AudioClock`'s context lives and dies with a run.
+  "One audio graph" means one graph for the *game's* audio. UI sound keeps its own
+  mute.
+- Music can be turned down but never off; effects can go to zero. A rhythm game
+  with no music is not quieter, it is broken — that is what the phone's own volume
+  keys are for. What a mixer adds over hardware volume is the *balance*.
+
 **Note ticks are a guide, not hit feedback — and cannot be made into feedback**
 - A click on every note, scheduled ahead on the audio clock
   (`game/tickSchedule.ts` + `AudioClock.playTickAt`). Off by default; it adds a

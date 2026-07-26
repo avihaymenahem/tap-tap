@@ -94,11 +94,31 @@ function fakeAudio(durationSec: number) {
           cancelScheduledValues: () => {},
           setValueAtTime: () => {},
           exponentialRampToValueAtTime: () => {},
+          linearRampToValueAtTime: () => {},
         },
       };
       gains.push(node);
       return node;
     },
+    createBiquadFilter: () => ({
+      ...nodes,
+      type: '',
+      Q: { value: 0 },
+      gain: { value: 0 },
+      frequency: {
+        value: 0,
+        cancelScheduledValues: () => {},
+        setValueAtTime: () => {},
+        exponentialRampToValueAtTime: () => {},
+        linearRampToValueAtTime: () => {},
+      },
+    }),
+    createBuffer: (_channels: number, length: number, sampleRate: number) => ({
+      length,
+      sampleRate,
+      duration: length / sampleRate,
+      getChannelData: () => new Float32Array(length),
+    }),
     createOscillator: () => {
       const osc = {
         ...nodes,
@@ -143,11 +163,14 @@ function fakeAudio(durationSec: number) {
     endPlayback: () => started?.onended?.(),
     oscillators,
     /**
-     * The tick bus: third gain built in the constructor, after `trackGain` and the
-     * outro `gain`. Positional because the fake's `connect` is a no-op and there is
-     * nothing else to identify it by; `clock.ts` documents the same ordering.
+     * Every gain node, so assertions can be made on the graph *behaviourally*
+     * rather than by construction order. Indexing positionally was tried and is a
+     * trap: adding the mixer buses reordered them and would have silently pointed
+     * an existing assertion at the wrong node.
      */
-    tickBus: () => gains[2],
+    gains,
+    /** How many gains currently sit at a given value. */
+    gainsAt: (value: number) => gains.filter((g) => g.gain.value === value).length,
   };
 }
 
@@ -286,12 +309,48 @@ describe('note ticks', () => {
     const clock = await AudioClock.load('/audio.m4a');
     await clock.start(0);
 
-    expect(audio.tickBus()!.gain.value).toBe(1);
+    const silencedBefore = audio.gainsAt(0);
 
     clock.setTicksAudible(false);
-    expect(audio.tickBus()!.gain.value).toBe(0);
+    // Exactly one more node went silent — the bus — and not the music with it.
+    expect(audio.gainsAt(0)).toBe(silencedBefore + 1);
 
     clock.setTicksAudible(true);
-    expect(audio.tickBus()!.gain.value).toBe(1);
+    expect(audio.gainsAt(0)).toBe(silencedBefore);
+  });
+});
+
+describe('mixer', () => {
+  it('applies music and effect levels independently', async () => {
+    const audio = fakeAudio(200);
+    const clock = await AudioClock.load('/audio.m4a');
+
+    clock.setMixer(0.45, 0);
+    // Two distinct nodes moved: one to 0.45, one silenced.
+    expect(audio.gains.filter((g) => g.gain.value === 0.45)).toHaveLength(1);
+    expect(audio.gainsAt(0)).toBe(1);
+  });
+
+  it('clamps a nonsense level rather than inverting or blowing up the output', async () => {
+    const audio = fakeAudio(200);
+    const clock = await AudioClock.load('/audio.m4a');
+
+    clock.setMixer(Number.NaN, -2);
+    // NaN falls back to unity; a negative level clamps to silence rather than
+    // flipping the waveform's phase.
+    expect(audio.gains.some((g) => Number.isNaN(g.gain.value))).toBe(false);
+    expect(audio.gains.every((g) => g.gain.value >= 0)).toBe(true);
+
+    clock.setMixer(9, 9);
+    expect(audio.gains.every((g) => g.gain.value <= 1)).toBe(true);
+  });
+
+  it('leaves the music level alone when only effects change', async () => {
+    const audio = fakeAudio(200);
+    const clock = await AudioClock.load('/audio.m4a');
+
+    clock.setMixer(0.7, 1);
+    clock.setMixer(0.7, 0.35);
+    expect(audio.gains.filter((g) => g.gain.value === 0.7)).toHaveLength(1);
   });
 });

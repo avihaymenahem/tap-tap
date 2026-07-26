@@ -14,6 +14,7 @@ import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../rende
 import { adaptiveAllowed, qualityProfile, resolveQuality } from '../render/quality.js';
 import { getStoredCalibration } from '../storage.js';
 import { playUiSound } from '../uisfx.js';
+import { musicLevel, sfxLevel } from '../mixer.js';
 import { approachSecFor, getScrollSpeed } from '../scrollSpeed.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 
@@ -546,6 +547,7 @@ export function VersusPlayScreen({
       const clock = clockRef.current;
       if (!clock) return;
       outroStarted = false;
+      clock.setMixer(musicLevel(), sfxLevel());
       void clock.start(introOffset, LEAD_IN_SEC);
       applyPhase('playing');
       lastFrame = performance.now();
@@ -587,6 +589,7 @@ export function VersusPlayScreen({
       const clock = clockRef.current;
       if (!clock || phaseRef.current !== 'paused') return;
       playUiSound('back');
+      clock.setMixer(musicLevel(), sfxLevel());
       void clock.resume(RESUME_COUNTDOWN_SEC);
       applyPhase('playing');
     };

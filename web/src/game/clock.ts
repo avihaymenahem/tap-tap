@@ -21,6 +21,27 @@ import { dbToGain } from '@tap-tap/core';
  */
 let primedContext: AudioContext | null = null;
 
+/**
+ * Cutoff with the outro filter wide open — above the audible band, so during play
+ * the node is a no-op rather than something that quietly dulls every song.
+ */
+const FILTER_OPEN_HZ = 20000;
+/**
+ * Where the outro sweep lands. Low enough that only the bass and low mids
+ * survive, which is what makes the ending read as the music receding rather than
+ * merely stopping; not so low that the fade sounds broken.
+ */
+const FILTER_CLOSED_HZ = 320;
+
+/** How far the music dips under a ducking effect. A couple of dB is plenty. */
+const DUCK_DEPTH_DB = 3.5;
+const DUCK_ATTACK_SEC = 0.06;
+const DUCK_RELEASE_SEC = 0.35;
+
+function clampLevel(value: number): number {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
+}
+
 /** Create/resume an AudioContext from a user gesture, ready for `load` to adopt. */
 export function primeAudio(): void {
   try {
@@ -66,6 +87,38 @@ export class AudioClock {
    * before `gainDb` existed a fixed-level effect could not be balanced at all.
    */
   private readonly tickBus: GainNode;
+  /**
+   * Ducking on the music path — dipped so a sparse, loud effect reads through
+   * without the music being turned down for the whole run.
+   *
+   * Web Audio has no sidechain compressor, so this is a plain gain driven by
+   * scheduled automation on the same clock everything else uses (`duckFor`).
+   *
+   * **Not used per note tick, deliberately.** Ducking suits sparse events; notes
+   * arrive two to five times a second, so a duck envelope long enough to hear
+   * would overlap its neighbours and leave the music permanently dipped and
+   * pumping. The balance problem ducking would have solved there was already
+   * solved by loudness normalisation (§17): with the music pinned to a fixed
+   * target, one absolute tick level works across the library. The crowd cheer is
+   * the case ducking is actually for.
+   */
+  private readonly duckGain: GainNode;
+  /**
+   * Lowpass on the music, wide open during play and swept shut with the outro.
+   *
+   * Closing a filter as something ends is the cheapest "this feels expensive"
+   * effect in game audio: a plain gain fade just gets quieter, while a fade with
+   * the top rolled off reads as the music receding. Placed *before* the analyser
+   * so the scene's reactivity follows what is actually audible — the same
+   * reasoning that puts the analyser after normalisation.
+   */
+  private readonly outroFilter: BiquadFilterNode;
+  /** Player level for the music (`mixer.ts`), after the analyser — see the graph note. */
+  private readonly musicVol: GainNode;
+  /** Player level for ticks and the cheer. */
+  private readonly sfxVol: GainNode;
+  /** Everything lands here, so one node governs the whole game's output. */
+  private readonly master: GainNode;
 
   private source: AudioBufferSourceNode | null = null;
   private startedAtContextTime = 0;
@@ -97,13 +150,68 @@ export class AudioClock {
     // sits *after* normalisation on purpose: the spectrum drives the EQ ring and
     // the scene's reactivity, and reading it pre-gain would leave a quiet track
     // looking dead on screen as well as sounding quiet.
-    this.trackGain.connect(this.gain);
-    this.gain.connect(this.analyser);
-    this.analyser.connect(ctx.destination);
-
+    this.duckGain = ctx.createGain();
+    this.outroFilter = ctx.createBiquadFilter();
+    this.outroFilter.type = 'lowpass';
+    this.outroFilter.frequency.value = FILTER_OPEN_HZ;
+    this.musicVol = ctx.createGain();
+    this.sfxVol = ctx.createGain();
+    this.master = ctx.createGain();
     this.tickBus = ctx.createGain();
-    this.tickBus.gain.value = 1;
-    this.tickBus.connect(ctx.destination);
+
+    // One graph for the game's audio:
+    //
+    //   source → trackGain → gain(fade) → duck → outroFilter → analyser
+    //                                                             ↓
+    //   ticks ─┐                                               musicVol
+    //   cheer ─┴→ sfxVol ─────────────────────────────────────→ master → destination
+    //
+    // Two placements are load-bearing. The analyser stays **after** normalisation
+    // and the filter but **before** `musicVol`: the spectrum drives the scene, so
+    // it has to reflect what the track actually sounds like (a quiet master would
+    // otherwise leave a song looking dead) while a player turning the music down
+    // must not flatten the visuals with it. And the fade, the duck and the level
+    // are three separate nodes on purpose — sharing one would make the outro fade
+    // multiply a per-track offset, so a quiet song would fade from a different
+    // starting point than a loud one.
+    this.trackGain.connect(this.gain);
+    this.gain.connect(this.duckGain);
+    this.duckGain.connect(this.outroFilter);
+    this.outroFilter.connect(this.analyser);
+    this.analyser.connect(this.musicVol);
+    this.musicVol.connect(this.master);
+
+    this.tickBus.connect(this.sfxVol);
+    this.sfxVol.connect(this.master);
+    this.master.connect(ctx.destination);
+  }
+
+  /**
+   * Apply the player's mixer levels (`mixer.ts`). Safe to call mid-run.
+   */
+  setMixer(music: number, sfx: number): void {
+    this.musicVol.gain.value = clampLevel(music);
+    this.sfxVol.gain.value = clampLevel(sfx);
+  }
+
+  /**
+   * Dip the music for `seconds`, by `depthDb`, starting now.
+   *
+   * For sparse, loud effects — the crowd cheer is the one that matters. See
+   * `duckGain` for why this is not wired to the note ticks.
+   */
+  duckFor(seconds: number, depthDb = DUCK_DEPTH_DB): void {
+    const now = this.ctx.currentTime;
+    const floor = 10 ** (-Math.abs(depthDb) / 20);
+    const hold = Math.max(0.05, seconds);
+    const g = this.duckGain.gain;
+
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(Math.max(0.0001, g.value), now);
+    // Down fast enough to get out of the way, back slowly enough not to pump.
+    g.linearRampToValueAtTime(floor, now + DUCK_ATTACK_SEC);
+    g.setValueAtTime(floor, now + hold);
+    g.linearRampToValueAtTime(1, now + hold + DUCK_RELEASE_SEC);
   }
 
   /**
@@ -196,9 +304,11 @@ export class AudioClock {
       }
     };
 
-    // Undo any fade left over from a previous run.
+    // Undo any fade left over from a previous run, and with it the outro's filter
+    // sweep and any duck still in flight — otherwise a restart begins muffled.
     this.gain.gain.cancelScheduledValues(this.ctx.currentTime);
     this.gain.gain.setValueAtTime(1, this.ctx.currentTime);
+    this.resetMusicShaping();
 
     this.startOffset = Math.max(0, Math.min(offsetSec, this.buffer.duration));
     this.startedAtContextTime = this.ctx.currentTime + Math.max(0, leadInSec);
@@ -298,11 +408,31 @@ export class AudioClock {
    */
   fadeOut(seconds: number): void {
     const now = this.ctx.currentTime;
+    const over = Math.max(0.05, seconds);
     const gain = this.gain.gain;
     gain.cancelScheduledValues(now);
     gain.setValueAtTime(Math.max(0.0001, gain.value), now);
     // Exponential reads as a more natural fade than linear.
-    gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.05, seconds));
+    gain.exponentialRampToValueAtTime(0.0001, now + over);
+
+    // Roll the top off as it goes. A gain fade alone just gets quieter; closing a
+    // filter with it is what makes the track sound like it is receding. Exponential
+    // because pitch is perceived logarithmically — a linear sweep spends most of its
+    // time in the top octave, where there is least to hear.
+    const cutoff = this.outroFilter.frequency;
+    cutoff.cancelScheduledValues(now);
+    cutoff.setValueAtTime(Math.max(FILTER_CLOSED_HZ, cutoff.value), now);
+    cutoff.exponentialRampToValueAtTime(FILTER_CLOSED_HZ, now + over);
+  }
+
+  /** Re-open the filter and clear any duck. Called on every start, so a restart
+   *  never inherits the previous run's outro. */
+  private resetMusicShaping(): void {
+    const now = this.ctx.currentTime;
+    this.outroFilter.frequency.cancelScheduledValues(now);
+    this.outroFilter.frequency.setValueAtTime(FILTER_OPEN_HZ, now);
+    this.duckGain.gain.cancelScheduledValues(now);
+    this.duckGain.gain.setValueAtTime(1, now);
   }
 
   /**
@@ -397,8 +527,15 @@ export class AudioClock {
     source.connect(band);
     band.connect(bright);
     bright.connect(gain);
-    // Straight to the destination, past the fade-out gain the outro uses.
-    gain.connect(this.ctx.destination);
+    // Onto the effects bus, so it answers to the player's level and bypasses the
+    // outro fade the music is riding down at this exact moment.
+    gain.connect(this.sfxVol);
+
+    // Duck the music underneath. This is what ducking is *for*: one loud, sparse
+    // event that has to read through a full mix. Held for the swell and most of
+    // the decay, then released slowly so the track comes back up rather than
+    // snapping.
+    this.duckFor(length * 0.6);
 
     source.start(now);
     source.stop(now + length);
@@ -475,8 +612,13 @@ export class AudioClock {
   async dispose(): Promise<void> {
     this.stop();
     this.gain.disconnect();
+    this.duckGain.disconnect();
+    this.outroFilter.disconnect();
     this.analyser.disconnect();
+    this.musicVol.disconnect();
     this.tickBus.disconnect();
+    this.sfxVol.disconnect();
+    this.master.disconnect();
     await this.ctx.close();
   }
 }

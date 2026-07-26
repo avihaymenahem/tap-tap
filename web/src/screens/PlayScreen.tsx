@@ -9,6 +9,7 @@ import { accuracyOf, foldUnreached, gradeFor, type Tier } from '../game/judge.js
 import { playUiSound } from '../uisfx.js';
 import { approachSecFor, getScrollSpeed } from '../scrollSpeed.js';
 import { noteTicksEnabled } from '../noteTicks.js';
+import { musicLevel, sfxLevel } from '../mixer.js';
 import { TICK_LOOKAHEAD_SEC, cursorAt, ticksInWindow } from '../game/tickSchedule.js';
 import type { RunResult } from '../game/run.js';
 import { cancelHaptics, vibrateHold, vibrateMiss, vibrateTap } from '../haptics.js';
@@ -18,6 +19,7 @@ import { TIER_COLORS, TIER_LABELS } from '../render/palette.js';
 import { adaptiveAllowed, qualityProfile, resolveQuality } from '../render/quality.js';
 import { FlashToggle } from '../components/FlashToggle.js';
 import { HapticToggle } from '../components/HapticToggle.js';
+import { MixerToggle } from '../components/MixerToggle.js';
 import { SoundToggle } from '../components/SoundToggle.js';
 import { CalibrationScreen } from './CalibrationScreen.js';
 import { accentVars } from '../accent.js';
@@ -817,6 +819,7 @@ export function PlayScreen({
       ticksOn = noteTicksEnabled();
       tickCursor = cursorAt(chartRef.current!.notes, introOffset);
       clock.setTicksAudible(ticksOn);
+      clock.setMixer(musicLevel(), sfxLevel());
       void clock.start(introOffset, LEAD_IN_SEC);
       applyPhase('playing');
       lastFrame = performance.now();
@@ -858,6 +861,9 @@ export function PlayScreen({
       // restarts, and they have already elapsed silently.
       tickCursor = cursorAt(chartRef.current?.notes ?? [], clock.currentTime);
       clock.setTicksAudible(ticksOn);
+      // Re-read the levels: the pause overlay is where they are most likely to
+      // have just been changed.
+      clock.setMixer(musicLevel(), sfxLevel());
       void clock.resume(RESUME_COUNTDOWN_SEC);
       applyPhase('playing');
     };
@@ -878,6 +884,7 @@ export function PlayScreen({
       ticksOn = noteTicksEnabled();
       tickCursor = cursorAt(chartRef.current!.notes, introOffset);
       clock.setTicksAudible(ticksOn);
+      clock.setMixer(musicLevel(), sfxLevel());
       void clock.start(introOffset, LEAD_IN_SEC);
       applyPhase('playing');
       lastFrame = performance.now();
@@ -1282,6 +1289,8 @@ export function PlayScreen({
             <div className="pause-settings rise" style={{ '--i': 2 } as CSSProperties}>
               <HapticToggle className="pause-setting" />
               <SoundToggle className="pause-setting" />
+              <MixerToggle kind="music" className="pause-setting" />
+              <MixerToggle kind="sfx" className="pause-setting" />
               {/* Reachable mid-run on purpose: flashing is something a player
                   discovers is a problem during a song, and if turning it off
                   costs them the run they stop playing instead. */}
