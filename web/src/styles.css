@@ -527,7 +527,6 @@ body:has(.song-hero:not(.song-hero--closing)) .retro-bg__sparks {
    the `font-weight: 400` below renders as that Bold with no synthesis — never
    pair it with an even heavier bold, which would smear. Numbers that tick every
    frame (HUD score, accuracy) stay on --font or their width wobbles at 60fps. */
-.menu__detail h2,
 .results__card h1,
 .calibration__card h1,
 .play__overlay--ready h2,
@@ -546,20 +545,14 @@ body:has(.song-hero:not(.song-hero--closing)) .retro-bg__sparks {
    and the effect only lands if it stays rare. */
 
 .admin__header h1,
+.admin__header h1,
 .calibration__card h1,
-.results__card h1,
-.menu__detail h2 {
+.results__card h1 {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   text-shadow: 0 0 18px rgba(240, 182, 74, 0.45);
 }
 
-/* The song title is the exception: it is data, not a label, so it keeps its
-   own case and only borrows the glow. */
-.menu__detail h2 {
-  text-transform: none;
-  letter-spacing: 0.02em;
-}
 
 kbd {
   display: inline-block;
@@ -1209,131 +1202,40 @@ kbd {
   transform: scale(0.985);
 }
 
-.menu__detail {
-  /* Anchors the blurred-art backdrop, which fills the panel behind content. */
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding: 1.5rem;
-  border: 1px solid var(--edge);
-  border-radius: var(--radius);
-  background: var(--panel-solid);
-  box-shadow: 0 0 40px rgba(var(--accent-rgb), 0.16);
-  backdrop-filter: blur(14px);
-  /* `hidden`, not `auto`: the blurred art backdrop (`.menu__detail-bg`) is
-     `inset: 0` scaled 1.5x, so it overflows the panel on every side *by design*
-     — the panel is meant to clip it, which is what hides the blur's soft edges.
-     With `overflow-y: auto` the spec forces `overflow-x` to `auto` as well, so
-     instead of clipping the scaled backdrop the panel grew scrollbars on both
-     axes over content that otherwise fits. Clipping is the intended behaviour. */
-  overflow: hidden;
-}
 
 /* Everything in the panel paints over the art backdrop. The backdrop and
    scrim opt back out below — they *are* the background. */
-.menu__detail > * {
-  position: relative;
-  z-index: 1;
-}
 
 /* The selected song's art, blurred to a wash of its own colours. Absolute in
    the panel's scroll container: on the rare over-tall panel it scrolls away
    with the header, which reads fine — it belongs to the title. */
-.menu__detail-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scale(1.5);
-  filter: blur(28px) saturate(1.1) brightness(0.55);
-  opacity: 0.5;
-  pointer-events: none;
-}
 
 /* Dark gradient over the art so text keeps its contrast on any artwork. */
-.menu__detail-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: linear-gradient(to bottom, rgba(14, 10, 5, 0.4), rgba(14, 10, 5, 0.88) 70%);
-  pointer-events: none;
-}
 
 /* --- detail hero: the ringed disc over a slow burst -----------------------
    The same language as the ready screen's cover and the in-game CD, so
    picking a song already looks like the run it starts. Hidden on the mobile
    sheet, which must stay compact — the blurred backdrop carries the art
    there. */
-.menu__detail-hero {
-  width: 8.5rem;
-  height: 8.5rem;
-  margin: 0.2rem auto 0.1rem;
-  display: grid;
-  place-items: center;
-}
 
 /* The aura canvas overflows the disc on every side; the panel's `overflow:
    hidden` clips the far edges softly (its gradients fade to transparent there
    anyway). Behind the disc, above the panel art. */
-.menu__detail-aura {
-  position: absolute;
-  inset: -60%;
-  width: auto;
-  height: auto;
-  pointer-events: none;
-}
 
-.menu__detail-disc {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  overflow: hidden;
-  border: 2px solid rgba(var(--accent-rgb), 0.6);
-  background: linear-gradient(135deg, var(--amber), var(--gold));
-  box-shadow: 0 0 30px rgba(var(--accent-rgb), 0.35);
-}
 
 /* Zoomed past the letterbox bars a 16:9 frame leaves in a 4:3 thumbnail,
-   exactly as .ready-cover__art does. */
-.menu__detail-disc-art {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scale(1.34);
-}
+   exactly as the song-hero disc art does. */
 
 /* The hero container is inside the `> *` lift above; the burst positions
    against it. */
-.menu__detail-hero {
-  position: relative;
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .menu__detail-burst {
-    animation: none;
-  }
 }
 
 /* The artist sits directly under the title as one header block. Its default
    paragraph margin was stacking on top of the flex `gap`, doubling the space
    and making the whole sheet taller than it needs to be. */
-.menu__detail h2 + p {
-  margin: -0.55rem 0 0;
-}
 
-.menu__detail h2 {
-  margin: 0;
-  font-size: 1.3rem;
-  /* Wrap a long unbreakable title instead of overflowing the fixed-width panel
-     on desktop. (Mobile's bottom sheet overrides this with an ellipsis.) */
-  overflow-wrap: anywhere;
-}
 
 /* --- the full-screen song hero -------------------------------------------
    The dazzling detail view a track blows up into when tapped: a huge album
@@ -2517,14 +2419,6 @@ kbd {
   overflow-y: auto;
 }
 
-.ready-card {
-  /* Fit inside the overlay's padding. The base `.pause-card` is `92vw`, which
-     together with the 2rem overlay padding exceeds the viewport — the source of
-     the horizontal overflow. `100%` is the padded content box, so it can't. */
-  width: min(100%, 360px);
-  margin: auto;
-  gap: 0.9rem;
-}
 
 /* The slim ready fallback (audio didn't unlock): a centred column over the
    already-rendered scene, no second song card. */
@@ -2554,16 +2448,7 @@ kbd {
 }
 
 /* Smaller than the old free-floating hero so the card stays compact. */
-.ready-card .ready-cover {
-  width: 7.5rem;
-  height: 7.5rem;
-  margin: 0 auto;
-}
 
-.ready-card .keycaps {
-  justify-content: center;
-  margin-top: 0.1rem;
-}
 
 /* The calibration sub-view fills the pause overlay; the calibration card
    handles its own centring and scrolling, so drop the overlay's own padding. */
@@ -2741,72 +2626,6 @@ kbd {
     animation: none;
   }
   .play__health-fill--low {
-    animation: none;
-  }
-}
-
-/* The ready-screen cover art: a ringed, haloed disc over a slow firework burst,
-   the same language as the CD on the highway and the results medal. */
-.ready-cover {
-  position: relative;
-  width: 9.5rem;
-  height: 9.5rem;
-  margin: 0 auto 0.3rem;
-  display: grid;
-  place-items: center;
-}
-
-.ready-cover__burst {
-  position: absolute;
-  inset: -34%;
-  background: repeating-conic-gradient(
-    from 0deg,
-    rgba(var(--accent-rgb), 0.22) 0deg 5deg,
-    transparent 5deg 13deg
-  );
-  -webkit-mask: radial-gradient(closest-side, transparent 45%, #000 55%, transparent 82%);
-  mask: radial-gradient(closest-side, transparent 45%, #000 55%, transparent 82%);
-  animation: results-spin 18s linear infinite;
-}
-
-.ready-cover__disc {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  overflow: hidden;
-  border: 2px solid rgba(var(--accent-rgb), 0.6);
-  /* Warm gradient shows through if the thumbnail is missing or fails to load. */
-  background: linear-gradient(135deg, var(--amber), var(--gold));
-  box-shadow: 0 0 34px rgba(var(--accent-rgb), 0.4);
-}
-
-.ready-cover__blur,
-.ready-cover__art {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-/* Blurred, scaled-up copy that fills the disc so there is never black behind
-   the artwork (also covers non-16:9 thumbnails and the moment before load). */
-.ready-cover__blur {
-  object-fit: cover;
-  transform: scale(1.45);
-  filter: blur(16px) saturate(1.15);
-}
-
-/* The real artwork on top. Zoomed just past the 12.5% black bars a 16:9 frame
-   leaves in a 4:3 thumbnail, so the picture fills the disc with no letterbox. */
-.ready-cover__art {
-  object-fit: cover;
-  transform: scale(1.34);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ready-cover__burst {
     animation: none;
   }
 }
@@ -3586,9 +3405,6 @@ kbd {
    fixed overlay. On desktop it is a column beside the list — nothing covers
    anything, so there is nothing to hide and the control would be a dead end.
    Hidden here and re-shown inside the mobile media query. */
-.menu__detail-close {
-  display: none;
-}
 
 /* --- favorites + menu sorting --------------------------------------------- */
 
@@ -4680,69 +4496,15 @@ kbd {
     transform: none;
   }
 
-  .menu__detail {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    /* Must outrank the favorite stars, which carry `z-index: 2` to sit above
-       their own card. Without this the sheet is `z-index: auto` and the stars
-       of the rows underneath punch straight through it — visibly, as loose
-       stars floating over the title and the PLAY button. */
-    z-index: 5;
-    gap: 0.7rem;
-    max-height: 60vh;
-    padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 22px 22px 0 0;
-    background: rgba(20, 15, 8, 0.94);
-    box-shadow: 0 -18px 44px rgba(0, 0, 0, 0.6);
-    transition: transform 0.24s ease;
-  }
 
   /* Slid off-screen rather than `display: none`, so it animates both ways and
      nothing reflows underneath it. `pointer-events` because a translated element
      is still hittable where it used to be. */
-  .menu__detail--hidden {
-    transform: translateY(110%);
-    pointer-events: none;
-  }
 
-  .menu__detail-close {
-    /* Overlaid rather than in flow: the sheet is a tight vertical budget and a
-       row of its own would cost more than the button is worth. */
-    position: absolute;
-    top: 0.35rem;
-    right: 0.5rem;
-    /* Above the title. `.menu__detail > *` gives every child z-index 1, and the
-       full-width <h2> comes after this button in the DOM, so at equal z-index it
-       painted on top and swallowed the tap — the button did nothing. */
-    z-index: 2;
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    border: none;
-    border-radius: 50%;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-  }
 
-  .menu__detail h2 {
-    font-size: 1.05rem;
-    /* Clear of the close button. */
-    padding-right: 2.5rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
   /* The hero disc costs too much of the sheet's tight vertical budget; the
      blurred art backdrop carries the song's identity here instead. */
-  .menu__detail-hero {
-    display: none;
-  }
 
   /* Difficulties become three side-by-side chips to save vertical space. */
   .difficulty-picker {

@@ -448,7 +448,7 @@ export class Highway {
     // it (everything else is unlit/basic), so it costs nothing elsewhere. A warm
     // studio gradient with a bright overhead light band gives the gold a moving
     // reflection — the thing that actually makes it look like metal.
-    this.scene.environment = Highway.makeEnvTexture();
+    this.scene.environment = Highway.cachedTexture('env', () => Highway.makeEnvTexture());
 
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 300);
     this.camera.position.set(0, this.camHeight, CAMERA_DISTANCE);
@@ -730,7 +730,7 @@ export class Highway {
         uGlow: { value: skyColor(this.theme.sky.glow) },
         // The hand-drawn city skyline (stage only). A 1x1 transparent stand-in
         // for the classic path, which never samples it.
-        uCity: { value: this.stage ? Highway.makeSkylineTexture() : Highway.blankTexture() },
+        uCity: { value: this.stage ? Highway.cachedTexture('skyline', () => Highway.makeSkylineTexture()) : Highway.blankTexture() },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -812,6 +812,36 @@ export class Highway {
    * point as a hard square, which reads as blocky debris rather than as stars
    * or sparks — very obvious once points get large near the camera.
    */
+
+  /**
+   * Canvas textures, generated once for the whole session.
+   *
+   * They carry *shape*, not colour — lane colour arrives via `instanceColor` and
+   * the shaders' uniforms — so every `Highway` builds byte-identical ones.
+   * `makeDotTexture` alone was called three times in a single construction.
+   * **The win is smaller than it looks though: 110.9ms -> 97.7ms, about 13ms.**
+   * The `new Highway` phase is ~111ms and texture generation is only a tenth of
+   * it — geometry and material construction are the rest. Worth keeping because
+   * it is free, but do not expect this to be where a run's setup time goes.
+   *
+   * Deliberately never disposed: they outlive any one run, which is the point.
+   * That is safe because `dispose()` only disposes geometries and materials, and
+   * a three.js material does not dispose its maps — and a `Texture` reused across
+   * a new `WebGLRenderer` simply re-uploads on first use.
+   */
+  private static readonly texCache = new Map<string, THREE.CanvasTexture>();
+
+  private static cachedTexture(
+    key: string,
+    build: () => THREE.CanvasTexture,
+  ): THREE.CanvasTexture {
+    const hit = Highway.texCache.get(key);
+    if (hit) return hit;
+    const made = build();
+    Highway.texCache.set(key, made);
+    return made;
+  }
+
   private static makeDotTexture(): THREE.CanvasTexture {
     const size = 64;
     const canvas = document.createElement('canvas');
@@ -1012,7 +1042,7 @@ export class Highway {
         // pass the camera, so anything much larger reads as blobs drifting over
         // the track rather than as distant stars.
         size: 0.22,
-        map: Highway.makeDotTexture(),
+        map: Highway.cachedTexture('dot', () => Highway.makeDotTexture()),
         vertexColors: true,
         transparent: true,
         opacity: 0.85,
@@ -1225,7 +1255,7 @@ export class Highway {
         // The circuit-board surface (stage only) and the colours it recolours to:
         // the theme accent for the lit traces, gold for the trim. Linearized like
         // every other shader colour.
-        uPcb: { value: this.stage ? Highway.makePcbTexture() : null },
+        uPcb: { value: this.stage ? Highway.cachedTexture('pcb', () => Highway.makePcbTexture()) : null },
         uAccentTint: { value: skyColor(this.accent) },
         uTrim: { value: skyColor(0xf5c04a) },
       },
@@ -1458,7 +1488,7 @@ export class Highway {
     const frame = new THREE.Mesh(
       new THREE.PlaneGeometry(width, depth),
       new THREE.MeshBasicMaterial({
-        map: Highway.makeHitBarFrameTexture(),
+        map: Highway.cachedTexture('hitBarFrame', () => Highway.makeHitBarFrameTexture()),
         transparent: true,
         depthWrite: false,
         toneMapped: false,
@@ -1605,7 +1635,7 @@ export class Highway {
       const frame = new THREE.Mesh(
         new THREE.PlaneGeometry(1, 1),
         new THREE.MeshBasicMaterial({
-          map: Highway.makeFrameTexture(HIT_ZONE_DEPTH / TILE_WIDTH),
+          map: Highway.cachedTexture('frame:hitZone', () => Highway.makeFrameTexture(HIT_ZONE_DEPTH / TILE_WIDTH)),
           // A neutral warm outline in stage style — the reference's rounded pad
           // border — versus the lane-coloured frame of the classic look.
           color: this.stage ? 0xf2e6ca : hex,
@@ -2020,7 +2050,7 @@ export class Highway {
     geometry.rotateX(-Math.PI / 2);
 
     const material = new THREE.MeshBasicMaterial({
-      map: this.stage ? Highway.makeGlowTexture(TILE_DEPTH / TILE_WIDTH) : Highway.makeDotTexture(),
+      map: this.stage ? Highway.cachedTexture('glow:tile', () => Highway.makeGlowTexture(TILE_DEPTH / TILE_WIDTH)) : Highway.cachedTexture('dot', () => Highway.makeDotTexture()),
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -2041,7 +2071,7 @@ export class Highway {
     const geometry = new THREE.PlaneGeometry(1, 1);
     geometry.rotateX(-Math.PI / 2);
     const material = new THREE.MeshBasicMaterial({
-      map: Highway.makeTrailTexture(),
+      map: Highway.cachedTexture('trail', () => Highway.makeTrailTexture()),
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -2101,7 +2131,7 @@ export class Highway {
       geometry,
       new THREE.PointsMaterial({
         size: 0.19,
-        map: Highway.makeDotTexture(),
+        map: Highway.cachedTexture('dot', () => Highway.makeDotTexture()),
         vertexColors: true,
         transparent: true,
         opacity: 0.95,
