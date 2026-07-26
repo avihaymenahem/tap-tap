@@ -5,6 +5,7 @@ import {
   TIERS,
   type Tier,
   type Timing,
+  SCORE_VALUES,
   HOLD_TICK_SCORE,
   HOLD_TICK_SEC,
   accuracyOf,
@@ -18,6 +19,13 @@ import {
 } from './judge.js';
 import { HEALTH_CONFIG, applyHealthDelta, isDead } from './health.js';
 import { idealScore } from './score.js';
+import {
+  type SectionTally,
+  binForDelta,
+  emptyHistogram,
+  emptySections,
+  sectionFor,
+} from './timingStats.js';
 
 /**
  * The game engine.
@@ -93,6 +101,14 @@ export interface EngineOptions {
    */
   minGapSec?: number;
   /**
+   * The song's length, for slicing per-section accuracy.
+   *
+   * The song's rather than the chart's: a chart whose notes stop early should show
+   * its final sections as empty rather than stretching the rest to fill the bar.
+   * Falls back to the last note's time when absent.
+   */
+  songDuration?: number;
+  /**
    * When true, health reaching 0 sets `failed` and the run is over. Off by
    * default: the `fail` modifier opts into it. Health is tracked and reported
    * either way; this only decides whether hitting empty ends the run. The
@@ -119,6 +135,10 @@ export interface GameSnapshot {
   maxCombo: number;
   counts: Record<Tier, number>;
   timingCounts: Record<Timing, number>;
+  /** Hit deltas binned by `timingStats` — the distribution, not a summary of it. */
+  timingHistogram: number[];
+  /** Per-section tallies; turn into ratios with `sectionAccuracies`. */
+  sections: SectionTally[];
   /** Signed mean error across all hits, in seconds. Negative = hitting early. */
   meanDelta: number;
   /** Holds carried to their tail. Reported separately: accuracy counts the head. */
@@ -169,6 +189,11 @@ export class GameEngine {
   private maxCombo = 0;
   private counts: Record<Tier, number> = { perfect: 0, great: 0, good: 0, miss: 0 };
   private timingCounts: Record<Timing, number> = { exact: 0, early: 0, late: 0 };
+  /** Distribution of hit deltas — the shape a mean cannot show. */
+  private readonly timingHistogram = emptyHistogram();
+  /** Per-section tallies, so a collapse can be located rather than just totalled. */
+  private readonly sections = emptySections();
+  private readonly songSpan: number;
   private deltaSum = 0;
   private hits = 0;
   private judged = 0;
@@ -189,6 +214,10 @@ export class GameEngine {
   constructor(chart: Chart, options: EngineOptions = {}) {
     this.laneCount = chart.laneCount;
     this.scoreMax = idealScore(chart.notes);
+    // Falls back to the last note when no song duration is given, so sections are
+    // always over something real rather than collapsing to zero.
+    const lastNote = chart.notes.reduce((max, n) => Math.max(max, noteEnd(n)), 0);
+    this.songSpan = options.songDuration && options.songDuration > 0 ? options.songDuration : lastNote;
     this.calibrationSec = options.calibrationSec ?? 0;
     this.windows = options.minGapSec !== undefined ? hitWindowsFor(options.minGapSec) : { ...HIT_WINDOWS };
     this.missWindow = this.windows.good;
@@ -448,6 +477,8 @@ export class GameEngine {
       maxCombo: this.maxCombo,
       counts: { ...this.counts },
       timingCounts: { ...this.timingCounts },
+      timingHistogram: [...this.timingHistogram],
+      sections: this.sections.map((sec) => ({ ...sec })),
       meanDelta: this.hits > 0 ? this.deltaSum / this.hits : 0,
       holdsCompleted: this.holdsCompleted,
       totalHolds: this.totalHolds,
@@ -473,12 +504,20 @@ export class GameEngine {
     this.health = applyHealthDelta(this.health, tier);
     if (this.canFail && isDead(this.health)) this.failed = true;
 
+    // Sections tally **every** judgement, misses included: a stretch where the
+    // player missed everything must read as low, not as absent.
+    const section = this.sections[sectionFor(state.note.t, this.songSpan)]!;
+    section.judged++;
+    section.earned += SCORE_VALUES[tier];
+    section.possible += SCORE_VALUES.perfect;
+
     if (tier === 'miss' || timing === null) {
       this.combo = 0;
       return 0;
     }
 
     this.timingCounts[timing]++;
+    this.timingHistogram[binForDelta(delta)]!++;
     this.deltaSum += delta;
     this.hits++;
 

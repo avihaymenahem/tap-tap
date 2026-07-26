@@ -1,4 +1,5 @@
 import type { Tier, Timing } from './judge.js';
+import type { SectionTally } from './timingStats.js';
 import type { Modifiers } from './modifiers.js';
 
 /** The outcome of one playthrough. */
@@ -26,6 +27,17 @@ export interface RunResult {
   grade: string;
   counts: Record<Tier, number>;
   timingCounts: Record<Timing, number>;
+  /**
+   * Hit deltas binned by `game/timingStats.ts`.
+   *
+   * The shape is the point: a wide symmetric spread means practise, a narrow spike
+   * off centre means recalibrate, two humps usually means one hand lagging. None of
+   * those are distinguishable from `meanDelta` or the early/late split. Optional, so
+   * a run stored by an older build still renders — the card just omits the chart.
+   */
+  timingHistogram?: number[];
+  /** Per-section tallies, for locating where a run fell apart. Optional, as above. */
+  sections?: SectionTally[];
   /** Signed mean error in seconds. Negative means hitting early. */
   meanDelta: number;
   totalNotes: number;

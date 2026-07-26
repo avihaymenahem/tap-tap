@@ -342,6 +342,14 @@ scripts/
   That rule is right — the play screen must never scroll — but it means nothing
   above a screen can rescue content taller than the viewport. Any centred card
   screen (`.results`, `.calibration`) needs `overflow-y: auto` of its own.
+- **`margin: auto` guarantees the card's *top* is reachable, not its bottom.**
+  Adding the timing histogram and section bars took the results card to 723px —
+  past a 667px phone — and scrolled fully down the last pixel of RETRY sat off the
+  edge. The fix is bottom padding on the **scroller** (`.results`, in the
+  `max-width: 560px` block, which is the rule that actually wins on a phone): a
+  bottom margin on the card is simply absorbed by the auto-centring. Anything added
+  to this card needs re-measuring at **667px**, not just 812 — the media query's own
+  comment claims it clears 812, and that is the height that lulls you.
 - **Centre an over-tall card with `margin: auto`, never `align-items: center`.**
   Flex centring crops an oversized child at *both* ends and puts its top above
   the scroll origin, where no amount of scrolling reaches it. The results card

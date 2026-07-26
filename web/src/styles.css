@@ -3039,6 +3039,66 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Timing distribution and per-section accuracy.
+ *
+ * Both are small bar charts on a shared vocabulary: a fixed-height track, bars
+ * grown from the baseline via `--h`, and a caption row underneath. Deliberately
+ * compact — the results card already scrolls on a short phone (see the `margin:
+ * auto` note in CLAUDE.md), so these must not add much height.
+ */
+.results__hist,
+.results__sections {
+  margin-top: 0.9rem;
+}
+
+.results__hist-bars,
+.results__sections-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 44px;
+  padding: 0 0.15rem;
+}
+
+.results__hist-bar,
+.results__section {
+  flex: 1;
+  /* A floor height, so an empty bin still reads as a bin rather than as a gap in
+     the axis — the shape is only legible against the full span. */
+  min-height: 2px;
+  height: max(2px, var(--h, 0%));
+  border-radius: 1px 1px 0 0;
+  background: rgba(var(--accent-rgb), 0.55);
+}
+
+/* The "dead on" column. Tinted rather than outlined: a border would change the
+   bar's width and shift every neighbour by a pixel. */
+.results__hist-bar--centre {
+  background: rgba(var(--accent-rgb), 0.95);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.7);
+}
+
+.results__section {
+  background: rgba(var(--accent-rgb), 0.7);
+}
+
+/* Not played — distinct from 0%, which is a section you played badly. */
+.results__section--empty {
+  background: rgba(var(--accent-rgb), 0.12);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.18);
+}
+
+.results__hist-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.3rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .results__timing-side b {
   font-size: 0.95rem;
   font-weight: 800;
@@ -3240,7 +3300,17 @@ kbd {
  */
 @media (max-width: 560px) {
   .results {
-    padding: 1rem 0.75rem;
+    /*
+     * Bottom padding is larger than the top on purpose.
+     *
+     * Adding the timing histogram and the section bars took the card past the
+     * viewport on a 667px phone, and scrolled fully down the last pixel of RETRY
+     * sat off the edge. `margin: auto` on the card guarantees its *top* stays
+     * reachable (the centring trap in CLAUDE.md) but says nothing about the
+     * bottom; padding on the scroller is what does, because a bottom margin on
+     * the card would just be absorbed by the auto-centring.
+     */
+    padding: 1rem 0.75rem 2.5rem;
   }
 
   .results__card {

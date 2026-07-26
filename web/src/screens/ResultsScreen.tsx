@@ -8,6 +8,13 @@ import { isAssisted } from '../game/modifiers.js';
 import { TIER_COLORS, TIER_LABELS, TIMING_COLORS } from '../render/palette.js';
 import { getBestScore, recordScore } from '../storage.js';
 import { normalizeScore } from '../game/score.js';
+import {
+  HISTOGRAM_CENTRE,
+  binCentreSec,
+  emptyHistogram,
+  histogramPeak,
+  sectionAccuracies,
+} from '../game/timingStats.js';
 import { playUiSound } from '../uisfx.js';
 
 interface ResultsScreenProps {
@@ -166,6 +173,14 @@ export function ResultsScreen({
           ? normalizeScore(previousBest.score, result.scoreMax)
           : null;
   const scoreDelta = previousScore !== null ? result.score - previousScore : null;
+
+  // Both are optional on the run: a result stored by an older build has neither, and
+  // the card simply leaves those panels out rather than drawing empty ones.
+  const histogram = result.timingHistogram ?? emptyHistogram();
+  const sectionValues = result.sections ? sectionAccuracies(result.sections) : [];
+  const sectionsLabel = `Accuracy by section: ${sectionValues
+    .map((v, i) => `${i + 1} ${v === null ? 'not played' : `${Math.round(v * 100)}%`}`)
+    .join(', ')}`;
   const accuracyDelta = previousBest ? result.accuracy - previousBest.accuracy : null;
   const signed = (n: number): string => (n >= 0 ? `+${n}` : `${n}`);
 
@@ -292,6 +307,61 @@ export function ResultsScreen({
           </div>
         )}
         {advice && <p className="results__advice">{advice}</p>}
+
+        {/* The distribution, not another average of it. Early is left of centre,
+            late is right, and the marked centre line is "dead on" — a spread tells
+            you to practise, a spike sitting off the line tells you to recalibrate,
+            and two humps usually means one hand is behind the other. */}
+        {histogramPeak(histogram) > 0 && (
+          <div className="results__hist rise" style={{ '--i': 6 } as CSSProperties}>
+            <div
+              className="results__hist-bars"
+              role="img"
+              aria-label={`Timing spread: ${early} hits early, ${result.timingCounts.exact} dead on, ${late} late, averaging ${meanMs >= 0 ? '+' : ''}${meanMs} milliseconds`}
+            >
+              {histogram.map((count, bin) => (
+                <span
+                  key={bin}
+                  className={`results__hist-bar${bin === HISTOGRAM_CENTRE ? ' results__hist-bar--centre' : ''}`}
+                  style={{ '--h': `${(count / histogramPeak(histogram)) * 100}%` } as CSSProperties}
+                  title={`${Math.round(binCentreSec(bin) * 1000)} ms — ${count} hit${count === 1 ? '' : 's'}`}
+                />
+              ))}
+            </div>
+            <div className="results__hist-axis">
+              <span>early</span>
+              <span>dead on</span>
+              <span>late</span>
+            </div>
+          </div>
+        )}
+
+        {/* Where the run went wrong, rather than only how much. Equal time slices —
+            the game does not know where the chorus is, and naming them as if it did
+            would be a lie. An unplayed slice is blank, not zero. */}
+        {sectionValues.some((v) => v !== null) && (
+          <div className="results__sections rise" style={{ '--i': 6 } as CSSProperties}>
+            <div className="results__sections-bars" role="img" aria-label={sectionsLabel}>
+              {sectionValues.map((value, i) => (
+                <span
+                  key={i}
+                  className={`results__section${value === null ? ' results__section--empty' : ''}`}
+                  style={{ '--h': `${(value ?? 0) * 100}%` } as CSSProperties}
+                  title={
+                    value === null
+                      ? `Section ${i + 1} — not played`
+                      : `Section ${i + 1} — ${Math.round(value * 100)}%`
+                  }
+                />
+              ))}
+            </div>
+            <div className="results__hist-axis">
+              <span>start</span>
+              <span>accuracy through the song</span>
+              <span>end</span>
+            </div>
+          </div>
+        )}
 
         <div className="results__actions rise" style={{ '--i': 6 } as CSSProperties}>
           <button

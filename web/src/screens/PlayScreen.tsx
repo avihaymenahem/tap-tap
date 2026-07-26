@@ -302,6 +302,11 @@ export function PlayScreen({
       // fairly be judged on the wider window. Absent on charts generated before
       // that existed, where the nominal value *is* what they were built with.
       minGapSec: chart.minGapSec ?? params.minGapSec,
+      // Slices per-section accuracy over the song rather than the last note, so a
+      // chart that stops early shows empty final sections instead of stretching the
+      // rest to fill the bar. Taken from the decoded buffer, which is the song's
+      // real length.
+      songDuration: clock.duration,
       canFail: run.fail,
     });
   };
@@ -502,6 +507,8 @@ export function PlayScreen({
         // Fixed scale, not the raw total — see `RunResult.score`.
         score: normalizeScore(snap.score, snap.scoreMax),
         scoreMax: snap.scoreMax,
+        timingHistogram: snap.timingHistogram,
+        sections: snap.sections,
         accuracy,
         maxCombo: snap.maxCombo,
         grade: gradeFor(accuracy),
