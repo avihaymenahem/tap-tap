@@ -11,7 +11,7 @@ import {
 /**
  * Cycles vibration off → hits → misses.
  *
- * Shared by the main menu and the pause overlay. The pause menu matters more
+ * Shared by the settings screen and the pause overlay. The pause copy matters more
  * than it looks: vibration is the one setting a player wants to change *because
  * of* what just happened to them, and making them quit a run to reach it means
  * they simply never change it.
@@ -29,14 +29,13 @@ export function HapticToggle({ className }: { className: string }): JSX.Element 
   return (
     <button
       type="button"
-      role="menuitem"
       className={className}
       // Does not dismiss its container on purpose: the point is to see the
       // state change, and to cycle through modes to find one that feels right.
       onClick={() => {
         // Cycle from the *stored* mode, not from `mode`. Two reasons: taps
         // close enough together to batch would otherwise all read the same
-        // stale render value and advance a single step, and the menu and pause
+        // stale render value and advance a single step, and the settings and pause
         // copies of this button would drift apart once either one changed it.
         const next = nextHapticMode(getHapticMode());
         setHapticMode(next);

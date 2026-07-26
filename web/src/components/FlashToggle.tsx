@@ -4,8 +4,8 @@ import { flashEffectsEnabled, setFlashEffects } from '../render/flash.js';
 /**
  * Turns the beat flare on the backdrop off.
  *
- * Sits beside the vibration and sound toggles in both the main menu and the
- * pause overlay — the pause copy matters most here, because the flashing is
+ * Sits beside the vibration and sound toggles on both the settings screen and
+ * the pause overlay — the pause copy matters most here, because the flashing is
  * something a player discovers is a problem *during* a song, and making them
  * quit the run to reach the setting means they simply stop playing instead.
  *
@@ -23,10 +23,9 @@ export function FlashToggle({ className }: { className: string }): JSX.Element {
   return (
     <button
       type="button"
-      role="menuitem"
       className={className}
       onClick={() => {
-        // Flip the *stored* value, not `enabled` — the menu and pause copies
+        // Flip the *stored* value, not `enabled` — the settings and pause copies
         // would otherwise drift apart once either one changed it.
         const next = !flashEffectsEnabled();
         setFlashEffects(next);

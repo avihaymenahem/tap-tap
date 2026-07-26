@@ -17,7 +17,8 @@ import { playUiSound } from '../uisfx.js';
  *
  * Takes effect on the **next song**, like Graphics and for the same reason: the
  * approach time is handed to the `Highway` at construction, so a live screen keeps
- * the value it was built with. The menu is where that is true anyway.
+ * the value it was built with. The settings screen is reached between songs, so
+ * the constraint costs nothing there.
  *
  * Reads the stored value on mount rather than taking a prop, so this and any other
  * copy cannot disagree after either one changes it — the pattern every device
@@ -29,7 +30,6 @@ export function ScrollSpeedToggle({ className }: { className: string }): JSX.Ele
   return (
     <button
       type="button"
-      role="menuitem"
       className={className}
       onClick={() => {
         // Cycle from the *stored* value, not from `speed`: batched taps would

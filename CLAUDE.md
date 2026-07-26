@@ -991,6 +991,17 @@ New screens and elements should reuse it rather than invent parallel systems:
   `playUiSound(name)` never throws and no-ops when muted; the mute flag is
   cached exactly like `haptics.ts` caches its mode (no localStorage in a tap
   path). Positive cues rise in pitch, negative ones fall — a test enforces it.
+- **Device settings live on `/settings`, and `.setting-row` is the one row
+  style.** The hamburger is navigation only — it had grown to fourteen entries,
+  burying "Add songs" among toggles nobody changes twice, and `SettingsScreen`
+  groups them under labels instead (Audio / Gameplay / Visuals / Library). The
+  toggle components take the row class as a **prop** precisely so the settings
+  screen and the pause overlay share one look; do not invent a second row style
+  for a third host. **Every toggle reads its stored value on mount rather than
+  from props** — that is what lets three copies of one control coexist with no
+  shared store, and why navigating to settings always opens on current values.
+  A toggle that renders `null` when unsupported (`HapticToggle`) must share a
+  section, or an unsupported device gets a bare heading.
 - **New HUD feedback stays ref/CSS-driven from the render loop, never React
   state** (the 60fps trap below). Milestones, the combo-tier scale, the
   combo-break vignette and the judgement pop are all class toggles /`--var`

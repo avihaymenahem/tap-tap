@@ -9,6 +9,9 @@ describe('parseRoute', () => {
     // An unknown admin sub-path is the library, not a dead end.
     expect(parseRoute('/admin/nonsense')).toEqual({ name: 'admin' });
     expect(parseRoute('/calibrate')).toEqual({ name: 'calibrate' });
+    expect(parseRoute('/achievements')).toEqual({ name: 'achievements' });
+    expect(parseRoute('/settings')).toEqual({ name: 'settings' });
+    expect(parseRoute('/tutorial')).toEqual({ name: 'tutorial' });
   });
 
   it('parses play, versus and results with a difficulty', () => {
@@ -62,6 +65,7 @@ describe('routeToPath', () => {
     expect(routeToPath({ name: 'menu' })).toBe('/');
     expect(routeToPath({ name: 'admin' })).toBe('/admin');
     expect(routeToPath({ name: 'calibrate' })).toBe('/calibrate');
+    expect(routeToPath({ name: 'settings' })).toBe('/settings');
     expect(routeToPath({ name: 'play', songId: 'abc', difficulty: 'hard' })).toBe(
       '/play/abc/hard',
     );
@@ -80,6 +84,9 @@ describe('round trip', () => {
     { name: 'admin' },
     { name: 'themes' },
     { name: 'calibrate' },
+    { name: 'achievements' },
+    { name: 'settings' },
+    { name: 'tutorial' },
     { name: 'play', songId: 'dQw4w9WgXcQ', difficulty: 'easy' },
     { name: 'play', songId: '_Yhyp-_hX2s', difficulty: 'medium' },
     { name: 'versus', songId: 'dQw4w9WgXcQ', difficulty: 'hard' },

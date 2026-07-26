@@ -1298,21 +1298,21 @@ export function PlayScreen({
                 setting rather than the run, and must not sit next to Quit where a
                 mistap costs a whole song. */}
             <div className="pause-settings rise" style={{ '--i': 2 } as CSSProperties}>
-              <HapticToggle className="pause-setting" />
-              <SoundToggle className="pause-setting" />
-              <MixerToggle kind="music" className="pause-setting" />
-              <MixerToggle kind="sfx" className="pause-setting" />
+              <HapticToggle className="setting-row" />
+              <SoundToggle className="setting-row" />
+              <MixerToggle kind="music" className="setting-row" />
+              <MixerToggle kind="sfx" className="setting-row" />
               {/* Reachable mid-run on purpose: flashing is something a player
                   discovers is a problem during a song, and if turning it off
                   costs them the run they stop playing instead. */}
-              <FlashToggle className="pause-setting" />
+              <FlashToggle className="setting-row" />
               <button
                 type="button"
-                className="pause-setting"
+                className="setting-row"
                 onClick={() => setPauseView('calibrate')}
               >
                 <span>Calibrate timing</span>
-                <span className="pause-setting__chev" aria-hidden>›</span>
+                <span className="setting-row__chev" aria-hidden>›</span>
               </button>
             </div>
 

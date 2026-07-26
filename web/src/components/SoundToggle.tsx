@@ -4,7 +4,7 @@ import { playUiSound, setUiSoundEnabled, uiSoundEnabled } from '../uisfx.js';
 /**
  * On/off switch for the UI sound layer.
  *
- * Shared by the main menu and the pause overlay, mirroring `HapticToggle` for
+ * Shared by the settings screen and the pause overlay, mirroring `HapticToggle` for
  * the same reason: sound is a setting players change because of where they are
  * (a quiet room, a bus), and it has to be reachable from inside a run.
  *
@@ -17,7 +17,6 @@ export function SoundToggle({ className }: { className: string }): JSX.Element {
   return (
     <button
       type="button"
-      role="menuitem"
       className={className}
       // Does not dismiss its container, matching HapticToggle: the point is to
       // see (and hear) the state change.

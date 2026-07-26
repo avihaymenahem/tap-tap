@@ -13,6 +13,7 @@ import { CalibrationScreen } from './screens/CalibrationScreen.js';
 import { EditorScreen } from './screens/EditorScreen.js';
 import { MenuScreen } from './screens/MenuScreen.js';
 import { PlayScreen } from './screens/PlayScreen.js';
+import { SettingsScreen } from './screens/SettingsScreen.js';
 import { VersusPlayScreen } from './screens/VersusPlayScreen.js';
 import { ResultsScreen } from './screens/ResultsScreen.js';
 import { TutorialScreen } from './screens/TutorialScreen.js';
@@ -37,6 +38,7 @@ export function App(): JSX.Element {
       case 'edit':
       case 'calibrate':
       case 'achievements':
+      case 'settings':
       case 'tutorial':
       case 'admin':
         navigate({ name: 'menu' }, { replace: true });
@@ -156,6 +158,17 @@ export function App(): JSX.Element {
       case 'achievements':
         return <AchievementsScreen onBack={() => navigate({ name: 'menu' })} />;
 
+      case 'settings':
+        return (
+          <SettingsScreen
+            onBack={() => navigate({ name: 'menu' })}
+            // Pushed, so browser back returns here. Android hardware back still
+            // lands on the menu — `useAndroidBackButton` sends every leaf screen
+            // there rather than tracking where it was entered from.
+            onCalibrate={() => navigate({ name: 'calibrate' })}
+          />
+        );
+
       case 'tutorial':
         return (
           <TutorialScreen
@@ -181,7 +194,7 @@ export function App(): JSX.Element {
             onPlay={(songId, difficulty) => navigate({ name: 'play', songId, difficulty })}
             onVersus={(songId, difficulty) => navigate({ name: 'versus', songId, difficulty })}
             onAdmin={() => navigate({ name: 'admin' })}
-            onCalibrate={() => navigate({ name: 'calibrate' })}
+            onSettings={() => navigate({ name: 'settings' })}
             onAchievements={() => navigate({ name: 'achievements' })}
             onHowToPlay={() => navigate({ name: 'tutorial' })}
             sharedUrl={sharedUrl}

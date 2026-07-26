@@ -42,7 +42,6 @@ export function MixerToggle({
   return (
     <button
       type="button"
-      role="menuitem"
       className={className}
       onClick={() => {
         // Cycle from the *stored* value, not from `level`: batched taps would all

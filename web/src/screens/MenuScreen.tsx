@@ -8,16 +8,8 @@ import { SongHero } from '../components/SongHero.js';
 import { playUiSound } from '../uisfx.js';
 import { prefetchAudio } from '../api/prefetch.js';
 import { isReadOnly } from '../api/serverConfig.js';
-import { GraphicsToggle } from '../components/GraphicsToggle.js';
-import { FlashToggle } from '../components/FlashToggle.js';
-import { HapticToggle } from '../components/HapticToggle.js';
-import { MixerToggle } from '../components/MixerToggle.js';
-import { NoteTickToggle } from '../components/NoteTickToggle.js';
-import { ScrollSpeedToggle } from '../components/ScrollSpeedToggle.js';
-import { SoundToggle } from '../components/SoundToggle.js';
 import { useCachedAudio, useOffline } from '../hooks/useOffline.js';
 import { previewStartSec, useSongPreview } from '../hooks/useSongPreview.js';
-import { clearOfflineTracks, offlineUsageBytes } from '../pwa.js';
 import {
   MENU_SORTS,
   SONG_SORT_LABELS,
@@ -35,7 +27,6 @@ import {
   getPreviewEnabled,
   getStoredSort,
   setLastSong,
-  setPreviewEnabled,
   setStoredSort,
   toggleFavorite,
 } from '../storage.js';
@@ -51,7 +42,7 @@ interface MenuScreenProps {
    */
   onVersus: (songId: string, difficulty: DifficultyName) => void;
   onAdmin: () => void;
-  onCalibrate: () => void;
+  onSettings: () => void;
   onAchievements: () => void;
   onHowToPlay: () => void;
   /** A YouTube link shared into the app; opens the Add-a-song dialog prefilled. */
@@ -87,7 +78,7 @@ export function MenuScreen({
   onPlay,
   onVersus,
   onAdmin,
-  onCalibrate,
+  onSettings,
   onAchievements,
   onHowToPlay,
   sharedUrl,
@@ -116,7 +107,13 @@ export function MenuScreen({
 
   /** Menu song previews: a short clip when you select a track. */
   const preview = useSongPreview();
-  const [previewsOn, setPreviewsOn] = useState(getPreviewEnabled);
+  /**
+   * Read once on mount, and read-only here — the switch itself lives on the
+   * settings screen. Navigating back remounts this screen (App keys it by
+   * route), so a change made over there is in force by the time the list can
+   * play anything.
+   */
+  const [previewsOn] = useState(getPreviewEnabled);
 
   const [favorites, setFavorites] = useState<ReadonlySet<string>>(getFavorites);
   // Restore the last chosen sort, so it survives leaving and coming back.
@@ -143,8 +140,6 @@ export function MenuScreen({
   const [customThemes, setCustomThemes] = useState<readonly Theme[]>([]);
 
   const offline = useOffline();
-  /** Storage the origin is using. Read when the menu opens, so it stays current. */
-  const [offlineBytes, setOfflineBytes] = useState<number | null>(null);
   // Re-read the cache when connectivity flips: coming back online and playing
   // something should not leave the badges describing an older state.
   const cachedAudio = useCachedAudio(offline);
@@ -153,10 +148,6 @@ export function MenuScreen({
   // or Escape, has to close it.
   useEffect(() => {
     if (!menuOpen) return;
-
-    // Genuinely external state, and cheap enough to re-read each time the menu
-    // opens rather than trying to keep a copy in sync with the cache.
-    void offlineUsageBytes().then(setOfflineBytes);
 
     const onPointerDown = (event: PointerEvent): void => {
       if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
@@ -427,16 +418,23 @@ export function MenuScreen({
             ☰
           </button>
 
+          {/* Navigation only. Every device setting lives on /settings — this
+              dropdown had grown to fourteen entries, at which point the actions
+              worth reaching quickly were buried among toggles nobody changes
+              twice. */}
           {menuOpen && (
             <div className="dropdown" role="menu">
-              <HapticToggle className="dropdown__item" />
-              <SoundToggle className="dropdown__item" />
-              <MixerToggle kind="music" className="dropdown__item" />
-              <MixerToggle kind="sfx" className="dropdown__item" />
-              <NoteTickToggle className="dropdown__item" />
-              <ScrollSpeedToggle className="dropdown__item" />
-              <GraphicsToggle className="dropdown__item" />
-              <FlashToggle className="dropdown__item" />
+              <button
+                type="button"
+                role="menuitem"
+                className="dropdown__item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onSettings();
+                }}
+              >
+                <span>⚙ Settings</span>
+              </button>
 
               <button
                 type="button"
@@ -460,39 +458,6 @@ export function MenuScreen({
                 }}
               >
                 <span>How to play</span>
-              </button>
-
-              <button
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={previewsOn}
-                className="dropdown__item"
-                // Stays open (like the haptics/sound toggles): the point is to
-                // see the state flip.
-                onClick={() => {
-                  const next = !previewsOn;
-                  setPreviewsOn(next);
-                  setPreviewEnabled(next);
-                  if (!next) preview.stop();
-                  else playUiSound('tick');
-                }}
-              >
-                <span>Song previews</span>
-                <span className={`dropdown__state ${previewsOn ? 'dropdown__state--on' : ''}`}>
-                  {previewsOn ? 'On' : 'Off'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                role="menuitem"
-                className="dropdown__item"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onCalibrate();
-                }}
-              >
-                <span>Calibrate</span>
               </button>
 
               {!isReadOnly() && (
@@ -524,28 +489,6 @@ export function MenuScreen({
                   }}
                 >
                   <span>Manage library</span>
-                </button>
-              )}
-
-              {/* Offline tracks accumulate silently — a full library is well
-                  over 100MB — so there has to be a way to see and drop them
-                  that is not "clear site data" in browser settings. Hidden
-                  entirely when nothing is stored, rather than offering to
-                  delete nothing. */}
-              {offlineBytes !== null && offlineBytes > 0 && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="dropdown__item"
-                  onClick={() => {
-                    void clearOfflineTracks().then((cleared) => {
-                      if (cleared) setOfflineBytes(0);
-                      setMenuOpen(false);
-                    });
-                  }}
-                >
-                  <span>Clear offline songs</span>
-                  <span className="dropdown__state">{formatBytes(offlineBytes)}</span>
                 </button>
               )}
             </div>
@@ -835,12 +778,6 @@ export function MenuScreen({
       )}
     </div>
   );
-}
-
-/** MB is the only unit that matters here — a single track is already ~5MB. */
-function formatBytes(bytes: number): string {
-  const mb = bytes / (1024 * 1024);
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
 function formatDuration(seconds: number): string {

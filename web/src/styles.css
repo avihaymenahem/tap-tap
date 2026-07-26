@@ -2340,8 +2340,13 @@ kbd {
 /*
  * A settings row: label left, state (On/Off pill, or a chevron) right. Reads as
  * a list item, distinct from the pill-shaped run buttons above it.
+ *
+ * Shared by the pause overlay and the settings screen deliberately — a device
+ * toggle should look identical wherever it is reached, and the toggle components
+ * take the class as a prop precisely so there is one row style rather than one
+ * per host.
  */
-.pause-setting {
+.setting-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2358,12 +2363,12 @@ kbd {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.pause-setting:hover {
+.setting-row:hover {
   border-color: rgba(var(--accent-rgb), 0.4);
   background: rgba(255, 255, 255, 0.07);
 }
 
-.pause-setting__chev {
+.setting-row__chev {
   color: var(--muted);
   font-size: 1.15rem;
   line-height: 1;
@@ -2858,6 +2863,87 @@ kbd {
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.25;
+}
+
+/*
+ * Settings screen. Scrolls itself — `body` is `overflow: hidden`, so nothing
+ * above a screen can rescue content taller than the viewport, and this card is
+ * always taller than a phone.
+ */
+.settings {
+  position: relative; /* above the shared backdrop, which is a fixed layer */
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  overflow-y: auto;
+  /*
+   * The bottom figure is load-bearing, and it has to be on the scroller: a
+   * bottom margin on the card is simply absorbed by the auto-centring, leaving
+   * the last row's final pixels off the edge at 667px.
+   */
+  padding: 1.5rem 1rem 3rem;
+}
+
+.settings__card {
+  position: relative;
+  margin: auto; /* centres an over-tall card without stranding its top (trap) */
+  width: min(34rem, 100%);
+  padding: 2rem 1.6rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel-solid);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(14px);
+}
+
+.settings__back {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.settings__card h1 {
+  margin: 0.4rem 0 1.4rem;
+  font-size: clamp(1.4rem, 5vw, 2rem);
+  text-align: center;
+}
+
+.settings__group + .settings__group {
+  margin-top: 1.5rem;
+}
+
+/*
+ * The labels are the whole reason this screen exists — grouping is what the
+ * fourteen-entry dropdown could not do. Set in the display face at signage
+ * scale, like every other heading in the shell.
+ */
+.settings__heading {
+  margin: 0 0 0.6rem;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.settings__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.settings__hint {
+  margin: 0.5rem 0 0;
+  line-height: 1.35;
 }
 
 /* Achievements unlocked by this run, celebrated on the results card. */

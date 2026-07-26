@@ -20,6 +20,7 @@ export type Route =
   | { name: 'edit'; songId: string; difficulty: DifficultyName }
   | { name: 'calibrate' }
   | { name: 'achievements' }
+  | { name: 'settings' }
   | { name: 'tutorial' }
   | { name: 'admin' }
   | { name: 'themes' };
@@ -57,6 +58,8 @@ export function parseRoute(pathname: string, options?: ParseOptions): Route {
       return { name: 'calibrate' };
     case 'achievements':
       return { name: 'achievements' };
+    case 'settings':
+      return { name: 'settings' };
     case 'tutorial':
       return { name: 'tutorial' };
     case 'play':
@@ -84,6 +87,8 @@ export function routeToPath(route: Route): string {
       return '/calibrate';
     case 'achievements':
       return '/achievements';
+    case 'settings':
+      return '/settings';
     case 'tutorial':
       return '/tutorial';
     case 'play':

@@ -11,7 +11,7 @@ import { playUiSound } from '../uisfx.js';
  * Calling it "hit sound" would promise feedback it cannot give, and a player would
  * reasonably read a tick on a note they missed as a scoring bug.
  *
- * Sits in the menu next to the other audio switches. It takes effect on the next
+ * Sits in the settings screen's Audio group. It takes effect on the next
  * song rather than mid-run — the scheduler is wired up when the play screen builds
  * its clock — which is also why there is no pause-overlay copy.
  *
@@ -24,7 +24,6 @@ export function NoteTickToggle({ className }: { className: string }): JSX.Elemen
   return (
     <button
       type="button"
-      role="menuitem"
       className={className}
       onClick={() => {
         // Flip the *stored* value, not `enabled` — batched taps would otherwise

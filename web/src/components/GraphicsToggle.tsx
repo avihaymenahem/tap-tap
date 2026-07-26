@@ -17,12 +17,13 @@ import { playUiSound } from '../uisfx.js';
  *
  * Takes effect on the **next song**, not the current frame: the quality tier is
  * baked into the `Highway` at construction (bloom on/off changes the whole
- * render pipeline), so a live screen keeps its tier until it is rebuilt. The
- * menu is exactly where that is true anyway.
+ * render pipeline), so a live screen keeps its tier until it is rebuilt. That is
+ * why there is no pause-overlay copy — the settings screen is reached between
+ * songs, where the constraint costs nothing.
  *
- * Reads the stored setting on mount rather than as a prop, so the menu and pause
- * copies cannot disagree after one changes it — the same pattern as the haptics
- * and sound toggles.
+ * Reads the stored setting on mount rather than as a prop, which is the pattern
+ * every device toggle here follows — it is what lets the same control exist on
+ * more than one screen with no shared store.
  */
 export function GraphicsToggle({ className }: { className: string }): JSX.Element {
   const [setting, setSetting] = useState(getQualitySetting);
@@ -30,7 +31,6 @@ export function GraphicsToggle({ className }: { className: string }): JSX.Elemen
   return (
     <button
       type="button"
-      role="menuitem"
       className={className}
       // Stays open like the other device toggles: the point is to see the state
       // cycle and land on the one you want.
