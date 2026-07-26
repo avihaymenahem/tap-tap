@@ -284,6 +284,27 @@ scripts/
   only slower speeds and holds-off count. **Any new modifier has to be
   classified into one of those two groups** or it silently defaults to "not
   assisted", which is the direction that corrupts records.
+- **`gradeCeiling` and `recordScore` must share one definition of "assisted".**
+  The slot rule above governs *which run holds the record*; `gradeCeiling`
+  (modifiers.ts) governs *what badge it displays*, capping an assisted run at `A`.
+  Both read `isAssisted`, and a test asserts they agree for every single-modifier
+  set — because if they drift, a run can hold a clean record while showing a grade
+  it could not have earned, or the reverse, and the player has no way to tell.
+  - Applied where the `RunResult` is built, not at render time, so the **stored**
+    best carries the capped grade. That is also what stops the S-rank achievement
+    (`achievements.ts` counts `run.grade === 'S'`) being farmed at 0.75x.
+  - A display and record cap **only** — the raw score is untouched, so nothing
+    about how the run played is rewritten. `GRADES` is ordered worst-to-best so a
+    ceiling is an index comparison rather than a table of cases, and `capGrade`
+    can only ever lower a grade (asserted).
+- **The 3D album ring at the vanishing point is gone, and should stay gone.** A
+  spinning cover disc, an accent rim and 96 spectrum spikes used to stand past the
+  track's far end. `updateCoverWave` cost 96 `setMatrixAt` plus 96 `setColorAt`
+  calls and two buffer uploads **every frame** for decoration ~15% of viewport
+  height away at the horizon, and the artwork is already shown by the `SongHero`
+  disc before a run and the results card after it. The spectrum plumbing it shared
+  is still live and still wanted: `spectrumTex` feeds the rails' waveform shader,
+  which is the reactive element that survived.
 - **Loudness is stored as a gain, never re-encoded.** `Beatmap.gainDb` carries a
   ReplayGain-style offset measured per ITU-R BS.1770 at ingest
   (`core/analysis/loudness.ts`), applied at playback by `AudioClock.setTrackGain`.

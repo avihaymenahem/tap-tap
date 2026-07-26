@@ -228,13 +228,39 @@ export function foldUnreached(
 }
 
 /** Letter grade for the results screen. */
-export function gradeFor(accuracy: number): string {
+/**
+ * Ordered **worst to best**, which is what makes a ceiling an index comparison
+ * rather than a table of special cases.
+ */
+export const GRADES = ['F', 'D', 'C', 'B', 'A', 'S'] as const;
+
+export type Grade = (typeof GRADES)[number];
+
+export function gradeFor(accuracy: number): Grade {
   if (accuracy >= 0.95) return 'S';
   if (accuracy >= 0.9) return 'A';
   if (accuracy >= 0.8) return 'B';
   if (accuracy >= 0.7) return 'C';
   if (accuracy >= 0.6) return 'D';
   return 'F';
+}
+
+/**
+ * Clamp an earned grade to the best one a run's conditions allow.
+ *
+ * Accuracy alone cannot describe a grade, because accuracy is measured against
+ * the notes the player was actually asked to hit — and an assist changes the ask.
+ * A 0.75x run with holds off can reach 96% and post an S that means something
+ * different from every other S on the board. `recordScore` already refuses to let
+ * such a run take a clean record's slot; this is the same rule applied to the
+ * badge, which is the part the player actually reads.
+ *
+ * Deliberately a *display and record* cap, not a scoring penalty: the raw score
+ * is untouched, so nothing about how the run played is rewritten. It only stops
+ * the top badge from being claimed on easier terms.
+ */
+export function capGrade(earned: Grade, ceiling: Grade): Grade {
+  return GRADES.indexOf(earned) > GRADES.indexOf(ceiling) ? ceiling : earned;
 }
 
 /**

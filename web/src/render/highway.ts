@@ -258,12 +258,6 @@ export interface HighwayOptions {
   /** Beat times, used to pulse the scene in time with the music. */
   beatGrid?: readonly number[];
   /**
-   * The song's cover image. Ringed at the vanishing point in `stage` style —
-   * the reference's signature. Ignored by the classic look. Optional because a
-   * song may have no thumbnail, in which case the ring is simply omitted.
-   */
-  coverUrl?: string;
-  /**
    * Rendering quality. Omit for the full `high` pipeline. Screens resolve it
    * with `resolveQuality()` (quality.ts) and pass the profile; the low profile
    * drops bloom, MSAA and pixel ratio and thins the effects for weak GPUs.
@@ -352,28 +346,6 @@ export class Highway {
   /** Live audio spectrum as a 1D texture, so the rails can read it as a waveform. */
   private spectrumTex: THREE.DataTexture | null = null;
   private spectrumData: Uint8Array | null = null;
-  /** The cover-art texture on the album disc — spun (via its rotation) while playing. */
-  private albumTex: THREE.Texture | null = null;
-  /**
-   * Radial spikes around the cover art — the audio-wave firework (stage only).
-   *
-   * One `InstancedMesh`, not 96 meshes. It was 96 separate `Mesh`es in a group,
-   * each with its own material, which is 96 draw calls every frame for pure
-   * decoration — on a phone that is a meaningful slice of a 16.6ms budget, and
-   * the budget is really ~8ms once the device is hot. Per-spike brightness moves
-   * to `instanceColor`: the material is additive, so scaling the colour down is
-   * indistinguishable from lowering opacity, and it is the same trick the note
-   * halos already use.
-   */
-  private coverWave: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null =
-    null;
-  /** Static per-spike placement, rebuilt into a matrix each frame with the length. */
-  private readonly coverBarAngle: number[] = [];
-  /** Per-bar random phase so the ring shimmers instead of pulsing as one. */
-  private readonly coverBarSeed: number[] = [];
-  /** Where the spikes are seated, just outside the disc's rim. */
-  private coverBarRadius = 0;
-
   private readonly particles: THREE.Points;
   private readonly particlePositions: Float32Array;
   private readonly particleColors: Float32Array;
@@ -421,7 +393,6 @@ export class Highway {
     approachSec,
     theme,
     beatGrid = [],
-    coverUrl,
     quality,
     adaptive = false,
   }: HighwayOptions) {
@@ -486,10 +457,17 @@ export class Highway {
     this.backdrop = this.buildBackdrop();
     this.scene.add(this.backdrop);
 
-    // The cover art ringed at the vanishing point used to stand here; the
-    // The cover art ringed at the vanishing point — the reference's signature.
-    // Stage style only, and only when the song actually has a thumbnail.
-    if (this.stage && coverUrl) this.buildAlbumRing(coverUrl);
+    /*
+     * The cover art ringed at the vanishing point used to stand here — a spinning
+     * disc, an accent rim, and 96 spectrum spikes around it. All three are gone
+     * (deliverable 07). The `SongHero` disc shows the artwork before the run and
+     * the results card after it, so the horizon copy was a third place to draw
+     * something the player had just looked at, and it cost 96 `setMatrixAt` plus
+     * 96 `setColorAt` calls and two buffer uploads on every single frame.
+     *
+     * The spectrum plumbing it shared is still live: `spectrumTex` feeds the
+     * rails' waveform shader, which is the reactive element that survived.
+     */
 
     this.starPositions = new Float32Array(STAR_COUNT * 3);
     this.starSpeeds = new Float32Array(STAR_COUNT);
@@ -827,231 +805,6 @@ export class Highway {
     mesh.position.set(0, 8, this.stage ? -HIGHWAY_LENGTH - 14 : -40);
     mesh.renderOrder = -2;
     return mesh;
-  }
-
-  /**
-   * The cover art as a square texture with no black bars. YouTube thumbnails are
-   * 4:3 files with the 16:9 frame letterboxed inside, so drawing them straight
-   * onto the disc showed black bands top and bottom. This draws the image
-   * cover-filled and zoomed just past those bars into a square canvas, so the
-   * circle shows clean artwork. Loads async: the texture is blank until the
-   * image arrives, then repaints.
-   */
-  private static makeCoverTexture(url: string): THREE.Texture {
-    const texture = new THREE.Texture();
-    texture.colorSpace = THREE.SRGBColorSpace;
-
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = (): void => {
-      const size = 512;
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // Cover the square, then zoom 1.34 to crop the ~12.5% black bars a 16:9
-        // frame leaves in a 4:3 thumbnail.
-        const scale = Math.max(size / img.width, size / img.height) * 1.34;
-        const w = img.width * scale;
-        const h = img.height * scale;
-        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-      }
-      texture.image = canvas;
-      texture.needsUpdate = true;
-    };
-    img.src = url;
-    return texture;
-  }
-
-  private buildAlbumRing(coverUrl: string): void {
-    const RADIUS = 2.5;
-    // Standing just past the track's far end, on the horizon glow. Lowered and
-    // shrunk so the whole disc (and its ring of spikes) clears the top HUD
-    // instead of being cropped by the frame edge.
-    const center = new THREE.Vector3(0, 2.9, -HIGHWAY_LENGTH - 4);
-    const tilt = -0.15;
-
-    const texture = Highway.makeCoverTexture(coverUrl);
-    // Spin the artwork around its centre while the track plays — the record
-    // turning. Rotating the texture (not the mesh) keeps the disc, rim and
-    // firework fixed; the angle is driven from songTime in render() so it stops
-    // dead when the song is paused.
-    texture.center.set(0.5, 0.5);
-    this.albumTex = texture;
-
-    const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(RADIUS, 64),
-      new THREE.MeshBasicMaterial({ map: texture, toneMapped: false, fog: false }),
-    );
-    disc.position.copy(center);
-    disc.rotation.x = tilt;
-    // In front of the backdrop, behind everything on the track.
-    disc.renderOrder = -1;
-    this.scene.add(disc);
-
-    // A thin bright rim. Was 12% of the radius thick and additive — a fat glowing
-    // band. A slim ring at moderate opacity reads as a crisp edge, not a halo.
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(RADIUS * 1.0, RADIUS * 1.035, 96),
-      new THREE.MeshBasicMaterial({
-        color: this.accent,
-        transparent: true,
-        opacity: 0.55,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        toneMapped: false,
-        fog: false,
-      }),
-    );
-    ring.position.copy(center);
-    ring.rotation.x = tilt;
-    ring.renderOrder = -1;
-    this.scene.add(ring);
-
-    this.buildCoverWave(center, tilt, RADIUS);
-  }
-
-  /**
-   * A glowing-rod texture for the cover firework: a rounded neon bar with a
-   * white-hot core fading to dark at the sides (cylindrical shading, so it reads
-   * as a round 3D rod rather than a flat streak) and a tapered, softer tip. Drawn
-   * once and shared by every spike; tinted per theme by the material colour.
-   */
-  private static makeBarTexture(): THREE.CanvasTexture {
-    const w = 48;
-    const h = 192;
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, w, h);
-      // Cross-section shading: dark edges → white-hot centre gives the round-rod
-      // read once it blooms.
-      const across = ctx.createLinearGradient(0, 0, w, 0);
-      across.addColorStop(0.0, '#000');
-      across.addColorStop(0.16, '#5a5a5a');
-      across.addColorStop(0.5, '#ffffff');
-      across.addColorStop(0.84, '#5a5a5a');
-      across.addColorStop(1.0, '#000');
-      ctx.fillStyle = across;
-      Highway.roundRectPath(ctx, w * 0.06, 2, w * 0.88, h - 4, w * 0.44);
-      ctx.fill();
-      // Brightest at the base (the ring), tapering toward the tip.
-      ctx.globalCompositeOperation = 'multiply';
-      const along = ctx.createLinearGradient(0, 0, 0, h);
-      along.addColorStop(0.0, '#7a7a7a'); // tip (canvas top = plane's outer end)
-      along.addColorStop(0.35, '#ffffff');
-      along.addColorStop(1.0, '#ffffff'); // base
-      ctx.fillStyle = along;
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.anisotropy = 4;
-    return texture;
-  }
-
-  /**
-   * A ring of radial spikes around the cover art, driven by the live audio
-   * spectrum — the "firework" around the CD. Each spike lies in the disc's tilted
-   * plane and grows outward with its frequency band, flaring on the beat. Built
-   * as a pool of quads with a glowing-rod texture and their pivot at the inner
-   * end, so a per-frame scale on the length axis is all it takes to animate them.
-   */
-  private buildCoverWave(center: THREE.Vector3, tilt: number, radius: number): void {
-    const COUNT = 96;
-
-    // A quad whose pivot is its inner (bottom) end, so scaling Y grows it
-    // straight outward from the ring rather than from its middle. Wide enough
-    // that the textured rod reads as a solid beam of light, not a hairline.
-    // Shared by every instance, which is the whole point.
-    const geometry = new THREE.PlaneGeometry(0.14, 1);
-    geometry.translate(0, 0.5, 0);
-
-    const wave = new THREE.InstancedMesh(
-      geometry,
-      new THREE.MeshBasicMaterial({
-        map: Highway.makeBarTexture(),
-        transparent: true,
-        opacity: 0.95,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        toneMapped: false,
-        fog: false,
-        // No `vertexColors: true` — per-instance colour comes from
-        // `instanceColor`, and asking for a per-vertex attribute that does not
-        // exist renders everything black.
-      }),
-      COUNT,
-    );
-    wave.position.copy(center);
-    wave.rotation.x = tilt;
-    wave.renderOrder = -1;
-    // Rebuilt every frame from the spectrum.
-    wave.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-
-    for (let i = 0; i < COUNT; i++) {
-      this.coverBarAngle.push((i / COUNT) * Math.PI * 2);
-      this.coverBarSeed.push(Math.random() * Math.PI * 2);
-    }
-    this.coverBarRadius = radius * 1.04;
-
-    this.coverWave = wave;
-    this.scene.add(wave);
-  }
-
-  private updateCoverWave(songTime: number, pulse: number, spectrum?: Uint8Array): void {
-    const wave = this.coverWave;
-    if (!wave) return;
-
-    const count = wave.count;
-    // The buffer is 512 but the analyser only fills its 256 real bins; the rest
-    // stay zero, so cap here or the treble half of the ring reads dead.
-    const bins = spectrum ? Math.min(spectrum.length, 256) : 0;
-    for (let i = 0; i < count; i++) {
-      // Map the ring symmetrically onto the spectrum: both sides sweep bass→treble
-      // from the bottom of the circle up, so the firework is mirrored left/right.
-      const half = i < count / 2 ? i : count - 1 - i;
-      const frac = half / (count / 2);
-      let level = 0;
-      if (bins > 0) {
-        // Skip the lowest couple of bins (DC/rumble); ride the low-mid range where
-        // the energy is. Byte spectrum is 0..255.
-        const bin = 2 + Math.floor(frac * (bins * 0.55));
-        level = (spectrum![Math.min(bin, bins - 1)] ?? 0) / 255;
-      }
-
-      // A gentle idle shimmer so the ring lives even in quiet passages, plus a
-      // beat flare that shoots the spikes out on the downbeat.
-      const shimmer = 0.5 + 0.5 * Math.sin(songTime * 5 + this.coverBarSeed[i]!);
-      const length = 0.08 + level * 1.1 + pulse * 0.25 + shimmer * 0.06;
-
-      // Point local +Y radially outward at this angle, seated just outside the
-      // rim, and scale only the length axis so the spike grows straight out.
-      const angle = this.coverBarAngle[i]!;
-      this.dummy.position.set(
-        Math.cos(angle) * this.coverBarRadius,
-        Math.sin(angle) * this.coverBarRadius,
-        0,
-      );
-      this.dummy.rotation.set(0, 0, angle - Math.PI / 2);
-      this.dummy.scale.set(1, length, 1);
-      this.dummy.updateMatrix();
-      wave.setMatrixAt(i, this.dummy.matrix);
-
-      // What used to be per-material opacity. Additive blending makes a dimmer
-      // colour and a lower alpha the same picture, and only one of them can be
-      // per-instance.
-      this.color.setHex(this.accent);
-      this.color.multiplyScalar(0.35 + level * 0.6 + pulse * 0.2);
-      wave.setColorAt(i, this.color);
-    }
-
-    wave.instanceMatrix.needsUpdate = true;
-    if (wave.instanceColor) wave.instanceColor.needsUpdate = true;
   }
 
   /**
@@ -2682,10 +2435,6 @@ export class Highway {
     this.updateParticles(dt);
     this.updateShockwaves(dt);
     this.updateCamera(dt, songTime, pulse);
-    this.updateCoverWave(songTime, pulse, spectrum);
-    // Spin the album artwork with the music (frozen when songTime is paused).
-    if (this.albumTex) this.albumTex.rotation = songTime * 0.6;
-
     const floorUniforms = this.floor.material.uniforms;
     floorUniforms['uTime']!.value = songTime;
     floorUniforms['uScroll']!.value = -songTime * 1.6;

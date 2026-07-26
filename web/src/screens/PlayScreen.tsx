@@ -5,7 +5,7 @@ import { getBeatmap, listCustomThemes } from '../data/index.js';
 import { AudioClock, bandLevel } from '../game/clock.js';
 import { comboMilestone, comboTier } from '../game/combo.js';
 import { GameEngine, type GameSnapshot } from '../game/engine.js';
-import { accuracyOf, foldUnreached, gradeFor, type Tier } from '../game/judge.js';
+import { accuracyOf, capGrade, foldUnreached, gradeFor, type Tier } from '../game/judge.js';
 import { playUiSound } from '../uisfx.js';
 import { approachSecFor, getScrollSpeed } from '../scrollSpeed.js';
 import { noteTicksEnabled } from '../noteTicks.js';
@@ -25,7 +25,7 @@ import { SoundToggle } from '../components/SoundToggle.js';
 import { CalibrationScreen } from './CalibrationScreen.js';
 import { accentVars } from '../accent.js';
 import { getStoredCalibration, getStoredModifiers, setCalibration } from '../storage.js';
-import { type Modifiers, mirrorNotes } from '../game/modifiers.js';
+import { gradeCeiling, type Modifiers, mirrorNotes } from '../game/modifiers.js';
 import { MIN_STORED_SEC, autoCalibrationStep, resolveCalibration } from '../game/calibration.js';
 
 /**
@@ -390,10 +390,6 @@ export function PlayScreen({
           approachSec,
           theme,
           beatGrid: map.beatGrid,
-          // The beatmap carries a platform-resolved thumbnail URL (an HTTP path
-          // on the server, a convertFileSrc file URL on device); hardcoding
-          // `/media/…` here would not resolve in the bundled Android app.
-          coverUrl: map.thumbnailUrl ?? undefined,
           // Gameplay: honor the resolved tier and let the renderer downgrade
           // live on a weak GPU (unless the player pinned a tier).
           quality: qualityProfile(resolveQuality()),
@@ -518,7 +514,11 @@ export function PlayScreen({
         sections: snap.sections,
         accuracy,
         maxCombo: snap.maxCombo,
-        grade: gradeFor(accuracy),
+        // Capped by the run's conditions, so an assisted run cannot display or
+        // store a grade it could not have earned at full difficulty. Applied here
+        // rather than at render time so the *stored* best carries the capped
+        // grade too — and so the S-rank achievement cannot be farmed on 0.75x.
+        grade: capGrade(gradeFor(accuracy), gradeCeiling(modsRef.current)),
         counts,
         timingCounts: snap.timingCounts,
         meanDelta: snap.meanDelta,

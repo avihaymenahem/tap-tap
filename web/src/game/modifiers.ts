@@ -1,4 +1,5 @@
 import type { Note } from '@tap-tap/shared';
+import { type Grade } from './judge.js';
 
 /**
  * Per-run play modifiers.
@@ -84,6 +85,28 @@ export function isDefaultModifiers(mods: Modifiers): boolean {
  */
 export function isAssisted(mods: Modifiers): boolean {
   return mods.speed < 1 || !mods.holds;
+}
+
+/**
+ * The best grade a modifier set may earn.
+ *
+ * The second half of the records story, and it reuses `isAssisted` rather than a
+ * rule of its own **on purpose**: there must be exactly one definition of "this
+ * run was made easier", or the slot rule and the badge rule will drift and a run
+ * will be able to hold a clean record while displaying a grade it could not have
+ * earned (or the reverse). Any new modifier is classified once, here, by that
+ * function — and the direction that silently corrupts is defaulting to "not
+ * assisted", so a genuinely easier modifier must be added to it explicitly.
+ *
+ * `A` rather than something harsher: the run still happened and was still played.
+ * Only the top badge is reserved for full conditions.
+ *
+ * Lives in this file, not `judge.ts`, because it is assist *policy* — `judge.ts`
+ * knows about accuracy and grades and deliberately nothing about modifiers, which
+ * is also what keeps the import direction one-way.
+ */
+export function gradeCeiling(mods: Modifiers): Grade {
+  return isAssisted(mods) ? 'A' : 'S';
 }
 
 /**
