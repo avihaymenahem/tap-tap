@@ -16,10 +16,17 @@
 
 import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
-import { generateAllCharts } from '@tap-tap/core';
+import {
+  ANALYSIS_VERSION,
+  computeWaveform,
+  generateAllCharts,
+  integratedLoudness,
+  replayGainDb,
+} from '@tap-tap/core';
 import type {
   AnalysisResult,
   Beatmap,
+  Chart,
   DifficultyName,
   Job,
   SongSummary,
@@ -35,11 +42,16 @@ import {
   themeErrors,
   validateTheme,
 } from '@tap-tap/shared';
+import { decodeAudioToMonoPcm } from '../ingest/decodeAudio.js';
+import { analyzeInWorker } from '../ingest/index.js';
+import { base64ToArrayBuffer } from './base64.js';
 
 const MEDIA = 'media';
 const AUDIO_FILE = 'audio.m4a';
 const THUMB_FILE = 'thumb.jpg';
 const DIR = Directory.Data;
+/** Must match the rate ingest analysed at, or the cached analysis and a fresh one disagree. */
+const ANALYSIS_SAMPLE_RATE = 44100;
 
 function songPath(songId: string, file: string): string {
   return `${MEDIA}/${songId}/${file}`;
@@ -199,21 +211,133 @@ export async function setSongTheme(songId: string, themeId: string): Promise<Son
   return toSummary(await withResolvedUrls(updated));
 }
 
-/** Rebuild charts from the cached analysis — no re-download, no re-decode. */
-export async function regenerateCharts(songId: string): Promise<SongSummary> {
-  const [analysis, existing, waveform] = await Promise.all([
+/**
+ * Decode this song's `audio.m4a` to analysis PCM, or null if that is impossible.
+ *
+ * Best-effort throughout, exactly like the server's `decodeOnce`: charts can
+ * always be rebuilt from `analysis.json`, so an unreadable or undecodable media
+ * file must degrade a regenerate, never block it.
+ */
+async function decodeSongPcm(songId: string): Promise<Float32Array | null> {
+  try {
+    const { data } = await Filesystem.readFile({ directory: DIR, path: songPath(songId, AUDIO_FILE) });
+    return await decodeAudioToMonoPcm(base64ToArrayBuffer(data as string), ANALYSIS_SAMPLE_RATE);
+  } catch {
+    return null;
+  }
+}
+
+export interface RegenerateOptions {
+  /**
+   * Repair the *inputs* to generation as well as rebuilding the charts, which
+   * costs one audio decode. Off by default.
+   *
+   * Without this, regenerate is what the `CHART_VERSION` self-heal needs: a read
+   * of `analysis.json` and ~0.4ms of chart prep, cheap enough to run while a
+   * player is opening a song. With it, a song whose cached analysis predates
+   * `ANALYSIS_VERSION` is re-analysed, a missing waveform is rebuilt rather than
+   * silently producing hold-free charts, and a missing `gainDb` is measured —
+   * the three repairs the server has always done and the device never did, which
+   * left a phone-ingested song stranded on whatever analyser downloaded it.
+   *
+   * Deliberately opt-in, and admin is the only caller: re-analysis is seconds
+   * per song on a phone, and paying that inside `getBeatmap` would turn opening
+   * a song into a frozen loading screen. Each repair is saved, so the cost is
+   * paid once per song.
+   */
+  deep?: boolean;
+  /** Human-readable stage, for the admin progress line. Only fires on the slow paths. */
+  onProgress?: (message: string) => void;
+}
+
+/**
+ * Rebuild a song's charts from its cached analysis — no re-download.
+ *
+ * Spreads the existing beatmap so `customName`, `themeId`, `createdAt` and
+ * anything else set by hand survive; only the generated fields are replaced.
+ */
+export async function regenerateCharts(
+  songId: string,
+  options: RegenerateOptions = {},
+): Promise<SongSummary> {
+  const { deep = false, onProgress = () => {} } = options;
+  const [cachedAnalysis, existing, cachedWaveform] = await Promise.all([
     readJson<AnalysisResult>(songPath(songId, 'analysis.json')),
     loadBeatmap(songId),
     readJson<Waveform>(songPath(songId, 'waveform.json')),
   ]);
-  if (!analysis) throw new Error(`No cached analysis for ${songId}`);
+  if (!cachedAnalysis) throw new Error(`No cached analysis for ${songId}`);
+
+  let analysis = cachedAnalysis;
+  let waveform = cachedWaveform;
+  let gainDb = existing.gainDb;
+  let charts: Record<DifficultyName, Chart> | null = null;
+
+  // Absence means "old" — an `analysis.json` from before the stamp existed is
+  // stale by definition, which is the same reading `AnalysisResult` documents.
+  const staleAnalysis = cachedAnalysis.analysisVersion !== ANALYSIS_VERSION;
+  if (deep && staleAnalysis) {
+    onProgress('Decoding audio…');
+    const pcm = await decodeSongPcm(songId);
+    if (pcm) {
+      // The worker, not the main thread: a full re-analysis is seconds of solid
+      // JS, and running it inline freezes the WebView — the button would look
+      // exactly as dead as the one this whole change exists to fix. It hands
+      // back the waveform and the loudness measured on the same PCM, so the
+      // other two repairs come free with it. (`pcm` is detached by the transfer;
+      // nothing may touch it after this call.)
+      onProgress('Re-analysing audio…');
+      try {
+        const bundle = await analyzeInWorker(pcm, ANALYSIS_SAMPLE_RATE, songId);
+        analysis = bundle.analysis;
+        waveform = bundle.waveform;
+        gainDb = bundle.gainDb;
+        charts = bundle.charts;
+        await writeSongJson(songId, 'analysis.json', analysis);
+        await writeSongJson(songId, 'waveform.json', waveform);
+      } catch {
+        // Guarded for the same reason the decode is: the stale analysis is still
+        // a perfectly good onset pool, so a worker that cannot start must cost
+        // the song its *upgrade*, not its charts.
+      }
+    }
+  }
+
+  // The cheap per-sample repairs, checked *after* the re-analysis rather than as
+  // its `else`: a stale song is also the likeliest one to be missing a waveform,
+  // and when the worker cannot run it would otherwise fall between the two
+  // branches and regenerate hold-free with nothing saying why — the exact silent
+  // failure this whole path exists to remove. Both are a couple of linear passes,
+  // so they stay on this thread rather than paying for a worker round-trip and a
+  // redundant re-analysis. The second decode only ever happens when the transfer
+  // above consumed the first buffer *and* the upgrade failed; a successful
+  // re-analysis has already supplied both, so the common paths decode once.
+  if (deep && (!waveform || gainDb === undefined)) {
+    onProgress('Decoding audio…');
+    const pcm = await decodeSongPcm(songId);
+    if (pcm) {
+      if (!waveform) {
+        onProgress('Rebuilding waveform…');
+        waveform = computeWaveform(pcm, ANALYSIS_SAMPLE_RATE);
+        await writeSongJson(songId, 'waveform.json', waveform);
+      }
+      if (gainDb === undefined) {
+        onProgress('Measuring loudness…');
+        gainDb = replayGainDb(integratedLoudness(pcm, ANALYSIS_SAMPLE_RATE));
+      }
+    }
+  }
+
   const updated: Beatmap = {
     ...existing,
     chartVersion: CHART_VERSION,
+    // Re-analysis may have moved the grid; the beatmap must describe the charts
+    // beside it, not the analysis they replaced.
     bpm: analysis.bpm,
     bpmConfidence: analysis.bpmConfidence,
     beatGrid: analysis.beatGrid,
-    charts: generateAllCharts(analysis, songId, waveform),
+    ...(gainDb !== undefined ? { gainDb } : {}),
+    charts: charts ?? generateAllCharts(analysis, songId, waveform),
   };
   await writeSongJson(songId, 'beatmap.json', updated);
   return toSummary(await withResolvedUrls(updated));

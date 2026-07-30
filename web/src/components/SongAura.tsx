@@ -367,7 +367,13 @@ export function SongAura({
       // Core ring hugging the disc, breathing.
       const breathe = 1 + preset.pulse * 0.16 * Math.sin(t * 2.4);
       const coreD = disc * half * 2 * 1.5 * breathe + preset.halo * half;
-      target.globalAlpha = (0.32 + 0.12 * Math.sin(t * 2.4)) * inten;
+      // Halved (was 0.32 + 0.12). The core ring is a full-width radial gradient
+      // composited with `lighter`, so it is the single biggest contributor to the
+      // aura's *field* brightness rather than to its particles — at the old value
+      // the hero measured as a saturated wash edge to edge while the library
+      // before it and the playfield after it were near-black. The disc has to be
+      // the brightest object in its own frame.
+      target.globalAlpha = (0.16 + 0.06 * Math.sin(t * 2.4)) * inten;
       target.drawImage(core, cx - coreD / 2, cy - coreD / 2, coreD, coreD);
       target.globalAlpha = 1;
 
@@ -468,9 +474,12 @@ export function SongAura({
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, W, H);
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.5;
+      // ONE bloom pass, not two. The second pass was drawn for "light bleed" and
+      // — being additive — doubled the halo's contribution, which is what turned
+      // the aura from light around the disc into a field over the whole screen.
+      // Dropping it also removes a full-canvas composite per frame at every tier.
+      ctx.globalAlpha = 0.55;
       ctx.drawImage(glow, 0, 0, W, H); // bloom
-      ctx.drawImage(glow, 0, 0, W, H); // a soft second pass for the light-bleed
       ctx.globalAlpha = 0.85;
       ctx.drawImage(buf, 0, 0); // crisp cores on top
       ctx.globalAlpha = 1;

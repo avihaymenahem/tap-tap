@@ -1,5 +1,11 @@
 import type { Job, SongSummary, Theme } from '@tap-tap/shared';
-import { BUILTIN_THEMES, DIFFICULTY_NAMES, isJobFinished, themeCatalog } from '@tap-tap/shared';
+import {
+  BUILTIN_THEMES,
+  CHART_VERSION,
+  DIFFICULTY_NAMES,
+  isJobFinished,
+  themeCatalog,
+} from '@tap-tap/shared';
 import {
   ArrowLeft,
   Check,
@@ -46,6 +52,42 @@ interface Draft {
   artist: string;
 }
 
+/** Total notes across every difficulty — the one number a rebuild has to move. */
+function totalNotes(song: SongSummary): number {
+  return DIFFICULTY_NAMES.reduce((sum, d) => sum + (song.noteCounts[d] ?? 0), 0);
+}
+
+interface RegenRow {
+  songId: string;
+  title: string;
+  before: number;
+  after: number;
+}
+
+/**
+ * What a regenerate actually did, kept on screen until dismissed.
+ *
+ * The button used to say nothing at all on success: the progress chip vanished
+ * and that was the entire confirmation. Regeneration reads cached analysis and
+ * is ~0.4ms of chart prep per song, so a whole library can flash past in under a
+ * second and look exactly like a no-op — which is what was reported. A toast
+ * reading "Done" would not have answered the real doubt ("did the beatmaps
+ * change?"), so this reports evidence instead: note counts before and after,
+ * per song, which cannot both be shown and be false.
+ */
+interface RegenReport {
+  at: number;
+  total: number;
+  before: number;
+  after: number;
+  changed: RegenRow[];
+  failed: string[];
+}
+
+function signed(n: number): string {
+  return n > 0 ? `+${n}` : `${n}`;
+}
+
 interface AdminScreenProps {
   onBack: () => void;
   onEdit: (songId: string) => void;
@@ -70,9 +112,13 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
    * Bulk-regenerate progress, or null when idle. Snapshotted from `songs` when
    * it starts, so the concurrent poll cannot change the set mid-run.
    */
-  const [regen, setRegen] = useState<{ done: number; total: number; failed: string[] } | null>(
-    null,
-  );
+  const [regen, setRegen] = useState<{
+    done: number;
+    total: number;
+    failed: string[];
+    message: string;
+  } | null>(null);
+  const [report, setReport] = useState<RegenReport | null>(null);
 
   // Derived during render rather than mirrored into state — keeping a second
   // copy in sync with songs/query/sort is exactly how filtered lists go stale.
@@ -163,36 +209,92 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
   const regenerateAll = async (): Promise<void> => {
     if (regen) return; // already running
     // Snapshot now: the background poll rewrites `songs`, and the run must
-    // operate on a stable set.
+    // operate on a stable set. It is also the "before" side of the report —
+    // taken from what was on screen when the button was pressed.
     const batch = [...songs];
     if (batch.length === 0) return;
     if (
       !window.confirm(
-        `Regenerate charts for all ${batch.length} songs? This rebuilds every chart from the ` +
-          `cached analysis and makes existing high scores no longer comparable. Hand edits are preserved.`,
+        `Regenerate charts for all ${batch.length} songs? This rebuilds every chart, re-analyses ` +
+          `any song whose analysis predates the current analyser (seconds each, once), and makes ` +
+          `existing high scores no longer comparable. Hand edits are preserved.`,
       )
     ) {
       return;
     }
 
     setError(null);
+    setReport(null);
     const failed: string[] = [];
-    setRegen({ done: 0, total: batch.length, failed });
+    const changed: RegenRow[] = [];
+    let before = 0;
+    let after = 0;
+    setRegen({ done: 0, total: batch.length, failed, message: '' });
 
     for (let i = 0; i < batch.length; i++) {
       const song = batch[i]!;
       try {
-        await regenerateCharts(song.songId);
+        // `deep` here and not in the self-heal: this is where a repair that
+        // costs a decode is visible, interruptible by the user's own eyes, and
+        // reported. Progress comes back per stage so a song that really is
+        // re-analysing does not look like a hung button.
+        const updated = await regenerateCharts(song.songId, {
+          deep: true,
+          onProgress: (message) =>
+            setRegen((current) => (current ? { ...current, message } : current)),
+        });
+        const wasNotes = totalNotes(song);
+        const nowNotes = totalNotes(updated);
+        before += wasNotes;
+        after += nowNotes;
+        if (wasNotes !== nowNotes) {
+          changed.push({ songId: song.songId, title: song.title, before: wasNotes, after: nowNotes });
+        }
       } catch {
         failed.push(song.title);
       }
-      setRegen({ done: i + 1, total: batch.length, failed: [...failed] });
+      setRegen({ done: i + 1, total: batch.length, failed: [...failed], message: '' });
     }
 
     await refreshRef.current();
     setRegen(null);
-    if (failed.length > 0) {
-      setError(`Regenerated all songs. ${failed.length} failed: ${failed.join(', ')}.`);
+    setReport({ at: Date.now(), total: batch.length - failed.length, before, after, changed, failed });
+  };
+
+  /** One song, same reporting — a silent success is the defect either way. */
+  const regenerateOne = async (song: SongSummary): Promise<void> => {
+    if (regen) return; // a bulk run owns the progress chip
+    setError(null);
+    setReport(null);
+    // Shares the bulk run's chip rather than inventing a second busy state. A
+    // deep single regenerate can decode and re-analyse for seconds, and doing
+    // that behind a row menu with no indicator at all is the same "it says it
+    // did something and shows nothing" this change exists to fix.
+    setRegen({ done: 0, total: 1, failed: [], message: '' });
+    try {
+      const updated = await regenerateCharts(song.songId, {
+        deep: true,
+        onProgress: (message) =>
+          setRegen((current) => (current ? { ...current, message } : current)),
+      });
+      const wasNotes = totalNotes(song);
+      const nowNotes = totalNotes(updated);
+      setReport({
+        at: Date.now(),
+        total: 1,
+        before: wasNotes,
+        after: nowNotes,
+        changed:
+          wasNotes === nowNotes
+            ? []
+            : [{ songId: song.songId, title: song.title, before: wasNotes, after: nowNotes }],
+        failed: [],
+      });
+      await refreshRef.current();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRegen(null);
     }
   };
 
@@ -236,6 +338,61 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
       )}
 
       {error && <p className="error-text">{error}</p>}
+
+      {report && (
+        <section className="admin__section">
+          <div className="admin__section-head">
+            <h2>
+              Rebuilt {report.total} song{report.total === 1 ? '' : 's'}
+            </h2>
+            <button
+              type="button"
+              className="btn btn--ghost btn--small"
+              onClick={() => setReport(null)}
+            >
+              <X size={15} aria-hidden />
+              Dismiss
+            </button>
+          </div>
+          <p className="muted small">
+            {report.before.toLocaleString()} → {report.after.toLocaleString()} notes (
+            {signed(report.after - report.before)}) · chart rules v{CHART_VERSION} ·{' '}
+            {new Date(report.at).toLocaleTimeString()}
+          </p>
+          {report.changed.length > 0 ? (
+            <ul className="job-list">
+              {report.changed.slice(0, 12).map((row) => (
+                <li key={row.songId} className="job job--done">
+                  <span className="job__status">{signed(row.after - row.before)}</span>
+                  <span className="job__message">{row.title}</span>
+                  <span className="job__url">
+                    {row.before} → {row.after} notes
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            /* Not a failure, and saying so matters: rebuilding a chart the
+               generator already agrees with is a no-op by construction. */
+            <p className="muted small">
+              Every chart rebuilt to the same note count — the generator already agreed with what
+              was stored.
+            </p>
+          )}
+          {report.changed.length > 12 && (
+            <p className="muted small">…and {report.changed.length - 12} more changed.</p>
+          )}
+          <p className="warning small">
+            <TriangleAlert size={14} aria-hidden />
+            Stored best scores were earned on the previous charts and are no longer comparable.
+          </p>
+          {report.failed.length > 0 && (
+            <p className="error-text">
+              {report.failed.length} failed: {report.failed.join(', ')}.
+            </p>
+          )}
+        </section>
+      )}
 
       {jobs.length > 0 && (
         <section className="admin__section">
@@ -288,7 +445,9 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
               {regen ? (
                 <>
                   <Loader2 size={15} className="spin" aria-hidden />
-                  Regenerating {regen.done}/{regen.total}…
+                  {regen.message
+                    ? `${regen.message} (${regen.done}/${regen.total})`
+                    : `Regenerating ${regen.done}/${regen.total}…`}
                 </>
               ) : (
                 <>
@@ -440,13 +599,7 @@ export function AdminScreen({ onBack, onEdit, onThemes }: AdminScreenProps): JSX
                       artist: song.artist,
                     })
                   }
-                  onRegenerate={() => {
-                    void regenerateCharts(song.songId)
-                      .then(() => refreshRef.current())
-                      .catch((err: unknown) =>
-                        setError(err instanceof Error ? err.message : String(err)),
-                      );
-                  }}
+                  onRegenerate={() => void regenerateOne(song)}
                   onDelete={() => {
                     void apiDeleteSong(song.songId)
                       .then(() => {

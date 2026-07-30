@@ -1,3 +1,4 @@
+import { Eye, EyeOff, FlipHorizontal2, Gauge, Heart, Music2, Shield } from 'lucide-react';
 import type { CSSProperties, JSX } from 'react';
 import { SPEED_CHOICES, type Modifiers, type Visibility } from '../game/modifiers.js';
 import { playUiSound } from '../uisfx.js';
@@ -61,8 +62,17 @@ export function ModifierPanel({
           aria-pressed={mods.fail}
           onClick={() => toggle({ fail: !mods.fail }, !mods.fail)}
         >
-          {/* A heart when survival is on, a shield when you cannot die. */}
-          <span aria-hidden>{mods.fail ? '💔' : '🛡'}</span>
+          {/*
+            * Line icons, not colour emoji.
+            *
+            * These were six multi-hue emoji glyphs on the one screen whose job is
+            * to introduce a song's single accent colour, and the only place in the
+            * player flow where the palette was not under the app's control at all
+            * (a platform emoji font picks its own hues). Lucide strokes inherit
+            * `currentColor`, so a chip's icon is now the chip's colour: muted when
+            * off, the accent when on.
+            */}
+          {mods.fail ? <Heart size={15} aria-hidden /> : <Shield size={15} aria-hidden />}
           <span>Fail {mods.fail ? 'On' : 'Off'}</span>
         </button>
 
@@ -72,7 +82,7 @@ export function ModifierPanel({
           aria-pressed={mods.holds}
           onClick={() => toggle({ holds: !mods.holds }, !mods.holds)}
         >
-          <span aria-hidden>🎵</span>
+          <Music2 size={15} aria-hidden />
           <span>Holds {mods.holds ? 'On' : 'Off'}</span>
         </button>
 
@@ -82,7 +92,7 @@ export function ModifierPanel({
           aria-pressed={mods.mirror}
           onClick={() => toggle({ mirror: !mods.mirror }, !mods.mirror)}
         >
-          <span aria-hidden>🪞</span>
+          <FlipHorizontal2 size={15} aria-hidden />
           <span>Mirror {mods.mirror ? 'On' : 'Off'}</span>
         </button>
 
@@ -91,7 +101,11 @@ export function ModifierPanel({
           className={`mod-chip ${mods.visibility !== 'normal' ? 'mod-chip--on' : ''}`}
           onClick={cycleVisibility}
         >
-          <span aria-hidden>👁</span>
+          {mods.visibility === 'normal' ? (
+            <Eye size={15} aria-hidden />
+          ) : (
+            <EyeOff size={15} aria-hidden />
+          )}
           <span>{VISIBILITY_LABEL[mods.visibility]}</span>
         </button>
 
@@ -100,7 +114,7 @@ export function ModifierPanel({
           className={`mod-chip ${mods.speed !== 1 ? 'mod-chip--on' : ''}`}
           onClick={cycleSpeed}
         >
-          <span aria-hidden>⏩</span>
+          <Gauge size={15} aria-hidden />
           <span>{mods.speed.toFixed(2).replace(/0$/, '')}×</span>
         </button>
       </div>

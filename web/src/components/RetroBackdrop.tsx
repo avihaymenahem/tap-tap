@@ -2,11 +2,10 @@ import type { CSSProperties, JSX } from 'react';
 import { accentVars } from '../accent.js';
 
 /**
- * The "neon arcade" backdrop behind every non-gameplay screen: a deep navy
- * starfield, a magenta glow pooled overhead, a neon city skyline along the
- * bottom, drifting pink/cyan embers, and a soft vignette — the DOM echo of the
- * in-game highway (navy night, neon city, electric light), so the whole app
- * reads as one continuous place.
+ * The one stage behind every non-gameplay screen: a near-black field, a sparse
+ * starfield, an accent-tinted pool overhead, drifting embers and a soft
+ * vignette — the DOM twin of the play screen's own backdrop, so the song list,
+ * the hero and the scorecard all sit in the same room as the run between them.
  *
  * Pure CSS and no assets. It is one fixed layer shared by every screen rather
  * than a per-screen background, so nothing jumps as the player moves between the
@@ -14,8 +13,13 @@ import { accentVars } from '../accent.js';
  *
  * The play screen does NOT use this: it renders its own stage in three.js.
  *
+ * **The neon city skyline was removed** — see the note in styles.css where its
+ * rule used to be. It rendered on exactly one player-facing screen and put a
+ * skyline under a scorecard whose run had just happened on a near-black
+ * highway; AAA-REF §9 asks for the opposite.
+ *
  * (Kept the `RetroBackdrop` name and `.retro-bg` classes to avoid churning every
- * screen that references them; the look is the neon-arcade redesign.)
+ * screen that references them.)
  */
 interface RetroBackdropProps {
   /**
@@ -41,7 +45,6 @@ export function RetroBackdrop({ dim = false, accent }: RetroBackdropProps): JSX.
     <div className={cls} aria-hidden="true" style={style}>
       <div className="retro-bg__glow" />
       <div className="retro-bg__sparks" />
-      <div className="retro-bg__skyline" />
       <div className="retro-bg__scrim" />
     </div>
   );

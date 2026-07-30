@@ -31,6 +31,13 @@
   --bg-card: #161634;
   --text: #f2f0ff;
   --muted: #8f8fb8;
+  /* The rung between `--text` and `--muted`: content that is legible and
+     important but must LOSE to something brighter beside it — an unselected
+     song title against the selected one, a duration against a title. The song
+     list previously invented six violet-tinted inks for this job (#cfcbe8,
+     #a6a1cf, #b3aed9, #8b86b4, #ded9ff, #bdb4e8), which is why the library read
+     lavender while the scorecard two screens later read neutral. */
+  --text-dim: #c8cbdd;
 
   /* Gold metallic trim — fixed brand chrome, never follows the song accent. */
   --gold: #f5c04a;
@@ -54,8 +61,123 @@
   /* Crimson HUD label text (SCORE / ACCURACY / COMBO / PERFECTS plaques). */
   --hud-label: #ff5a6e;
 
-  --radius: 18px;
-  --radius-sm: 12px;
+  /* ===================================================================== *
+   * THE SHARED VISUAL SYSTEM — one scale per dimension, spoken by every
+   * player-facing screen (song list -> hero -> play HUD -> results).
+   *
+   * This block exists because those four screens were built in parallel and
+   * each invented its own values: three card radii, four panel alphas, two
+   * blur radii, five different tracked-label sizes, and a primary button that
+   * was neon on the menu, frosted glass on the hero and white on results. Each
+   * was defensible alone; together they read as four products. The rule now is
+   * that a screen PICKS FROM these, and adding a sixth ad-hoc rem value is the
+   * regression.
+   *
+   * The play screen is the reference implementation, not an exception: the
+   * tokens below are read off its HUD (`.hud__pill`, `.hud__pause`), which is
+   * the surface the owner accepted. Everything else was moved to match it.
+   * ===================================================================== */
+
+  /* --- spacing: one 4px-derived ramp. Gaps and padding use these only. --- */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- radius: four steps plus the pill. `--radius`/`--radius-sm` are kept as
+     aliases so the ~13 existing call sites move with the system rather than
+     needing a rename each. --- */
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-pill: 999px;
+  --radius: var(--r-lg);
+  --radius-sm: var(--r-sm);
+
+  /* --- type: ONE ramp. `--fs-hero` is signage (grade, countdown), `--fs-xl`
+     screen titles, `--fs-lg` card titles and primary buttons, `--fs-md` body,
+     down to `--fs-label` for the tracked micro-caps. `--track-label` is the one
+     letter-spacing every uppercase label uses: the flow previously ran 0.10 /
+     0.12 / 0.14 / 0.18 / 0.20 / 0.22em on labels that all mean the same thing.
+     `--fs-sm` had the same problem one tier up: the scorecard's flavour line,
+     delta, advice and assisted note, the ready chip and the hero's Versus link
+     are one type tier and shipped at 0.80 / 0.82 / 0.82 / 0.82 / 0.82 / 0.86rem.
+     Adding a seventh near-miss to that cluster is the regression this ramp
+     exists to prevent. */
+  --fs-hero: clamp(4.5rem, 22vw, 7rem);
+  --fs-xl: clamp(1.5rem, 6vw, 2.1rem);
+  --fs-lg: 1.2rem;
+  --fs-md: 1rem;
+  --fs-sm: 0.86rem;
+  --fs-xs: 0.75rem;
+  --fs-label: 0.64rem;
+  --track-label: 0.16em;
+
+  /* --- surface: the ONE panel treatment, measured off `.hud__pill` (the play
+     screen's score capsule). Near-black rather than a navy tint, a NEUTRAL
+     chrome hairline rather than an accent-tinted one, and a single blur radius.
+     `--rim` is deliberately neutral: it used to be `--edge`, an accent-tinted
+     value, so `accentVars` painted every hairline in the song's hue and a
+     scorecard grew magenta rules across a gold-and-white composition. Chrome is
+     chrome; only light is coloured. --- */
+  /* Literally the play HUD's score capsule, to the unit — it was declared as
+     rgba(10,12,20,0.72) while `.hud__pill` carried rgba(6,7,14,0.72), so the
+     token that claimed to be "measured off the pill" was not the pill. The
+     pill now uses this var, so the two cannot drift again. */
+  --surface: rgba(6, 7, 14, 0.72);
+  --surface-solid: rgba(8, 10, 17, 0.94);
+  --surface-raised: rgba(26, 30, 42, 0.9);
+  --rim: rgba(214, 222, 236, 0.13);
+  --rim-strong: rgba(214, 222, 236, 0.26);
+  --blur: 12px;
+  --shadow-1: 0 2px 10px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 18px 44px rgba(0, 0, 0, 0.55);
+
+  /* --- selection: ONE language for "this one is chosen", spoken by the song
+     row, the difficulty chip and the modifier chip alike.
+   *
+   * The three had drifted into two contradictory languages. The hero's chips lit
+   * up on three ACCENT channels (rim 0.85, fill 0.16, halo); the library's
+   * selected row lit up on a GOLD gradient rim over an accent fill at 0.52 — 3x
+   * the fill, a different hue for the rim, and a saturated plate that was the
+   * loudest object in the app. So "selected" looked like one thing on the list
+   * and a different thing on the very next screen, and gold — which elsewhere
+   * means primary action (PLAY / RETRY) and achievement (the grade medal) —
+   * picked up a third meaning on the one screen with no gold anywhere else.
+   *
+   * The division of labour is now: GOLD = act on this / you earned this.
+   * ACCENT = this is the song, and this is the one you have chosen. Neutral =
+   * everything else. Selection is `--sel-rim` / `--sel-fill` / `--sel-inner` and
+   * nothing else.
+   *
+   * THAT DIVISION COLLAPSES WHENEVER THE SONG'S ACCENT *IS* GOLD, which several
+   * themes are — and it did: on the shipped scorecard the MEDIUM chip (a state),
+   * the grade medal (earned) and RETRY (an action) were all gold at the same
+   * intensity, so nothing said which one was tappable. Hue cannot carry that
+   * distinction, because `.btn--primary` is accent-FILLED by design. TREATMENT
+   * does, and it is now the rule:
+   *
+   *   selection  = 1px rim + low fill + an INSET light. Never an outer glow.
+   *   action     = a filled pill + an OUTER glow + the display face.
+   *   earned     = a filled medal + a radial burst.
+   *
+   * So `--sel-glow`'s outer half is gone (it survives as `--sel-inner`), and an
+   * outer coloured halo now means exactly one thing anywhere in the flow: press
+   * this. Anything new that lights up on selection takes `--sel-inner`; anything
+   * that grows an outer halo has re-forked the language.
+   *
+   * THEY ARE NOT DECLARED HERE, and that is not an oversight — see the rule
+   * further down that declares them on the selected elements themselves. A
+   * custom property whose value contains `var(--accent-rgb)` is substituted
+   * where it is DECLARED, so declaring it on `:root` bakes in the root's
+   * electric pink and every descendant inherits that literal colour. The
+   * selected difficulty pill on the scorecard went magenta on a gold run
+   * exactly once because of this, which is how it was caught. --- */
+
   --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-display: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
   /* Seven-segment digits for HUD/results numeric readouts. The 'DSEG7 Classic'
@@ -65,11 +187,13 @@
      --font span. */
   --font-seg: 'DSEG7 Classic', 'Consolas', ui-monospace, monospace;
 
-  /* Panels float over the dark starfield rather than hiding it, so their fill is
-     a translucent navy tint. Named because a dozen surfaces need to agree. */
-  --panel: rgba(18, 18, 42, 0.68);
-  --panel-solid: rgba(12, 12, 28, 0.95);
-  --edge: rgba(var(--accent-rgb), 0.18);
+  /* Legacy aliases, repointed at the surface system above so the dozen existing
+     call sites move with it. `--edge` was `rgba(var(--accent-rgb), 0.18)` — an
+     accent-tinted hairline, which is what put a song's hue on every border in
+     the app; it is now the neutral rim. */
+  --panel: var(--surface);
+  --panel-solid: var(--surface-solid);
+  --edge: var(--rim);
 }
 
 /* Seven-segment display face for the HUD/results numeric readouts (DSEG7
@@ -122,41 +246,54 @@ button {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  /* Deep navy night lit by a magenta glow pooled overhead, over a static
-     starfield (the two fine radial tiles). The play screen pools the same light
-     behind its vanishing point. */
-  /* The overhead magenta used to be the ONLY light in the field, and it is spent
-     by ~30% of the height — below that the frame measured a flat rgb(6,6,18) for
-     1800 unbroken pixels, so the surviving band read as an unrelated stripe
-     across the top rather than as the top of a continuous night. Two more
-     low-amplitude pools (a violet floor bloom and an off-centre magenta at
-     mid-height) carry the field the rest of the way down. All are very low
-     spatial frequency, so nothing competes with the rows. */
+  /*
+   * ONE STAGE, and it is the play screen's stage.
+   *
+   * This used to be a deep navy field carrying a full-height pink→violet hue
+   * ramp plus five saturated pools, which made the song list read violet, the
+   * results card read as sitting in a different room from the run that produced
+   * it, and neither of them resemble the near-black playfield between them. The
+   * reference is unambiguous (AAA-REF §9): near-black, one soft accent-tinted
+   * pool, sparse sparkle, and nothing else — everything that could compete with
+   * the notes is removed. The same reasoning applies to a song row and a grade.
+   *
+   * Every coloured stop is `rgba(var(--accent-rgb), …)`, which is what lets the
+   * accent carry continuously: the shell defaults to electric pink, and any
+   * screen that spreads `accentVars` (results today) repaints the whole field to
+   * the song with no second copy of this rule to keep in sync. That duplicate
+   * used to exist as `.retro-bg--accent` and has been deleted.
+   *
+   * The pools are low-amplitude and very low spatial frequency, so the field
+   * still varies from top to foot (it measured one flat value for 1800 unbroken
+   * pixels before the mid and floor pools were added) without any band of it
+   * becoming a colour the content has to fight.
+   */
   background:
-    radial-gradient(2px 2px at 12% 18%, rgba(210, 225, 255, 0.9), transparent),
-    radial-gradient(1.5px 1.5px at 74% 12%, rgba(150, 200, 255, 0.7), transparent),
-    radial-gradient(1.3px 1.3px at 46% 26%, rgba(255, 255, 255, 0.7), transparent),
-    radial-gradient(1.6px 1.6px at 88% 22%, rgba(120, 220, 255, 0.6), transparent),
-    radial-gradient(1.2px 1.2px at 30% 8%, rgba(255, 220, 245, 0.6), transparent),
-    radial-gradient(130% 80% at 50% -14%, rgba(255, 63, 164, 0.22), transparent 55%),
-    radial-gradient(80% 55% at 50% 4%, rgba(122, 79, 255, 0.16), transparent 60%),
-    radial-gradient(85% 46% at 96% 52%, rgba(255, 63, 164, 0.16), transparent 78%),
-    radial-gradient(72% 40% at 2% 80%, rgba(255, 63, 164, 0.12), transparent 76%),
-    radial-gradient(150% 62% at 50% 108%, rgba(122, 79, 255, 0.3), transparent 80%),
-    /* A full-height hue ramp, pink at the top into violet at the foot. It is
-       what keeps the strip of field either side of the list from measuring one
-       flat value for 1800 unbroken pixels — the radial pools alone are spent
-       long before the bottom of a phone screen. */
-      linear-gradient(
-        to bottom,
-        rgba(255, 63, 164, 0.12),
-        rgba(122, 79, 255, 0.05) 45%,
-        rgba(122, 79, 255, 0.16) 100%
-      ),
-    linear-gradient(to bottom, #0d0d22 0%, #0a0a18 52%, #08081a 100%);
+    radial-gradient(2px 2px at 12% 18%, rgba(210, 225, 255, 0.75), transparent),
+    radial-gradient(1.5px 1.5px at 74% 12%, rgba(150, 200, 255, 0.55), transparent),
+    radial-gradient(1.3px 1.3px at 46% 26%, rgba(255, 255, 255, 0.55), transparent),
+    radial-gradient(1.6px 1.6px at 88% 22%, rgba(190, 210, 235, 0.45), transparent),
+    radial-gradient(1.2px 1.2px at 30% 8%, rgba(235, 235, 245, 0.45), transparent),
+    /* Amplitudes halved (0.20/0.08/0.06/0.12 -> 0.11/0.045/0.035/0.065).
+       They were tuned per-screen by eye and the result was that the field's
+       HUE became a screen's identity: the library defaults to the brand pink
+       and read magenta, the scorecard spreads the finished run's accent and
+       read olive-gold, and the playfield between them is near-black. Three
+       rooms for one flow. The accent still carries — that is the whole point
+       of writing these in `--accent-rgb` — but at an amplitude where it is
+       light on a near-black stage rather than a wash the content sits in. The
+       gradients themselves are untouched, so the low-spatial-frequency
+       variation that keeps the field from measuring one flat value for 1800
+       unbroken pixels is still there. */
+    radial-gradient(130% 80% at 50% -14%, rgba(var(--accent-rgb), 0.11), transparent 58%),
+    radial-gradient(85% 46% at 96% 52%, rgba(var(--accent-rgb), 0.045), transparent 78%),
+    radial-gradient(72% 40% at 2% 80%, rgba(var(--accent-rgb), 0.035), transparent 76%),
+    radial-gradient(150% 62% at 50% 108%, rgba(var(--accent-rgb), 0.065), transparent 80%),
+    linear-gradient(to bottom, #08090f 0%, #06070c 52%, #05060a 100%);
   background-size:
     520px 520px, 520px 520px, 520px 520px, 520px 520px, 520px 520px,
-    auto, auto, auto, auto, auto, auto, auto;
+    auto, auto, auto, auto, auto;
+  transition: background 0.4s ease;
 }
 
 .retro-bg__glow {
@@ -166,15 +303,22 @@ button {
   transform: translateX(-50%);
   width: min(130vw, 64rem);
   aspect-ratio: 2 / 1;
-  /* The overhead lamp: an electric-pink pool that breathes with a slow pulse. */
+  /* The overhead lamp: the accent pooled above the frame, breathing on a slow
+     pulse — the DOM twin of the accent vignette behind the play screen's album
+     disc. Accent-driven, so it follows the song wherever `accentVars` is spread
+     and needs no `--accent` variant of its own. */
+  /* Halved with the field's pools above, for the same reason: the overhead lamp
+     is the single largest coloured mass on any non-play screen, and at 0.3 it
+     decided what colour that screen "was". */
   background: radial-gradient(
     closest-side,
-    rgba(255, 63, 164, 0.32),
-    rgba(122, 79, 255, 0.14) 46%,
+    rgba(var(--accent-rgb), 0.16),
+    rgba(var(--accent-rgb), 0.055) 46%,
     transparent 72%
   );
   filter: blur(14px);
   animation: stage-glow 7s ease-in-out infinite;
+  transition: background 0.4s ease;
 }
 
 .retro-bg__sparks {
@@ -187,35 +331,32 @@ button {
      the first thing the low tier switches off, and why it is paused whenever a
      hero covers it. */
   background-image:
-    radial-gradient(2px 2px at 18% 82%, rgba(255, 120, 200, 0.9), transparent),
-    radial-gradient(1.5px 1.5px at 68% 66%, rgba(120, 220, 255, 0.7), transparent),
-    radial-gradient(1.6px 1.6px at 42% 40%, rgba(255, 90, 180, 0.75), transparent),
-    radial-gradient(1.2px 1.2px at 86% 30%, rgba(150, 200, 255, 0.6), transparent),
-    radial-gradient(2px 2px at 30% 18%, rgba(255, 150, 220, 0.7), transparent),
-    radial-gradient(1.3px 1.3px at 60% 90%, rgba(120, 230, 255, 0.55), transparent);
+    radial-gradient(2px 2px at 18% 82%, rgba(var(--accent-rgb), 0.75), transparent),
+    radial-gradient(1.5px 1.5px at 68% 66%, rgba(220, 228, 245, 0.4), transparent),
+    radial-gradient(1.6px 1.6px at 42% 40%, rgba(var(--accent-rgb), 0.6), transparent),
+    radial-gradient(1.2px 1.2px at 86% 30%, rgba(220, 228, 245, 0.35), transparent),
+    radial-gradient(2px 2px at 30% 18%, rgba(var(--accent-rgb), 0.5), transparent),
+    radial-gradient(1.3px 1.3px at 60% 90%, rgba(220, 228, 245, 0.3), transparent);
   background-size: 340px 340px;
-  opacity: 0.5;
+  opacity: 0.45;
   animation: stage-sparks 22s linear infinite;
 }
 
-/* The neon city skyline along the bottom edge: a flat silhouette of building
-   blocks with a few lit windows, drawn once as an inline SVG data-URI so it
-   costs no request and scales to any width. It sits behind the scrim so it fades
-   into the vignette rather than framing the content. */
-.retro-bg__skyline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: min(38vh, 22rem);
-  background-repeat: repeat-x;
-  background-position: bottom center;
-  background-size: auto 100%;
-  opacity: 0.85;
-  -webkit-mask-image: linear-gradient(to top, #000 62%, transparent);
-  mask-image: linear-gradient(to top, #000 62%, transparent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='260' viewBox='0 0 600 260'%3E%3Cg fill='%231a1140'%3E%3Crect x='0' y='150' width='54' height='110'/%3E%3Crect x='60' y='96' width='42' height='164'/%3E%3Crect x='108' y='170' width='60' height='90'/%3E%3Crect x='176' y='120' width='40' height='140'/%3E%3Crect x='222' y='60' width='50' height='200'/%3E%3Crect x='280' y='140' width='58' height='120'/%3E%3Crect x='344' y='100' width='38' height='160'/%3E%3Crect x='388' y='176' width='64' height='84'/%3E%3Crect x='458' y='118' width='44' height='142'/%3E%3Crect x='510' y='150' width='40' height='110'/%3E%3Crect x='556' y='90' width='44' height='170'/%3E%3C/g%3E%3Cg fill='%23ff3fa4' opacity='0.55'%3E%3Crect x='70' y='110' width='6' height='8'/%3E%3Crect x='84' y='110' width='6' height='8'/%3E%3Crect x='70' y='128' width='6' height='8'/%3E%3Crect x='232' y='78' width='7' height='9'/%3E%3Crect x='248' y='78' width='7' height='9'/%3E%3Crect x='232' y='100' width='7' height='9'/%3E%3Crect x='248' y='100' width='7' height='9'/%3E%3Crect x='354' y='116' width='6' height='8'/%3E%3Crect x='354' y='134' width='6' height='8'/%3E%3Crect x='566' y='106' width='7' height='9'/%3E%3Crect x='582' y='106' width='7' height='9'/%3E%3C/g%3E%3Cg fill='%2335e0ff' opacity='0.5'%3E%3Crect x='16' y='166' width='7' height='9'/%3E%3Crect x='32' y='166' width='7' height='9'/%3E%3Crect x='190' y='138' width='6' height='8'/%3E%3Crect x='294' y='158' width='7' height='9'/%3E%3Crect x='310' y='158' width='7' height='9'/%3E%3Crect x='470' y='136' width='6' height='8'/%3E%3Crect x='486' y='136' width='6' height='8'/%3E%3C/g%3E%3C/svg%3E");
-}
+/*
+ * The neon city skyline is GONE, and should stay gone.
+ *
+ * It was a flat SVG silhouette of buildings with lit magenta and cyan windows
+ * across the bottom 38vh, and it was the single loudest source of the owner's
+ * "each screen has a completely different look". It was invisible behind the
+ * song list (which covers that band) and behind the hero (fixed, opaque), so in
+ * practice it rendered on exactly ONE player-facing screen — results — where it
+ * put a skyline under a scorecard that had just been playing on a near-black
+ * highway. The menu saw it only through the 7px seams between rows, which is
+ * what the earlier "magenta bleed at some card edges" report was.
+ *
+ * AAA-REF §9 asks for the opposite of it: "no city, no sun, no bright ground
+ * grid. Everything that could compete with the notes has been removed."
+ */
 
 /*
  * A soft vignette that darkens the edges and floor so panels read cleanly over
@@ -229,48 +370,21 @@ button {
      frame a flat dead colour. The rows are opaque enough to carry their own
      contrast now, so the scrim only has to take the edge off. */
   background:
-    radial-gradient(150% 105% at 50% 26%, transparent 0%, rgba(4, 4, 14, 0.38) 100%),
-    linear-gradient(to bottom, rgba(4, 4, 14, 0.04), rgba(4, 4, 14, 0.26));
+    radial-gradient(150% 105% at 50% 26%, transparent 0%, rgba(3, 3, 8, 0.4) 100%),
+    linear-gradient(to bottom, rgba(3, 3, 8, 0.04), rgba(3, 3, 8, 0.26));
 }
 
-/* Recoloured to the finished run's theme accent on the results screen, so the
-   light behind the card matches it. Only the glow layers move to the accent;
-   the dark base and starfield stay put. (The menu deliberately does not use
-   this — tinting to the current selection mixed badly with the night.) */
-.retro-bg--accent {
-  transition: background 0.4s ease;
-  background:
-    radial-gradient(2px 2px at 12% 18%, rgba(210, 225, 255, 0.9), transparent),
-    radial-gradient(1.5px 1.5px at 74% 12%, rgba(150, 200, 255, 0.7), transparent),
-    radial-gradient(1.3px 1.3px at 46% 26%, rgba(255, 255, 255, 0.7), transparent),
-    radial-gradient(1.6px 1.6px at 88% 22%, rgba(120, 220, 255, 0.6), transparent),
-    radial-gradient(1.2px 1.2px at 30% 8%, rgba(255, 220, 245, 0.6), transparent),
-    radial-gradient(130% 80% at 50% -14%, rgba(var(--accent-rgb), 0.26), transparent 55%),
-    radial-gradient(80% 55% at 50% 4%, rgba(var(--accent-rgb), 0.16), transparent 60%),
-    radial-gradient(85% 46% at 96% 52%, rgba(var(--accent-rgb), 0.16), transparent 78%),
-    radial-gradient(72% 40% at 2% 80%, rgba(var(--accent-rgb), 0.12), transparent 76%),
-    radial-gradient(150% 62% at 50% 108%, rgba(var(--accent-rgb), 0.24), transparent 80%),
-    linear-gradient(
-        to bottom,
-        rgba(var(--accent-rgb), 0.12),
-        rgba(var(--accent-rgb), 0.05) 45%,
-        rgba(var(--accent-rgb), 0.16) 100%
-      ),
-    linear-gradient(to bottom, #0d0d22 0%, #0a0a18 52%, #08081a 100%);
-  background-size:
-    520px 520px, 520px 520px, 520px 520px, 520px 520px, 520px 520px,
-    auto, auto, auto, auto, auto, auto, auto;
-}
-
-.retro-bg--accent .retro-bg__glow {
-  transition: background 0.4s ease;
-  background: radial-gradient(
-    closest-side,
-    rgba(var(--accent-rgb), 0.32),
-    rgba(var(--accent-rgb), 0.14) 46%,
-    transparent 72%
-  );
-}
+/*
+ * `.retro-bg--accent` no longer needs a rule.
+ *
+ * It used to be a second, hand-maintained copy of the whole `.retro-bg`
+ * background with `rgba(255, 63, 164, …)` swapped for `rgba(var(--accent-rgb),
+ * …)` — twelve stops that had to be kept in step with the base by hand, and had
+ * already drifted (the accent copy carried a stop the base did not). Now that
+ * the base is written in terms of `--accent-rgb`, spreading `accentVars` on the
+ * element is the entire mechanism, and the class survives only as a hook for
+ * anything that needs to know the field is song-tinted.
+ */
 
 .retro-bg--dim .retro-bg__glow {
   opacity: 0.5;
@@ -278,10 +392,6 @@ button {
 
 .retro-bg--dim .retro-bg__sparks {
   opacity: 0.3;
-}
-
-.retro-bg--dim .retro-bg__skyline {
-  opacity: 0.55;
 }
 
 @keyframes stage-glow {
@@ -393,6 +503,7 @@ body:has(.song-hero:not(.song-hero--closing)) .retro-bg__sparks {
  * they are over the animating backdrop, so they also re-blur continuously.
  * A flat, slightly more opaque panel replaces the blur so the text stays legible.
  */
+:root[data-quality='low'] .panel,
 :root[data-quality='low'] .song-hero__play,
 :root[data-quality='low'] .song-hero__close,
 :root[data-quality='low'] .song-hero__nav,
@@ -420,13 +531,26 @@ body:has(.song-hero:not(.song-hero--closing)) .retro-bg__sparks {
   filter: blur(18px) saturate(1.3) brightness(0.7);
 }
 
+/* The disc's colour field, same trade as the wash above: a 30px blur over an
+   over-scanned image, cut to a fraction of the radius rather than dropped. It
+   fills the caps a width-fitted 16:9 frame leaves, so removing it outright puts
+   two hard-edged dark crescents back inside the disc. */
+:root[data-quality='low'] .song-hero__disc::before {
+  filter: blur(10px) saturate(1.25) brightness(0.55);
+}
+
 /* The selected song-card's art wash: one blurred layer, but it is re-rasterised
    while the list scrolls, which is the one moment this screen has to be smooth.
-   Dropped to a flat tint — the selection still has its rim, its fill, its gold
-   type and the play lens, so no state information is lost. */
+   Dropped to a flat tint — the selection still has its accent rim, its accent
+   fill, the brightest type in the list and the play lens, so no state
+   information is lost. */
 :root[data-quality='low'] .song-card--active::before {
   background-image: none;
-  background-color: rgba(var(--accent-rgb), 0.16);
+  /* The layer's own `opacity` is 0.2, so this resolves to ~0.1 accent — about
+     what the blurred, darkened art averages to. Raised from 0.16 when that
+     opacity dropped from 0.5, or the low tier would have shown a tint a fifth
+     as strong as the high tier's rather than the same one flattened. */
+  background-color: rgba(var(--accent-rgb), 0.5);
   filter: none;
 }
 
@@ -454,6 +578,181 @@ body:has(.song-hero:not(.song-hero--closing)) .retro-bg__sparks {
 .admin {
   position: relative;
   z-index: 1;
+}
+
+/* ===================================================================== *
+ * SHARED VOCABULARY — three classes every player-facing screen speaks.
+ *
+ * These exist so a new element inherits the system by naming it rather than by
+ * an author re-deriving a radius, an alpha and a tracking from whichever screen
+ * they happened to open first. That re-derivation is what produced four
+ * screens with nothing in common; each of the three below replaced between
+ * four and six near-miss variants.
+ * ===================================================================== */
+
+/*
+ * `.panel` — THE surface. Every card, sheet, chip-tray and dropdown in the
+ * player flow is this: near-black, one neutral chrome hairline, one blur, one
+ * radius, one shadow. Before this the same idea shipped as a navy tint at 0.68,
+ * a navy tint at 0.95, a gold-gradient border-box, and a white-hairline
+ * padding-box — at 12px, 14px, 16px and 18px radii with 6px, 8px, 12px and 14px
+ * blurs.
+ *
+ * `backdrop-filter` is on the class, which means the `data-quality='low'` block
+ * has exactly one selector to strip instead of a growing list. Note the stacking
+ * trap that comes with it (CLAUDE.md): a `backdrop-filter` creates a stacking
+ * context, so anything that must overflow a panel needs the PANEL lifted, not
+ * the child's z-index raised.
+ */
+.panel {
+  border: 1px solid var(--rim);
+  border-radius: var(--r-lg);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+}
+
+/* A step up off the panel: chips, rows and wells that sit ON a panel and need
+   to read as raised rather than as another panel. */
+.panel--raised {
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-1);
+}
+
+/*
+ * `.label` — the one tracked micro-cap. The flow carried six of these
+ * (difficulty pill, band captions, "Best", settings group headings, the song
+ * count, dropdown states) at five sizes, four weights and six letter-spacings,
+ * all meaning "this is a caption". One rule now; a screen may change the colour
+ * and nothing else.
+ */
+.label {
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: var(--fs-label);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+/*
+ * `.chip` — the one micro-cap badge: a `.label` on a `.panel--raised` pill.
+ *
+ * Four near-misses shipped as this idea — the results difficulty pill, the
+ * achievement badge, the record badge and the hero's modifier chip — and the
+ * record badge was the outlier that gave the game away: a PURE WHITE fill with
+ * near-black ink, the only white surface anywhere in a flow that is otherwise
+ * near-black end to end. It read as a system notification pasted onto the
+ * scorecard.
+ *
+ * `--on` is the selection variant and takes the shared selection vars, so a
+ * chosen chip and a chosen song row light up identically.
+ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: none;
+  margin: 0;
+  padding: 0.28rem 0.7rem;
+  border: 1px solid var(--rim);
+  border-radius: var(--r-pill);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-label);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/*
+ * THE SELECTION LANGUAGE, declared on the selected elements themselves.
+ *
+ * Every "this one is chosen" state in the player flow is in this list, and each
+ * gets the three channels from one place. It cannot live on `:root`: a custom
+ * property containing `var(--accent-rgb)` is substituted at the point of
+ * DECLARATION, so a root-level `--sel-rim` freezes at the shell's default pink
+ * and stops following `accentVars` — which the library spreads per row and the
+ * hero and scorecard spread per screen. Declared here, each element resolves it
+ * against the accent it has actually inherited.
+ *
+ * Anything new that means "selected" joins this selector list. Anything that
+ * writes its own accent rim instead has re-forked the language.
+ */
+.chip--on,
+.song-card--active,
+.difficulty--active,
+.mod-chip--on,
+.results__diff {
+  --sel-rim: rgba(var(--accent-rgb), 0.85);
+  --sel-fill: rgba(var(--accent-rgb), 0.16);
+  /* INSET only — see the note in `:root`. The outer half of the old `--sel-glow`
+     was the one channel selection shared with `.btn--primary`, and on a
+     gold-accented song that made a state indicator and a button the same
+     object. */
+  --sel-inner: inset 0 0 16px rgba(var(--accent-rgb), 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.chip--on {
+  border-color: var(--sel-rim);
+  background: var(--sel-fill);
+  box-shadow: var(--sel-inner);
+  color: var(--text);
+}
+
+/* A claim rather than a state — "FIRST CLEAR", "BEST". Brighter rim and a lit
+   top edge so it reads as struck metal, still on the shared dark plate. */
+.chip--strong {
+  border-color: var(--rim-strong);
+  background: var(--surface-raised);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--shadow-1);
+}
+
+/*
+ * `.nav-circle` — the one circular affordance: back, close, hamburger, pause.
+ *
+ * Measured off `.hud__pause`, which is the version the owner accepted in play:
+ * ONE stroke (a doubled rim resolves into a discrete arc along the bottom), a
+ * top-left sheen over a top-lit plate, and a 0-offset halo that can never become
+ * a crescent. 46px is over the 44pt/48dp touch minimum. The menu's hamburger
+ * used to be a gold-and-magenta conic ring — the only conic ring in the app, on
+ * the one screen where nothing else was gold.
+ */
+.nav-circle,
+.icon-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 1px solid #4a5262;
+  border-radius: 50%;
+  background:
+    linear-gradient(148deg, rgba(226, 235, 250, 0.14) 0%, rgba(226, 235, 250, 0) 46%),
+    linear-gradient(180deg, #171c26 0%, #0f131b 56%, #07080e 100%);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+
+.nav-circle:hover,
+.icon-btn:hover,
+.icon-btn[aria-expanded='true'] {
+  border-color: rgba(var(--accent-rgb), 0.7);
+}
+
+.nav-circle:active,
+.icon-btn:active {
+  transform: scale(0.94);
 }
 
 /* --- motion layer ----------------------------------------------------------
@@ -619,13 +918,21 @@ body:has(.song-hero:not(.song-hero--closing)) .retro-bg__sparks {
    Body copy is deliberately left alone — a glow on a paragraph is unreadable,
    and the effect only lands if it stays rare. */
 
-.admin__header h1,
+/*
+ * ONE title treatment for signage: uppercase, tracked out, and lit by the
+ * SONG's accent rather than by a fixed gold. The gold glow was the only gold ink
+ * on three screens whose gold otherwise means selection (the library) or an
+ * achievement tier (the grade medal), and it was the reason a scorecard's title
+ * and its grade looked like they belonged to different palettes. Tracking is
+ * 0.06em to match `.song-hero__title`, which is the same object one screen
+ * earlier — it was 0.12em here and 0.06em there.
+ */
 .admin__header h1,
 .calibration__card h1,
 .results__card h1 {
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  text-shadow: 0 0 18px rgba(240, 182, 74, 0.45);
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.35), 0 2px 10px rgba(0, 0, 0, 0.6);
 }
 
 
@@ -662,26 +969,39 @@ kbd {
 
 /* --- buttons -------------------------------------------------------------- */
 
+/*
+ * THREE RANKS, ONE GEOMETRY. Every button in the player flow is one of these,
+ * and they differ only in fill — same pill, same padding, same type size, same
+ * shadow language. Previously the primary action was a magenta neon gradient on
+ * the menu, a frosted accent-tinted glass pane on the hero and a flat white pill
+ * on results: three components that were meant to be the same one, so "press
+ * this" had no consistent shape across the screens the owner named.
+ *
+ * The secondary (`.btn`) sits on the panel it belongs to — a lifted neutral
+ * fill with the shared rim, so it reads as the same material as the card.
+ */
 .btn {
   /* inline-flex so buttons can carry a leading icon beside their label. */
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.45rem;
+  gap: var(--sp-2);
   padding: 0.7rem 1.4rem;
-  border: none;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-pill);
+  background: var(--surface-raised);
   color: var(--text);
-  font-size: 1rem;
+  font-size: var(--fs-md);
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.12s ease, background 0.15s ease, box-shadow 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.16);
+  border-color: var(--rim-strong);
+  background: rgba(40, 46, 62, 0.92);
 }
 
 .btn:active:not(:disabled) {
@@ -693,97 +1013,95 @@ kbd {
   cursor: not-allowed;
 }
 
+/*
+ * The primary: a solid accent pill with a lit top rim and a coloured float
+ * shadow. Accent-filled EVERYWHERE, including results — that is the point.
+ *
+ * The results card used to override this to a flat white fill, on the reasoning
+ * that the grade must own the only saturated mass on the card. The grade still
+ * does: it is a 7rem metallic glyph at the card's centre with a bloom, against a
+ * 2.6rem pill at the foot. What the white override actually cost was the last
+ * link in the chain the accent is *for* — the song's colour carries menu detail
+ * -> hero -> the run -> the scorecard, and the one control the player presses
+ * to go round again was the single element that dropped out of it.
+ *
+ * Sentence case, not uppercase. `.btn--primary` set `text-transform: uppercase`
+ * while the hero's PLAY overrode it back off, so "RETRY" and "Play" were the
+ * same button shouting on one screen and speaking on the next; the reference
+ * sets both of its actions in sentence case.
+ */
 .btn--primary {
-  background: linear-gradient(120deg, var(--pink), var(--violet));
-  /* Two shadows: a tight one that reads as the tube's own light, and a wide
-     soft one for the haze around it. A single blur gives neither. */
-  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.5), 0 10px 34px rgba(var(--accent-rgb), 0.3);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  border-color: rgba(255, 255, 255, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 52%) padding-box,
+    linear-gradient(168deg, var(--pink), var(--violet)) padding-box;
+  /* Three parts, and each does one job: a lit top rim (the pill catching light),
+     a tight coloured halo (its own glow), and a wide soft drop (it floating). */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 0 18px rgba(var(--accent-rgb), 0.45),
+    0 10px 30px rgba(var(--accent-rgb), 0.28);
+  color: #fff;
+  /* The label is white over an arbitrary song accent, and the worst case is a
+     LIGHT one (a gold theme puts near-white type on near-white fill). A contact
+     shadow rather than a darker fill: darkening the body would desaturate every
+     accent to fix one. */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 0 10px rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.01em;
   font-weight: 400; /* display face */
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: linear-gradient(120deg, var(--pink), var(--cyan));
-  box-shadow: 0 0 26px rgba(var(--accent-rgb), 0.55), 0 14px 40px rgba(var(--accent-rgb), 0.4);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0) 52%) padding-box,
+    linear-gradient(168deg, var(--pink), var(--pink) 32%, var(--violet)) padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 0 28px rgba(var(--accent-rgb), 0.62),
+    0 14px 38px rgba(var(--accent-rgb), 0.36);
 }
 
+/* The tertiary: outline only, for actions that must be reachable but never
+   invite a press. The rim is the shared neutral one — it used to be a 2px gold
+   stroke that hovered to cyan, which put the app's only cyan pixels on it. */
 .btn--ghost {
   background: transparent;
-  border: 2px solid rgba(245, 192, 74, 0.4);
+  border-color: var(--rim-strong);
+  color: var(--muted);
 }
 
 .btn--ghost:hover:not(:disabled) {
-  border-color: var(--cyan);
-  background: rgba(53, 224, 255, 0.1);
-  box-shadow: 0 0 18px rgba(53, 224, 255, 0.25);
+  border-color: rgba(var(--accent-rgb), 0.6);
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--text);
 }
 
 .btn--danger {
-  background: rgba(255, 77, 109, 0.18);
+  border-color: rgba(255, 77, 109, 0.35);
+  background: rgba(255, 77, 109, 0.14);
   color: var(--danger);
 }
 
 /* --- header menu ---------------------------------------------------------- */
 
+/*
+ * The library header's hamburger. Same plate as `.nav-circle` — it IS one, and
+ * it is the anchor for its dropdown, hence `position: relative` here.
+ *
+ * It used to be a gold→magenta conic ring around a translucent navy disc: the
+ * only conic gradient in the app, on the one screen where nothing else is gold,
+ * two pixels from a search field whose own comment complains that gold means
+ * *selection* on this screen and nothing else. The back chevron on the hero and
+ * the pause disc in play are the same control in the same place doing the same
+ * job, and neither looked remotely like it.
+ */
+/* Position and glyph size only — the plate is `.nav-circle`'s, shared by
+   selector rather than copied. The two rules were byte-identical duplicates of
+   one 18-line plate, which is exactly how a corner control ends up looking like
+   a different control on a different screen. */
 .icon-btn {
   position: relative;
-  display: grid;
-  place-items: center;
-  width: 2.9rem;
-  height: 2.9rem;
-  border: none;
-  border-radius: 50%;
-  /* A gold trim ring with an electric-pink glint, drawn as a conic ring in a
-     pseudo-element so the glyph stays crisp above it. */
-  background: rgba(14, 14, 34, 0.6);
-  color: var(--text);
   font-size: 1.1rem;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.12s ease;
-}
-
-.icon-btn::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  padding: 2px;
-  /* Two stops, gold into the accent, matching the selected row's rim. It used to
-     sweep through `--cyan`, which put the frame's only cyan pixels on one arc of
-     one button — an element accented in a hue that appears nowhere else. */
-  background: conic-gradient(
-    from 210deg,
-    var(--gold),
-    var(--pink) 42%,
-    var(--gold) 78%,
-    var(--gold)
-  );
-  /* Mask out the interior so the gradient reads as a ring, not a disc. */
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  opacity: 0.7;
-  transition: opacity 0.15s ease;
-  pointer-events: none;
-}
-
-.icon-btn:hover {
-  background: rgba(255, 63, 164, 0.12);
-  transform: translateY(-2px);
-}
-
-.icon-btn:hover::before {
-  opacity: 1;
-}
-
-.icon-btn[aria-expanded='true'] {
-  background: rgba(var(--accent-rgb), 0.18);
-}
-
-.icon-btn[aria-expanded='true']::before {
-  opacity: 1;
 }
 
 .dropdown {
@@ -794,12 +1112,13 @@ kbd {
   display: flex;
   flex-direction: column;
   min-width: 13rem;
-  padding: 0.4rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-sm);
-  background: rgba(14, 14, 34, 0.97);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(12px);
+  padding: var(--sp-1);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-md);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
 }
 
 .dropdown__item {
@@ -822,16 +1141,17 @@ kbd {
   background: rgba(255, 255, 255, 0.09);
 }
 
+/* The shared micro-cap (see `.label`). */
 .dropdown__state {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: var(--fs-label);
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
 
 .dropdown__state--on {
-  color: var(--cyan);
+  color: rgb(var(--accent-rgb));
 }
 
 .btn--large {
@@ -840,41 +1160,19 @@ kbd {
   font-size: 1.2rem;
 }
 
-/* The menu's Play button — the one action the whole screen leads to, so it is
-   dressed to be pressed. One cohesive accent body (a bright top falling to a
-   deeper shade of the same hue) with a glassy highlight laid over it — not the
-   old violet→pink→gold sweep, whose gold end clashed with whatever song accent
-   the panel painted. A crisp lit rim, a play glyph, a slow glow pulse and an
-   idle sheen. Still recolours to the selected song via the panel's accentVars. */
+/* PLAY — the one action the flow leads to, so it is the primary at signage
+   scale, plus a slow glow pulse and an idle sheen. It carries NO fill of its
+   own any more: fill, rim, shadow and type all come from `.btn--primary`, which
+   is what makes it and the scorecard's Retry visibly the same control. This
+   rule is now size and motion only. */
 .menu__play {
   position: relative;
   overflow: hidden;
-  gap: 0.55rem;
+  gap: var(--sp-2);
   margin-top: 0.2rem;
   padding: 1.05rem;
-  font-size: 1.3rem;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  /* Two stacked padding-box layers: a top-down glass highlight over the accent
-     body. Keeping both on padding-box lets the 1px border read as a lit rim. */
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 46%) padding-box,
-    linear-gradient(168deg, var(--pink), var(--violet)) padding-box;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    0 0 24px rgba(var(--accent-rgb), 0.5),
-    0 12px 30px rgba(var(--accent-rgb), 0.3);
+  font-size: var(--fs-lg);
   animation: play-pulse 2.4s ease-in-out infinite;
-}
-
-.menu__play:hover:not(:disabled) {
-  /* Brighten body and glow, staying in the accent family — no hue swing. */
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 46%) padding-box,
-    linear-gradient(168deg, var(--pink), var(--pink) 32%, var(--violet)) padding-box;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 0 34px rgba(var(--accent-rgb), 0.72),
-    0 16px 40px rgba(var(--accent-rgb), 0.42);
 }
 
 .menu__play:disabled {
@@ -911,14 +1209,14 @@ kbd {
   100% {
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.45),
-      0 0 24px rgba(var(--accent-rgb), 0.5),
-      0 12px 32px rgba(var(--accent-rgb), 0.3);
+      0 0 18px rgba(var(--accent-rgb), 0.45),
+      0 10px 30px rgba(var(--accent-rgb), 0.28);
   }
   50% {
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.5),
-      0 0 36px rgba(var(--accent-rgb), 0.82),
-      0 12px 40px rgba(var(--accent-rgb), 0.46);
+      0 0 32px rgba(var(--accent-rgb), 0.75),
+      0 12px 38px rgba(var(--accent-rgb), 0.42);
   }
 }
 
@@ -1014,10 +1312,10 @@ kbd {
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    rgba(6, 6, 18, 0) 0%,
-    rgba(6, 6, 18, 0.45) 46%,
-    rgba(6, 6, 18, 0.78) 78%,
-    rgba(6, 6, 18, 0.88) 100%
+    rgba(5, 6, 11, 0) 0%,
+    rgba(5, 6, 11, 0.35) 46%,
+    rgba(5, 6, 11, 0.62) 78%,
+    rgba(5, 6, 11, 0.72) 100%
   );
 }
 
@@ -1033,7 +1331,7 @@ kbd {
   bottom: 0;
   height: 2.75rem;
   pointer-events: none;
-  background: linear-gradient(to top, rgba(5, 5, 15, 0.8), rgba(5, 5, 15, 0));
+  background: linear-gradient(to top, rgba(5, 6, 11, 0.85), rgba(5, 6, 11, 0));
 }
 
 /* Capped and centred to the SAME column as the list below it (`.menu__body`).
@@ -1102,8 +1400,8 @@ kbd {
 .search__input {
   width: 100%;
   padding: 0.72rem 2.4rem 0.72rem 1.1rem;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 999px;
+  border: 1px solid var(--rim);
+  border-radius: var(--r-pill);
   /* Dark and opaque, not a white wash — a see-through field lets the starfield
      show through the text, which looks like a bug rather than a theme. The rim
      is a NEUTRAL hairline, not the gold trim: gold means selection on this
@@ -1242,7 +1540,7 @@ kbd {
   width: 100%;
   padding: var(--card-pad) var(--star-lane) var(--card-pad) var(--card-pad);
   border: 1.5px solid transparent;
-  border-radius: 16px;
+  border-radius: var(--r-md);
   /*
    * Double background: an opaque indigo fill on padding-box, a rim gradient on
    * border-box. THE RIM IS THE SELECTION CHANNEL — a white hairline here, full
@@ -1256,30 +1554,54 @@ kbd {
    * plates. Fixed values clear the darkest and the brightest field alike by
    * >= 1.35:1, and the polarity cannot invert.
    */
+  /*
+   * A SONG ROW IS A `.panel--raised`, and the fill is now literally that token's
+   * family. This is the fix for the owner's headline report ("each screen has a
+   * completely different look"): the library was the lightest surface in the
+   * app by a wide margin, so a stack of grey-slate plates handed over to a
+   * near-black hero and a near-black scorecard, and the three read as three
+   * products. The fill has walked down 58,57,90 (violet) -> 58,63,76 (slate)
+   * -> 45,50,61 and is now 30,34,46 -> 23,27,37, whose mean luminance is
+   * L 0.0136 — `--surface-raised` (26,30,42) is L 0.0137. Same material, to
+   * three decimal places.
+   *
+   * WHAT PAYS FOR THAT, because it is no longer fill luminance: the row's edge
+   * against the gutter is now carried by the rim gradient and the cast shadow,
+   * which is the only honest way to sit this dark. An earlier pass held a
+   * 1.35:1 fill-vs-gutter floor and that floor is what pinned the row 2.4x
+   * brighter than every other surface — a legibility argument used to justify a
+   * material mismatch. A brighter hairline (0.18) and a deeper, wider drop
+   * (0.7 at 14px) put a dark moat around each card, so the local contrast at
+   * the edge is higher than the old flat pair managed while the plate itself
+   * disappears into the family. Still near-opaque (0.97), so the polarity
+   * against a backdrop that swings L .0018 -> .0097 cannot invert.
+   */
   background:
-    linear-gradient(180deg, rgba(58, 57, 90, 0.965), rgba(45, 44, 68, 0.965)) padding-box,
-    linear-gradient(160deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.05)) border-box;
-  /* Material: a cast shadow that lifts the card off the field, a rim light along
-     the top edge, and an inner shadow along the bottom. Without these the card
-     is a slightly-less-black rectangle rather than an object. The bottom shadow
-     is kept shallow on purpose — pushed harder it takes the card's darkest pixel
-     back under the 1.35:1 floor against the gutter. */
+    linear-gradient(180deg, rgba(30, 34, 46, 0.97), rgba(23, 27, 37, 0.97)) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05)) border-box;
+  /* Material: a cast shadow that lifts the card off the field and a rim light
+     along the top edge. The inner bottom shadow is gone — at this fill it was
+     crushing the lower third of every row into the gutter it is supposed to be
+     separable from. */
   box-shadow:
-    0 3px 9px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15),
-    inset 0 -14px 18px -18px rgba(0, 0, 0, 0.7);
+    0 4px 14px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
   color: inherit;
   text-align: left;
   cursor: pointer;
   transition: background 0.16s ease, box-shadow 0.16s ease;
 }
 
-/* Hover lights the rim toward gold. No `translateX` — the row's paint
-   containment clipped the card's leading edge off as it moved. */
+/* No `translateX` — the row's paint containment clipped the card's leading edge
+   off as it moved.
+   Hover lifts the fill one step and warms the rim toward the ACCENT, not toward
+   gold: gold is the primary action and the grade medal, and a gold rim on hover
+   promised the row was selected when it was merely under a cursor. */
 .song-card:hover {
   background:
-    linear-gradient(180deg, rgba(72, 70, 108, 0.97), rgba(53, 51, 80, 0.97)) padding-box,
-    linear-gradient(160deg, rgba(245, 192, 74, 0.5), rgba(245, 192, 74, 0.15)) border-box;
+    linear-gradient(180deg, rgba(38, 43, 57, 0.97), rgba(30, 35, 46, 0.97)) padding-box,
+    linear-gradient(160deg, rgba(var(--accent-rgb), 0.45), rgba(var(--accent-rgb), 0.12))
+      border-box;
 }
 
 /*
@@ -1289,22 +1611,42 @@ kbd {
  * — the row's paint containment slices one off as a hard-edged rectangle, which
  * is indistinguishable from the bleed artifact this rewrite exists to remove.
  */
+/*
+ * The fill is the SONG's accent over the neutral card — the <li> spreads
+ * `accentVars` for the selected row (MenuScreen), so picking a track is the
+ * first frame of the colour that carries through the hero, the run and the
+ * scorecard.
+ *
+ * THE GOLD GRADIENT RIM IS GONE, and the accent fill dropped from 0.52/0.22 to
+ * the shared `--sel-fill`. That combination was a five-stop gold-and-accent
+ * border over a half-opaque accent plate: the single loudest object in the app,
+ * and a *second* language for "selected" — the hero's difficulty and modifier
+ * chips, one screen later, say the same thing with an accent rim, an accent
+ * fill and a halo. Two languages for one fact on consecutive screens is the
+ * defect. This is now the same three channels they use, plus the two the row
+ * has that a chip does not: its own art blurred in behind, and the only
+ * full-brightness title in the list. Four channels still win at a 1/8 squint.
+ */
+/* The plate under the accent fill is the SAME pair as an unselected row, one
+   rung up — not a separate, much lighter surface. It used to be 52,58,71 over a
+   45,50,61 row: a genuinely different material for the selected item, which is
+   what made the row read as a plate rather than as a lit version of its
+   neighbours. */
 .song-card--active {
+  border-color: var(--sel-rim);
   background:
-    linear-gradient(180deg, rgba(104, 82, 186, 0.97), rgba(60, 46, 122, 0.97)) padding-box,
-    linear-gradient(
-        150deg,
-        #ffe79a 0%,
-        #f5c04a 26%,
-        rgb(var(--accent-rgb)) 62%,
-        #f5c04a 82%,
-        #ffe79a 100%
-      )
-      border-box;
+    linear-gradient(180deg, var(--sel-fill), rgba(var(--accent-rgb), 0.08)) padding-box,
+    linear-gradient(180deg, rgba(38, 43, 57, 0.98), rgba(29, 34, 45, 0.98)) padding-box;
+  /* Exactly `--sel-inner` plus the row's own drop — the same three channels the
+     difficulty chip and the scorecard's pill light up on, so "selected" is one
+     object across the library, the hero and the results card. The outer half of
+     the old glow could never have been used here anyway: the row carries
+     `content-visibility: auto`, so paint containment slices an outer halo off
+     as a hard-edged rectangle, indistinguishable from the magenta-bleed
+     artifact the list rewrite existed to remove. */
   box-shadow:
-    0 5px 14px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 0 0 1px rgba(255, 223, 138, 0.2);
+    0 5px 16px rgba(0, 0, 0, 0.66),
+    var(--sel-inner);
 }
 
 /* The selected song's own artwork, blurred into the card as a colour wash — so
@@ -1318,8 +1660,14 @@ kbd {
   background-image: var(--art, linear-gradient(120deg, rgb(var(--accent-rgb)), var(--violet)));
   background-size: cover;
   background-position: center;
-  filter: blur(18px) saturate(1.8) brightness(0.85);
-  opacity: 0.5;
+  /* Dropped from blur(18) saturate(1.8) at opacity 0.5, which rendered the
+     selected row as a full-bleed saturated plate — the loudest object in the
+     app, and a FIFTH channel that no other "selected" element in the flow has.
+     At 0.2 / saturate 1.15 the art is a hint of the song's colour inside the
+     row, on the same footing as the accent fill over it, and the row stops
+     out-shouting the PLAY button two screens later. */
+  filter: blur(20px) saturate(1.15) brightness(0.8);
+  opacity: 0.2;
   /* Faded out to the right so the type never sits on the busiest part of it. */
   -webkit-mask-image: linear-gradient(100deg, #000, rgba(0, 0, 0, 0.3) 58%, transparent 92%);
   mask-image: linear-gradient(100deg, #000, rgba(0, 0, 0, 0.3) 58%, transparent 92%);
@@ -1424,13 +1772,16 @@ kbd {
      two compete at a squint. */
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: 1.05rem;
+  /* On the ramp: `--fs-md`. A row title has to lose to the hero's `--fs-xl` and
+     the scorecard's `--fs-lg`, and it was set at an off-ramp 1.05rem that sat
+     between the two rungs it should have picked one of. */
+  font-size: var(--fs-md);
   line-height: 1.22;
   letter-spacing: 0.004em;
-  /* Deliberately NOT full white: the selected row's gold title has to be the
+  /* Deliberately NOT full white: the selected row's title has to be the
      brightest title in the list, and at #f6f4ff (L .92) every unselected row
-     out-shone it. */
-  color: #cfcbe8;
+     out-shone it. `--text-dim` is that rung, shared. */
+  color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1442,11 +1793,11 @@ kbd {
 .song-card__artist {
   display: block;
   font-family: var(--font);
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   font-weight: 500;
   line-height: 1.3;
   letter-spacing: 0.01em;
-  color: #a6a1cf;
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1481,48 +1832,51 @@ kbd {
 }
 
 .song-card__time {
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
-  color: #b3aed9;
+  color: var(--text-dim);
 }
 
 .song-card__bpm {
-  font-size: 0.63rem;
+  font-size: var(--fs-label);
   font-weight: 600;
   letter-spacing: 0.09em;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
-  color: #8b86b4;
+  color: var(--muted);
   white-space: nowrap;
 }
 
+/* The selected row's ink steps up one rung on the SAME ramp — full `--text`
+   over `--text-dim`, `--text-dim` over `--muted` — rather than shifting to a
+   warm gold-white. It used to be #fff7dc, which put gold ink on the row at the
+   same time as gold rims and a gold plate; gold now belongs to PLAY and the
+   grade, and the row says "chosen" in the song's own accent. */
 .song-card--active .song-card__title {
-  /* L .93 — brighter than any unselected title, and warm, so it wins on both
-     luminance and hue. */
-  color: #fff7dc;
+  color: var(--text);
 }
 
-.song-card--active .song-card__artist {
-  color: #ded9ff;
+.song-card--active .song-card__artist,
+.song-card--active .song-card__bpm {
+  color: var(--text-dim);
 }
 
 .song-card--active .song-card__time {
-  color: #efe9ff;
-}
-
-.song-card--active .song-card__bpm {
-  color: #bdb4e8;
+  color: var(--text);
 }
 
 .song-card--active .song-card__cover {
   box-shadow: 0 7px 18px rgba(0, 0, 0, 0.62);
 }
 
+/* The sleeve's rim joins the selection channel too — accent, not gold. Gold
+   survives on this row in exactly one place, the play lens over the artwork,
+   which is the primary ACTION rather than the selection. */
 .song-card--active .song-card__cover::after {
   box-shadow:
-    inset 0 0 0 1.5px rgba(255, 223, 138, 0.85),
+    inset 0 0 0 1.5px var(--sel-rim),
     inset 0 -18px 26px -18px rgba(0, 0, 0, 0.8);
 }
 
@@ -1709,12 +2063,26 @@ kbd {
      never produces a sideways scrollbar. */
   overflow-x: hidden;
   overflow-y: auto;
-  /* Base wash: the song accent pooled behind the disc, falling into a deep
-     near-black so text and the aura stay legible. accentVars recolours it. */
+  /*
+   * The same stage as everywhere else: near-black, with ONE accent pool behind
+   * the disc. The pool used to be `0.5` alpha over 62% of the box on a #140f1c
+   * base, which at a warm accent flooded the entire screen with saturated colour
+   * — the hero measured as a gold field where the list before it was violet and
+   * the playfield after it was near-black. Three screens, three rooms.
+   *
+   * 0.32 was a first pass at that and still left the hero the one warm-lit room
+   * in the flow: it is 3x the amplitude `.retro-bg` now uses for the same pool
+   * behind the list and the scorecard, so a gold song turned the whole screen
+   * amber while the two screens either side of it stayed near-black. Matched to
+   * the shell's scale now (0.17 / 0.06 against the shell's 0.11 / 0.065 — a
+   * little hotter, because this pool sits directly behind the disc and is the
+   * only one with an object to light). The disc, its ring and the aura are what
+   * carry the song's colour here; the room does not need to as well.
+   */
   background:
-    radial-gradient(120% 80% at 50% 50%, rgba(var(--accent-rgb), 0.5), transparent 62%),
-    radial-gradient(120% 90% at 50% 100%, rgba(var(--accent-rgb), 0.14), transparent 55%),
-    linear-gradient(180deg, #140f1c 0%, #0a0a14 100%);
+    radial-gradient(110% 70% at 50% 44%, rgba(var(--accent-rgb), 0.17), transparent 64%),
+    radial-gradient(130% 90% at 50% 104%, rgba(var(--accent-rgb), 0.06), transparent 58%),
+    linear-gradient(180deg, #0a0b12 0%, #06070c 100%);
   animation: hero-in 0.32s ease both;
 }
 
@@ -1792,8 +2160,15 @@ kbd {
   width: 120%;
   height: 110%;
   object-fit: cover;
-  filter: blur(70px) saturate(1.3) brightness(0.7);
-  opacity: 0.45;
+  /* Dimmer and darker than it was (0.45 / brightness 0.7): the cover wash is
+     meant to tint the room, not light it. At the old value a warm sleeve turned
+     the whole hero into a bright field and the disc — the thing the screen is
+     about — stopped being the brightest object in its own frame. */
+  filter: blur(70px) saturate(1.25) brightness(0.5);
+  /* 0.3 -> 0.22, with the accent pool above it. Same reasoning: the hero was
+     the only screen in the flow whose FIELD carried the song's colour rather
+     than its objects. */
+  opacity: 0.22;
   pointer-events: none;
 }
 
@@ -1812,27 +2187,14 @@ kbd {
   z-index: 2;
 }
 
+/* Position only — the plate comes from the shared `.nav-circle`, so the back
+   affordance here, the hamburger on the list and the pause disc in play are
+   one object. Same safe-area inset as the play HUD's own top row. */
 .song-hero__close {
   position: absolute;
-  top: calc(0.75rem + env(safe-area-inset-top, 0px));
-  left: 0.75rem;
+  top: calc(var(--sp-3) + env(safe-area-inset-top, 0px));
+  left: var(--sp-3);
   z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 2.8rem;
-  height: 2.8rem;
-  border: none;
-  border-radius: 50%;
-  background: rgba(8, 8, 18, 0.45);
-  color: var(--text);
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-  transition: background 0.15s ease, transform 0.12s ease;
-}
-
-.song-hero__close:hover {
-  background: rgba(8, 8, 18, 0.7);
-  transform: translateY(-1px);
 }
 
 .song-hero__head {
@@ -1844,7 +2206,7 @@ kbd {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(1.5rem, 6vw, 2.3rem);
+  font-size: var(--fs-xl);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text);
@@ -1853,8 +2215,8 @@ kbd {
 }
 
 .song-hero__artist {
-  margin: 0.25rem 0 0;
-  font-size: 1rem;
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-md);
   color: rgba(255, 255, 255, 0.72);
 }
 
@@ -1885,17 +2247,30 @@ kbd {
   pointer-events: none;
 }
 
+/*
+ * THE COVER DISC — one object, two sizes. See `.hud__disc`, which is the same
+ * element mid-run and was built first; the hero used to be a different object
+ * entirely (a white 3px ring, a 48px accent bloom, and a letterboxed rectangle
+ * floating on a blurred field) while the HUD was a hard-cropped circle on a
+ * three-band bezel. Two treatments of one thing on consecutive screens is
+ * exactly the incoherence the owner reported, so the hero takes the HUD's:
+ * contained glow, dark bezel, inset accent rim, inset vignette.
+ */
 .song-hero__disc {
   position: relative;
   width: min(66vw, 60vh, 24rem);
   height: min(66vw, 60vh, 24rem);
   border-radius: 50%;
   overflow: hidden;
-  border: 3px solid rgba(255, 255, 255, 0.16);
+  /* Read outward from the art, same four bands as `.hud__disc`: inset vignette,
+     inset accent rim, dark bezel, contained glow. Radii scaled to the diameter
+     (~2.8x the HUD's) so the *proportions* match rather than the pixels. */
+  border: 6px solid #101019;
   box-shadow:
-    0 0 0 1px rgba(var(--accent-rgb), 0.5),
-    0 0 48px rgba(var(--accent-rgb), 0.4),
-    inset 0 2px 14px rgba(0, 0, 0, 0.5);
+    0 0 34px 3px rgba(var(--accent-rgb), 0.26),
+    0 0 0 2px rgba(var(--accent-rgb), 0.5),
+    inset 0 0 0 5px rgba(var(--accent-rgb), 0.85),
+    inset 0 0 38px rgba(0, 0, 0, 0.62);
   background: #0a0a14;
   /* Entrance first (replayed on each song change via the React key), then the
      idle breathe. The two never overlap, so sharing `transform` is fine. */
@@ -1932,45 +2307,72 @@ kbd {
   }
 }
 
-/* The disc's colour field: the song's own art, over-scanned and blurred, so the
-   circle is full of the track's colour while the frame itself sits complete on
-   top of it. */
+/*
+ * The disc's colour field: the song's own art, over-scanned, blurred and pushed
+ * well down, filling the two thin caps the width-fitted frame above cannot
+ * reach. Darker and blurrier than it was (0.6/24px), because at those values it
+ * was the SAME flat pink as the letterboxed frame in front of it and read as
+ * dead artwork rather than as the disc's material.
+ */
 .song-hero__disc::before {
   content: '';
   position: absolute;
-  inset: -14%;
+  inset: -20%;
   background-image: var(--art);
   background-size: cover;
   background-position: center;
-  filter: blur(24px) saturate(1.6) brightness(0.6);
+  filter: blur(30px) saturate(1.25) brightness(0.55);
 }
 
 /*
- * The frame, whole. It used to be `object-fit: cover` at `scale(1.34)` inside a
- * circular mask, which threw away roughly two thirds of a 16:9 still — and
- * because that art is usually a title card it cut the words: "ANIMALS / MARTIN
- * GARRIX" rendered "IMA / RTIN GAR". A 84% x 56% contain box is the largest one
- * whose diagonal still fits inside the circle for every source aspect in the
- * library (16:9 → .96 of the radius, 4:3 → .93, square → .79), so nothing is
- * ever clipped by the mask.
+ * THE ONE ASPECT RULE FOR A COVER DISC — fit the art to the disc's WIDTH and let
+ * the circle take the corners. Identical here and on `.hud__disc-art`; if one
+ * moves, move both.
+ *
+ * Three fits were tried and only this one clears both failures at once:
+ *   - `cover` (the reference's fit) fills, but our source is a 16:9 YouTube
+ *     title card rather than a square album sleeve, so it keeps the middle 56%
+ *     of the width and "ANIMALS / MARTIN GARRIX" renders "NIMAL / ARTIN GARRI".
+ *   - `contain` in an 84% x 56% box never slices, but leaves a rectangle
+ *     floating in the middle of the circle with a band of flat artwork above and
+ *     below it — and the HUD meanwhile used `cover`, so one component fitted two
+ *     different ways on consecutive screens. That was the reported defect.
+ *   - Full WIDTH at the intrinsic aspect fills edge to edge (the art touches
+ *     both side edges, so there is no letterbox), and the only thing the circle
+ *     removes is the corners: at the vertical band a wordmark actually occupies,
+ *     the chord is still 95-99% of the diameter, so the lettering survives.
+ *
+ * `height: auto` is load-bearing and is the trap CLAUDE.md already records for
+ * the hero wash: an `<img>` is a replaced element, so the height comes from the
+ * intrinsic ratio. A square thumbnail therefore fills the disc outright and a
+ * 16:9 one leaves the two caps the blurred field above is for.
  */
 .song-hero__disc-art {
   position: absolute;
   top: 50%;
   left: 50%;
   translate: -50% -50%;
-  width: 84%;
-  height: 56%;
-  object-fit: contain;
-  border-radius: 6px;
-  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.6));
+  width: 100%;
+  height: auto;
+  /* Feather the two horizontal edges into the blurred field behind them. Without
+     this the frame's top and bottom read as a hard step against the darker cap —
+     a seam across the disc, which is the letterbox edge in a new form. */
+  -webkit-mask-image: linear-gradient(#0000, #000 7%, #000 93%, #0000);
+  mask-image: linear-gradient(#0000, #000 7%, #000 93%, #0000);
+  /* Held down exactly as `.hud__disc-art` is: album art is uncontrolled input
+     and can be any brightness, and this is also what lets the disc's inset
+     vignette read *through* the cover so both discs shade the same way. */
+  opacity: 0.9;
+  filter: saturate(0.9) brightness(0.86);
 }
 
+/* No artwork: the accent field fills the same circle, so the disc is the same
+   object with or without a thumbnail. */
 .song-hero__disc-art--blank {
-  width: 60%;
-  height: 60%;
-  border-radius: 50%;
-  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.4), #0a0a14);
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.45), #0a0a14);
+  opacity: 1;
 }
 
 /* A slow swell so the disc feels like it's breathing to the track, even before
@@ -2009,7 +2411,7 @@ kbd {
   width: 100%;
   margin-top: 0.6rem;
   font-family: var(--font);
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   letter-spacing: 0.04em;
   color: var(--muted);
 }
@@ -2018,90 +2420,34 @@ kbd {
   opacity: 0.4;
 }
 
+/*
+ * Nothing here but the row's flex sizing.
+ *
+ * It used to carry a whole second button design — a frosted "liquid glass" pane
+ * with its own border, its own four-part shadow, a `backdrop-filter` and the
+ * system font instead of the display face. That is the defect the owner
+ * reported: on the hero the primary action was a translucent glass pane, on the
+ * scorecard one screen later it was a flat white pill, and nothing said they
+ * were the same control. Both now resolve to `.btn--primary`. If a glass
+ * treatment is ever wanted again it belongs on `.btn--primary`, so every screen
+ * gets it at once.
+ */
 .song-hero__play {
   flex: 1;
   margin-top: 0;
-  /* Match the track-name font (the system stack), not the display face — the
-     Space Grotesk on the base primary button read as clashing signage here. */
-  font-family: var(--font);
-  font-weight: 700;
-  text-transform: none;
-  letter-spacing: 0.01em;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  /* Liquid glass: a frosted, accent-tinted pane that blurs and refracts the
-     aura behind it, rather than a flat gradient sitting on top of it. A bright
-     specular gradient up top, a thin lit rim, a soft inner floor-glow, and an
-     outer float shadow do the rest. The base .menu__play pulse is dropped —
-     glass is calmer than neon. */
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.38) 0%,
-      rgba(255, 255, 255, 0.08) 38%,
-      rgba(255, 255, 255, 0) 62%
-    ),
-    linear-gradient(180deg, rgba(var(--accent-rgb), 0.4), rgba(var(--accent-rgb), 0.16));
-  backdrop-filter: blur(14px) saturate(1.7);
-  -webkit-backdrop-filter: blur(14px) saturate(1.7);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.75),
-    inset 0 -10px 20px rgba(var(--accent-rgb), 0.28),
-    0 10px 28px rgba(var(--accent-rgb), 0.32),
-    0 2px 6px rgba(0, 0, 0, 0.32);
-  animation: none;
 }
 
-.song-hero__play:hover:not(:disabled) {
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.5) 0%,
-      rgba(255, 255, 255, 0.12) 38%,
-      rgba(255, 255, 255, 0) 62%
-    ),
-    linear-gradient(180deg, rgba(var(--accent-rgb), 0.5), rgba(var(--accent-rgb), 0.22));
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.85),
-    inset 0 -10px 22px rgba(var(--accent-rgb), 0.34),
-    0 14px 34px rgba(var(--accent-rgb), 0.42),
-    0 2px 6px rgba(0, 0, 0, 0.32);
-}
-
-/* Prev / next flanking PLAY — dark glassy circles, echoing the reference's
-   skip arrows. */
-.song-hero__nav {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 3.1rem;
-  height: 3.1rem;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 50%;
-  background: rgba(8, 8, 18, 0.4);
-  color: var(--text);
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-  transition: background 0.15s ease, transform 0.12s ease;
-}
-
+/* Prev / next flanking PLAY, on the shared circular affordance so the skip
+   arrows, the hero's back chevron, the menu's hamburger and the in-run pause
+   button are one object at one size. */
 .song-hero__nav:hover {
-  background: rgba(var(--accent-rgb), 0.2);
   transform: translateY(-1px);
-}
-
-.song-hero__nav:active {
-  transform: translateY(0);
 }
 
 /* The hero's best-score plaque sits over the wash; give it a readable panel. */
 .song-hero .best-score {
   justify-content: center;
-  padding: 0.5rem 0.9rem;
-  border-radius: var(--radius-sm);
-  background: rgba(8, 8, 18, 0.34);
-  backdrop-filter: blur(6px);
+  padding: var(--sp-2) var(--sp-3);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2124,18 +2470,22 @@ kbd {
   gap: 0.6rem;
 }
 
+/* A chip is a `.panel--raised` with a 1px rim, like every other small surface in
+   the flow — it used to be the only 2px border in the app, over a navy tint that
+   matched nothing else. */
 .difficulty {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0.85rem 1rem;
-  border: 2px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-sm);
-  background: rgba(12, 12, 30, 0.5);
-  color: var(--text);
+  padding: 0.8rem var(--sp-4);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-sm);
+  background: var(--surface-raised);
+  color: var(--muted);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease,
+    color 0.15s ease;
 }
 
 .difficulty__name {
@@ -2149,51 +2499,49 @@ kbd {
   text-transform: capitalize;
 }
 
-/* The selected chip lights up — the per-difficulty border colour below stays as
-   the readable code, and this adds the electric glow the arcs sit over. */
+/*
+ * The selected chip lights up IN THE SONG'S ACCENT, and only in it.
+ *
+ * Each difficulty used to carry its own hue when active — mint, yellow, pink,
+ * violet — so the hero showed one of four unrelated colours depending on a
+ * choice the player had already made, on the one screen whose whole job is to
+ * introduce a song's colour. That is four more hues in a flow that is supposed
+ * to have one, and the chip already says "Medium" in words: the colour was
+ * carrying no information the label was not.
+ *
+ * Selection now reads on three channels that cost no hue at all — a lit accent
+ * rim, an accent fill, and full-brightness text against the muted rest — which
+ * is the same channel set the library's selected row uses.
+ */
 .difficulty--active {
-  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.28), inset 0 0 14px rgba(var(--accent-rgb), 0.14);
+  border-color: var(--sel-rim);
+  background: var(--sel-fill);
+  color: var(--text);
+  /* Inset, not the old outer halo: PLAY sits ~200px below this chip and is an
+     accent-filled pill with an outer halo of its own, so on a gold-accented
+     song the two lit objects were the same object twice. */
+  box-shadow: var(--sel-inner);
 }
 
 /* The arcs only render on the active chip (see JSX); keep them clipped to the
    chip's rounded box. */
 .difficulty .arcs {
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
   overflow: hidden;
-}
-
-.difficulty--easy.difficulty--active {
-  border-color: var(--mint);
-  background: rgba(242, 220, 148, 0.1);
-}
-
-.difficulty--medium.difficulty--active {
-  border-color: var(--yellow);
-  background: rgba(255, 214, 10, 0.1);
-}
-
-.difficulty--hard.difficulty--active {
-  border-color: var(--pink);
-  background: rgba(var(--accent-rgb), 0.12);
-}
-
-.difficulty--extreme.difficulty--active {
-  border-color: var(--violet);
-  background: rgba(122, 79, 255, 0.16);
 }
 
 .best-score {
   display: flex;
-  gap: 1rem;
+  gap: var(--sp-4);
   align-items: center;
-  padding: 0.9rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(var(--accent-rgb), 0.18);
-  background: rgba(10, 10, 28, 0.5);
+  padding: var(--sp-3);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--rim);
+  background: var(--surface-raised);
 }
 
 .best-score__value {
-  font-size: 1.3rem;
+  font-size: var(--fs-lg);
   font-weight: 800;
 }
 
@@ -2513,10 +2861,14 @@ kbd {
   flex-direction: row;
   align-items: center;
   padding: 0.3rem 0.85rem 0.34rem;
-  border-radius: 999px;
-  background: rgba(6, 7, 14, 0.72);
-  border: 1px solid rgba(214, 222, 236, 0.13);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  /* The shared surface tokens, which were derived from this pill in the first
+     place — it just never adopted them, so the reference implementation was the
+     one surface in the app not expressed in the system it defined. Values are
+     byte-identical to what shipped; only the spelling changed. */
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border: 1px solid var(--rim);
+  box-shadow: var(--shadow-1);
 }
 
 /* --- the waveform deck ----------------------------------------------------
@@ -2606,28 +2958,45 @@ kbd {
     /* rim */
     inset 0 0 0 2px rgba(var(--accent-rgb), 0.85),
     inset 0 0 14px rgba(0, 0, 0, 0.62);
-  background: #0a0a12;
+  /* The two caps a width-fitted 16:9 frame leaves above and below it. The hero
+     fills its own with a blurred over-scan of the art (it has the URL as a CSS
+     var); this one is a flat accent-tinted dark, because the HUD disc has no
+     such var and adding one means writing a per-frame style from the render
+     loop for a 92px decoration. At this size the two read the same. */
+  background: radial-gradient(circle at 50% 42%, #12121e, #08080f 78%);
 }
 
+/*
+ * THE SHARED COVER-DISC RULE, second of two call sites — `.song-hero__disc-art`
+ * carries the identical declarations and the full reasoning for them. If one
+ * moves, move both, or the same cover fits two different ways two screens apart,
+ * which is exactly what was reported.
+ *
+ * It used to be `object-fit: cover` here and `contain` on the hero. `cover` kept
+ * only the middle 56% of a 16:9 thumbnail, so a title card came through as
+ * "VIMAL" with the word running off both sides. Fitted to the disc's width the
+ * frame touches both edges, the circle takes only the corners, and the band
+ * below covers the art's bottom fifth — which is the reference's own
+ * composition ("the cover keeps its top two thirds").
+ */
 .hud__disc-art {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
   width: 100%;
-  height: 100%;
-  /*
-   * `cover` with an explicit centre origin, and the origin is the point.
-   *
-   * A YouTube thumbnail is 16:9 and this frame is a circle, so *something* has
-   * to go; the defect was that it was going asymmetrically. Anchored dead centre
-   * the cover art (which sits centred in a 16:9 thumbnail) survives and the
-   * lettering is trimmed evenly from both sides rather than guillotined off one.
-   */
-  object-fit: cover;
-  object-position: 50% 50%;
+  height: auto;
+  /* The same edge feather the hero's disc carries, for the same reason: an
+     un-feathered frame edge reads as a seam across the disc. */
+  -webkit-mask-image: linear-gradient(#0000, #000 7%, #000 93%, #0000);
+  mask-image: linear-gradient(#0000, #000 7%, #000 93%, #0000);
   /* Album art is uncontrolled input — it can be any brightness, and this element
      sits above the far end of the highway. Held down so it can never join the
      notes at the top of the luminance histogram. */
   opacity: 0.9;
   filter: saturate(0.9) brightness(0.86);
 }
+
 
 /* Progress toward the next multiplier step.
 
@@ -3687,19 +4056,29 @@ kbd {
   gap: 0.75rem;
   width: 100%;
   padding: 0.7rem 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.9);
+  /* The library row's material, to the unit: `.song-card` and `.results__band`
+     use this same pair. It was rgba(255,255,255,0.04) over a 0.1 rim at a
+     hand-written 12px radius and 0.88rem — four ad-hoc values for the one
+     object the app repeats most, which is how the settings list came to read as
+     a wireframe next to a library of solid plates. */
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background:
+    linear-gradient(180deg, rgba(30, 34, 46, 0.97), rgba(23, 27, 37, 0.97)) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05)) border-box;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  color: var(--text);
   font: inherit;
-  font-size: 0.88rem;
+  font-size: var(--fs-sm);
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .setting-row:hover {
-  border-color: rgba(var(--accent-rgb), 0.4);
-  background: rgba(255, 255, 255, 0.07);
+  background:
+    linear-gradient(180deg, rgba(38, 43, 57, 0.97), rgba(30, 35, 46, 0.97)) padding-box,
+    linear-gradient(160deg, rgba(var(--accent-rgb), 0.45), rgba(var(--accent-rgb), 0.12))
+      border-box;
 }
 
 .setting-row__chev {
@@ -3852,7 +4231,7 @@ kbd {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.05);
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: capitalize;
@@ -3887,9 +4266,9 @@ kbd {
 
 .mod-panel__label {
   color: var(--muted);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
+  font-size: var(--fs-label);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   opacity: 0.7;
 }
@@ -3906,11 +4285,11 @@ kbd {
   align-items: center;
   gap: 0.4rem;
   padding: 0.4rem 0.9rem;
-  border: 1px solid var(--edge);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-pill);
+  background: var(--surface-raised);
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -3924,9 +4303,11 @@ kbd {
 /* An active modifier lights up in the screen's accent, the same language the
    difficulty chip and PLAY button already speak. */
 .mod-chip--on {
-  border-color: rgba(var(--accent-rgb), 0.85);
-  color: var(--gold-bright);
-  background: rgba(var(--accent-rgb), 0.12);
+  /* The shared selection vars — the same three channels the difficulty chip and
+     the library's selected row use. Gold on this screen meant nothing. */
+  border-color: var(--sel-rim);
+  background: var(--sel-fill);
+  color: var(--text);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3972,21 +4353,35 @@ kbd {
   height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 2rem;
+  padding: var(--sp-6);
 }
 
+/*
+ * The one panel treatment (see `.panel`), plus an accent halo — the card is lit
+ * by the same light as the field behind it, which is what makes the scorecard
+ * read as the end of the run rather than as a dialog that appeared over it.
+ *
+ * The gold-gradient border-box is gone. Gold means SELECTION in the library and
+ * ACHIEVEMENT on the grade medal; a gold hairline around the card itself made it
+ * a third meaning, and it was the only gold-rimmed surface in the whole flow —
+ * the menu cards it claimed to match wear gold only when selected.
+ */
 .results__card {
   margin: auto;
   width: min(30rem, 100%);
-  padding: 2.5rem;
-  border: 1.5px solid transparent;
-  border-radius: var(--radius);
-  /* Gold metallic trim over a navy panel, the same chrome as the menu cards. */
+  padding: var(--sp-6);
+  /* The library row's edge, scaled up: a transparent border carrying a rim
+     gradient on border-box over the card fill on padding-box. `.song-card` is
+     built the same way, so the two objects catch light identically — which is
+     most of what makes a list of rows and a scorecard read as one product. */
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
   background:
-    linear-gradient(var(--panel-solid), var(--panel-solid)) padding-box,
-    linear-gradient(150deg, #ffe79a, #6a4718 55%, #f5c04a) border-box;
-  box-shadow: 0 0 34px rgba(var(--accent-rgb), 0.12), 0 22px 60px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(14px);
+    var(--surface-solid) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05)) border-box;
+  box-shadow: 0 0 40px rgba(var(--accent-rgb), 0.14), var(--shadow-2);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
   text-align: center;
   /* Long unbreakable song titles wrap instead of overflowing (inherited). */
   overflow-wrap: anywhere;
@@ -4031,41 +4426,71 @@ kbd {
   position: relative;
   margin: auto; /* centres an over-tall card without stranding its top (trap) */
   width: min(40rem, 100%);
-  padding: 2rem 1.6rem;
-  border: 1px solid var(--edge);
-  border-radius: var(--radius);
-  background: var(--panel-solid);
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(14px);
+  padding: var(--sp-6) var(--sp-5);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-lg);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
   text-align: center;
 }
 
-.achievements__back {
+/*
+ * Back affordances that are text rather than a circle share ONE pill — the
+ * settings screen and the trophy case had two near-identical copies.
+ *
+ * It is the `.nav-circle` PLATE, stretched: same 46px height, same rim colour,
+ * same two-stop top-lit fill, same sheen, same press. The only difference is
+ * that it is a rounded rectangle because it carries a word. "Get out of here"
+ * is then one object everywhere it appears — the hero's chevron disc, the
+ * library's hamburger, the in-run pause and this — which is what a shared
+ * header pattern means in practice.
+ */
+.achievements__back,
+.settings__back {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
-  padding: 0.4rem 0.9rem;
-  border: 1px solid var(--edge);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--muted);
+  top: var(--sp-4);
+  left: var(--sp-4);
+  display: inline-flex;
+  align-items: center;
+  height: 46px;
+  padding: 0 1rem;
+  border: 1px solid #4a5262;
+  border-radius: var(--r-pill);
+  background:
+    linear-gradient(148deg, rgba(226, 235, 250, 0.14) 0%, rgba(226, 235, 250, 0) 46%),
+    linear-gradient(180deg, #171c26 0%, #0f131b 56%, #07080e 100%);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.55);
+  color: var(--text);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+
+.achievements__back:hover,
+.settings__back:hover {
+  border-color: rgba(var(--accent-rgb), 0.7);
+}
+
+.achievements__back:active,
+.settings__back:active {
+  transform: scale(0.94);
 }
 
 .achievements__card h1 {
   margin: 0.4rem 0 0.2rem;
-  font-size: clamp(1.4rem, 5vw, 2rem);
+  font-size: var(--fs-xl);
 }
 
 .achievements__progress {
   margin: 0 0 1.2rem;
-  color: var(--gold);
+  color: var(--muted);
   font-weight: 800;
-  letter-spacing: 0.14em;
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
-  font-size: 0.78rem;
+  font-size: var(--fs-label);
 }
 
 .achievements__grid {
@@ -4079,10 +4504,10 @@ kbd {
   flex-direction: column;
   align-items: center;
   gap: 0.3rem;
-  padding: 1rem 0.6rem;
-  border-radius: 14px;
-  border: 1px solid var(--edge);
-  background: rgba(255, 255, 255, 0.03);
+  padding: var(--sp-4) 0.6rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--rim);
+  background: var(--surface-raised);
 }
 
 /* Earned badges glow in the accent; locked ones sit dim and desaturated. */
@@ -4138,31 +4563,18 @@ kbd {
   position: relative;
   margin: auto; /* centres an over-tall card without stranding its top (trap) */
   width: min(34rem, 100%);
-  padding: 2rem 1.6rem;
-  border: 1px solid var(--edge);
-  border-radius: var(--radius);
-  background: var(--panel-solid);
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(14px);
-}
-
-.settings__back {
-  position: absolute;
-  top: 1rem;
-  left: 1rem;
-  padding: 0.4rem 0.9rem;
-  border: 1px solid var(--edge);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
+  padding: var(--sp-6) var(--sp-5);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-lg);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
 }
 
 .settings__card h1 {
   margin: 0.4rem 0 1.4rem;
-  font-size: clamp(1.4rem, 5vw, 2rem);
+  font-size: var(--fs-xl);
   text-align: center;
 }
 
@@ -4180,8 +4592,8 @@ kbd {
   color: var(--muted);
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: 0.72rem;
-  letter-spacing: 0.16em;
+  font-size: var(--fs-label);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
 
@@ -4215,12 +4627,12 @@ kbd {
   align-items: center;
   gap: 0.45rem;
   padding: 0.35rem 0.75rem;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rim);
+  background: var(--surface-raised);
   color: var(--text);
   font-weight: 700;
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
 }
 
 .badge-pop__icon {
@@ -4242,17 +4654,24 @@ kbd {
   text-align: left;
 }
 
+/* The difficulty pill: the shared micro-cap on an accent chip — the same
+   selected-chip treatment the hero's difficulty picker uses, which is where the
+   player chose it. It used to be gold ink, the only gold on a card whose gold
+   belongs to the grade. */
 .results__diff {
   flex: none;
   margin: 0;
-  padding: 0.25rem 0.7rem;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--accent-rgb), 0.4);
-  background: rgba(var(--accent-rgb), 0.12);
-  color: var(--gold);
-  font-size: 0.66rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: var(--r-pill);
+  /* The shared selection vars — this pill reports a choice the player made on
+     the hero's difficulty chips, so it must be the same chip. */
+  border: 1px solid var(--sel-rim);
+  background: var(--sel-fill);
+  box-shadow: var(--sel-inner);
+  color: var(--text);
+  font-size: var(--fs-label);
   font-weight: 800;
-  letter-spacing: 0.18em;
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
 
@@ -4274,7 +4693,7 @@ kbd {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--fs-lg);
   font-weight: 400; /* display face */
   line-height: 1.2;
 }
@@ -4357,7 +4776,7 @@ kbd {
 .results__grade {
   /* Big enough to land from arm's length — the reference gives its grade about a
      quarter of the frame height and nothing competes with it. */
-  font-size: 7rem;
+  font-size: var(--fs-hero);
   font-weight: 400; /* display face */
   line-height: 1;
   background: linear-gradient(
@@ -4394,25 +4813,36 @@ kbd {
  * Deliberately NOT gold: the grade owns that family now, and a gold pill beside
  * a white score simply moved the competition down one line.
  */
+/*
+ * On the shared `.chip` plate (`.chip--strong`), not a white pill.
+ *
+ * It was `rgba(255,255,255,0.9)` with #12141f ink — the ONLY light-on-dark
+ * inversion and the only white surface anywhere in the flow, on a card whose
+ * every other element is dark with a chrome hairline. It read as a system
+ * notification stuck to the scorecard rather than as part of it.
+ */
 .results__best {
-  padding: 0.22rem 0.6rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #12141f;
+  border: 1px solid var(--rim-strong);
+  border-radius: var(--r-pill);
+  padding: 0.28rem 0.7rem;
+  background: var(--surface-raised);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--shadow-1);
+  color: #fff;
   font-weight: 900;
-  font-size: 0.6rem;
-  letter-spacing: 0.1em;
+  font-size: var(--fs-label);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-/* Rides inside the badge, so it is dark-on-light like the label it follows
-   rather than a second badge competing with it. */
+/* Rides inside the badge as a quieter inset, so it is one badge with a
+   qualifier rather than two badges competing. */
 .results__assisted-tag {
   margin-left: 0.35rem;
   padding: 0.05rem 0.35rem;
-  border-radius: 999px;
-  background: rgba(18, 20, 31, 0.16);
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-dim);
   font-size: 0.86em;
   letter-spacing: 0.06em;
 }
@@ -4420,7 +4850,7 @@ kbd {
 .results__assisted {
   margin: 0.6rem 0 0;
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   letter-spacing: 0.06em;
 }
 
@@ -4430,9 +4860,9 @@ kbd {
 .results__prev {
   margin: 0 0 0.1rem;
   color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: var(--fs-label);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
 
@@ -4479,7 +4909,7 @@ kbd {
    judgement — deliberately quiet, because falling short of a personal best is
    the normal outcome and should not read as a failure. */
 .results__delta {
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 800;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
@@ -4519,7 +4949,7 @@ kbd {
 .results__score {
   font-size: 2.2rem;
   line-height: 1;
-  color: #f4f6ff;
+  color: #f6f8ff;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.005em;
 }
@@ -4533,7 +4963,7 @@ kbd {
      one around the grade. */
   margin: 0.9rem 0 0;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: var(--fs-sm);
   line-height: 1.4;
 }
 
@@ -4545,9 +4975,18 @@ kbd {
 .results__band {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  margin: 1.2rem -2.5rem 0;
+  /* Tracks `.results__card`'s horizontal padding exactly — the strip is
+     full-bleed, so if the card's padding moves this must move with it. */
+  margin: var(--sp-5) calc(-1 * var(--sp-6)) 0;
   padding: 0.85rem 0;
-  background: rgba(4, 4, 12, 0.5);
+  /* The library row's fill, to the unit — `.song-card` uses this exact pair.
+     It was rgba(4,4,12,0.5), i.e. a WELL: darker than the card it sits on, and
+     the only sunken surface in the flow. Every other sub-surface in the app
+     (song row, difficulty chip, HUD plaque) is a raised plate on the
+     `--surface-raised` family, so the scorecard's one panel was made of
+     different stuff from everything the player had touched to get here. */
+  background: linear-gradient(180deg, rgba(30, 34, 46, 0.9), rgba(23, 27, 37, 0.9));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
   /* A neutral hairline, not `--edge`: `accentVars` tints that to the song accent,
      which on this card painted two magenta rules straight across a gold-and-white
      composition — a fourth hue in a frame whose whole point is that the grade owns
@@ -4572,9 +5011,9 @@ kbd {
 
 .results__band-label {
   color: var(--muted);
-  font-size: 0.6rem;
+  font-size: var(--fs-label);
   font-weight: 800;
-  letter-spacing: 0.14em;
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
 
@@ -4583,7 +5022,7 @@ kbd {
 .results__advice {
   margin: 0.8rem 0 0;
   color: var(--gold-bright);
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 
@@ -4602,24 +5041,16 @@ kbd {
 }
 
 /*
- * The primary action is white here, not the pink/violet neon it wears elsewhere.
+ * The white-fill override is GONE — Retry is the shared `.btn--primary`.
  *
- * On this one screen the grade has to be the only saturated object; a glowing
- * accent-coloured button at the bottom of the card was a fourth gold/magenta
- * mass competing with it, and the reference's own Continue button is a plain
- * white fill for exactly that reason. Scoped to `.results__actions` — the neon
- * primary is right everywhere else, where nothing is competing with it.
+ * The override existed so the grade would be the card's only saturated mass. It
+ * still is: a 7rem metallic glyph with a bloom at the card's centre against a
+ * 2.6rem pill at its foot is not a contest. What the override cost was the last
+ * link in the accent chain — the song's colour runs menu detail -> hero -> the
+ * run -> the card's vignette, and the one control the player presses to go round
+ * again was the single element that stepped out of it and became grey. Two
+ * screens apart, the same action wore three different skins.
  */
-.results__actions .btn--primary {
-  background: linear-gradient(180deg, #ffffff, #dfe4f2);
-  color: #0f1220;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
-}
-
-.results__actions .btn--primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #ffffff, #f2f4fb);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
-}
 
 @keyframes results-card-in {
   from {
@@ -4721,11 +5152,7 @@ kbd {
   }
 
   .results__card {
-    padding: 1.35rem 1.1rem;
-  }
-
-  .results__card h1 {
-    font-size: 1.05rem;
+    padding: var(--sp-5) var(--sp-4);
   }
 
   /* Keeps the hero's share of the card at 667px — the air around the grade is
@@ -4743,17 +5170,14 @@ kbd {
     margin: 0 auto 1.1rem;
   }
 
-  .results__grade {
-    font-size: 5.6rem;
-  }
-
   .results__score {
     font-size: 1.95rem;
   }
 
   /* Tracks the card's own padding, so the band stays full-bleed. */
+  /* Same rule as above at the phone padding: tracks the card. */
   .results__band {
-    margin: 1rem -1.1rem 0;
+    margin: var(--sp-4) calc(-1 * var(--sp-4)) 0;
     padding: 0.7rem 0;
   }
 
@@ -4790,12 +5214,12 @@ kbd {
   /* Neutral hairline, matching the search field above it — the header used to
      carry three different border colours (gold field, accent chips, rainbow
      ring) inside one 130px band. */
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 999px;
-  background: var(--panel);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-pill);
+  background: var(--surface-raised);
   color: var(--text);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -4826,12 +5250,12 @@ kbd {
   /* Neutral hairline, matching the search field above it — the header used to
      carry three different border colours (gold field, accent chips, rainbow
      ring) inside one 130px band. */
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 999px;
-  background: var(--panel);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-pill);
+  background: var(--surface-raised);
   color: var(--muted);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -4847,10 +5271,10 @@ kbd {
 .song-tools__count {
   margin-left: auto;
   padding-right: 0.1rem;
-  color: #7d79a8;
-  font-size: 0.74rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-size: var(--fs-label);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
   font-variant-numeric: tabular-nums;
   text-transform: uppercase;
 }
@@ -5007,7 +5431,7 @@ kbd {
   height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 2rem;
+  padding: var(--sp-6);
 }
 
 .calibration__card {
@@ -5974,9 +6398,19 @@ kbd {
      can no longer drift out of step with a `[data-tier]` rule it does not
      redeclare, which is how a 100+ combo once ballooned to 5.6rem here. */
 
-  .results__card,
+  /*
+   * `.results__card` is deliberately NOT here.
+   *
+   * It used to be, at `padding: 1.5rem`, and this block sits AFTER the
+   * `max-width: 560px` one — so on a phone both matched and this later rule won,
+   * quietly overriding the 560px padding the summary band's full-bleed negative
+   * margin is calculated against. The band was inset 0.4rem from the card edge
+   * on every phone as a result: a full-bleed strip that stopped short of both
+   * edges, which reads as a misaligned panel rather than as a summary. The card
+   * takes its phone padding from the 560px block alone now.
+   */
   .calibration__card {
-    padding: 1.5rem;
+    padding: var(--sp-5);
   }
 
   /* The header is a single space-between row of an h1 plus two labelled ghost

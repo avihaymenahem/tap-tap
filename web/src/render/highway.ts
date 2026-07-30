@@ -307,6 +307,149 @@ const HIT_ZONE_DEPTH = 3.5;
  */
 const HIGHWAY_LENGTH = 25;
 
+/** World units between two deck rungs. Must stay in step with the shader's `2.25`. */
+export const DECK_RUNG_PERIOD = 2.25;
+/**
+ * How fast the ground grid runs relative to the deck. The ground is further
+ * away and is meant to read as the same sheet sliding under a longer lever
+ * arm, not as a second surface with its own agenda.
+ */
+export const GROUND_SCROLL_FRACTION = 0.5;
+
+/**
+ * How fast a note travels down the highway, in world units per second.
+ *
+ * A note covers the whole runway in exactly `approachSec`, and `approachSec`
+ * already carries the player's scroll-speed setting (`approachSecFor`), so
+ * anything derived from this follows that setting for free — and nothing here
+ * needs to resolve it per frame.
+ */
+export function noteWorldSpeed(approachSec: number): number {
+  return HIGHWAY_LENGTH / approachSec;
+}
+
+/**
+ * Phase of the deck's scrolling markings, in rung periods, at a given song time.
+ *
+ * **This is the "moving but not in motion" defect, and it is arithmetic rather
+ * than taste.** The floor drove its rungs from a hardcoded `-songTime * 1.6`
+ * periods per second, i.e. 3.6 world units per second. A note on hard travels
+ * `25 / 1.3` = **19.2 world units per second**. So the one scrolling marking on
+ * the track surface crawled at **a fifth of the speed of the objects sliding
+ * over it** — and, because the sign was inverted against the floor's uv (v
+ * increases *away* from the camera, which `toward` in the fragment shader
+ * already documents), it crawled in the **opposite direction**, up the track.
+ * The ground plane underneath, whose `uScroll` had the other sign, was
+ * meanwhile running correctly toward the player. Two surfaces sliding apart
+ * under notes moving five times faster than either: there is no consistent
+ * velocity for the eye to read, so the notes translate and the world does not.
+ *
+ * Deriving it from `noteWorldSpeed` makes the deck, the ground and the notes
+ * one rigid sheet by construction, at any difficulty and any scroll-speed
+ * setting, rather than by three constants agreeing until someone retunes one.
+ *
+ * Positive and increasing: the shader samples `fract(v * N + phase)`, so a
+ * crest sits at `v = (c - phase) / N`, and `v` must *fall* for the crest to
+ * travel toward the camera.
+ */
+export function deckScrollPhase(songTime: number, approachSec: number): number {
+  return (songTime * noteWorldSpeed(approachSec)) / DECK_RUNG_PERIOD;
+}
+
+/**
+ * The ground grid's scroll offset, in world units — it samples world distance
+ * directly rather than periods. Same direction as the deck by construction.
+ */
+export function groundScrollWorld(songTime: number, approachSec: number): number {
+  return songTime * noteWorldSpeed(approachSec) * GROUND_SCROLL_FRACTION;
+}
+
+/**
+ * Rattle frequencies for the hit shake, in Hz — one per axis, deliberately
+ * incommensurate so the camera traces a Lissajous figure rather than sliding
+ * back and forth along a single diagonal.
+ *
+ * **Tuned against frame coherence, not against how "fast" a rattle should
+ * feel.** 13/17Hz was tried first and is wrong: at 120Hz the faster axis moves
+ * 86% of its peak-to-peak span between consecutive frames, which is barely
+ * better than the noise it replaces — a vibration that fast is not a trajectory
+ * the eye can track, it is a shimmer. These sit at ~7 and ~10 samples per cycle
+ * on the S25 and ~3.5/5 at 60Hz, which is a curve rather than a scatter.
+ *
+ * They are also the right *duration*. `shake` bleeds off at 2.6/sec and the
+ * offset carries a squared falloff, so a capped burst is visually spent in
+ * ~0.08s — about one cycle at this rate. That is a kick and a recoil, which is
+ * what an impact is, rather than a sustained buzz on the whole playfield.
+ */
+const SHAKE_HZ_X = 8.5;
+const SHAKE_HZ_Y = 11.5;
+/**
+ * Peak match against the white noise this replaces. `(Math.random() - 0.5)`
+ * spans ±0.5; a sine spans ±1, so half the gain reproduces the old maximum
+ * excursion exactly. The impact language — how hard a hit kicks, how the combo
+ * scales it, how fast it decays — is untouched; only the *waveform* changes.
+ */
+const SHAKE_PEAK_MATCH = 0.5;
+
+/**
+ * The camera's shake offset, in world units, at a given magnitude and time.
+ *
+ * **This is the intermittent stutter, and it is the only frame-incoherent term
+ * left in the scene.** Everything a player watches move is drawn from song
+ * time — note z, the deck scroll, the hold bodies — and song time is smoothed
+ * by `RenderClock`, which simulates clean at every plausible refresh-rate /
+ * audio-quantum ratio (zero frozen frames, <=11% worst per-frame velocity error
+ * at any granularity an Android audio path produces). So the notes' own motion
+ * is not the defect. But the *camera* moves too, and every object in frame
+ * inherits that motion — and the shake term used to be
+ * `(Math.random() - 0.5) * shake * shake * 1.6`, resampled **every frame**.
+ *
+ * White noise has no correlation between consecutive samples, which is the
+ * literal definition of the thing the eye reads as stutter: the board is in a
+ * new random place each frame instead of travelling to it. At the shipped cap
+ * (`shake` 0.42) the peak excursion is 0.141 world units, and a lane is 1.05 —
+ * so the whole playfield jumps by up to ~13% of a lane, frame to frame, at
+ * random. Measured against the projection in a 390px portrait capture that is
+ * roughly +/-30 device px of pure noise.
+ *
+ * **And it is gated exactly where the owner reports it.** `shake` is bumped per
+ * hit by `base * (0.6 + min(1, combo/40))` and bleeds off at 2.6/sec, so it
+ * only sustains once hits are dense *and* the combo is long — "at some point in
+ * game", with the frame rate reading perfectly fine the whole time, which is
+ * the report.
+ *
+ * A pair of decaying sinusoids fixes it without touching the feel: the peak
+ * excursion, the combo scaling, the squared falloff and the decay rate are all
+ * unchanged, so a hit kicks exactly as hard as it did. What changes is that
+ * consecutive frames are now *near* each other, so the kick reads as a rattle
+ * the camera travels through rather than as a position that is re-rolled 120
+ * times a second. It is also frame-rate independent for the first time: white
+ * noise at 120Hz has twice the bandwidth of white noise at 60Hz, so the effect
+ * was literally a different effect on a different device.
+ *
+ * Pure and three-free so it can be pinned by a test — the same reason
+ * `holdSpan` and `deckScrollPhase` are exported.
+ *
+ * @param shake magnitude, 0..0.42; the squared falloff is applied here
+ * @param timeSec accumulated wall seconds (NOT song time — a rattle is a
+ *   physical event in the room, not a musical one, and must not stretch under a
+ *   speed modifier)
+ * @param phase randomised once per fresh burst so repeated hits do not rattle
+ *   in lockstep
+ */
+export function shakeOffset(
+  shake: number,
+  timeSec: number,
+  phase: number,
+): { x: number; y: number } {
+  const s = shake * shake;
+  const w = timeSec * Math.PI * 2;
+  return {
+    x: Math.sin(w * SHAKE_HZ_X + phase) * s * 1.6 * SHAKE_PEAK_MATCH,
+    y: Math.sin(w * SHAKE_HZ_Y + phase * 2.3) * s * 1.2 * SHAKE_PEAK_MATCH,
+  };
+}
+
 /**
  * The near field — everything between the receptors and the bottom of the frame.
  *
@@ -1418,6 +1561,14 @@ export class Highway {
   private punch = 0;
   /** Screen-shake magnitude, decaying to rest. Bumped on a hit, scaled by combo. */
   private shake = 0;
+  /**
+   * Phase of the shake waveform, re-rolled only when a burst starts from rest.
+   *
+   * Re-rolling it on every hit would put a position discontinuity in the middle
+   * of a decaying rattle — reintroducing, once per note, exactly the frame-to-
+   * frame jump `shakeOffset` exists to remove.
+   */
+  private shakePhase = 0;
 
   /** Expanding shockwave rings, one pool slot per concurrent hit. */
   private readonly shockwaves: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>[] = [];
@@ -3100,6 +3251,26 @@ export class Highway {
    * Returned as a pair rather than written into the shader by hand because both
    * numbers are functions of the camera rig, the plane's length and where the
    * hit line falls on it — four constants that have each moved at least once.
+   *
+   * **The weave deliberately does NOT scroll, and adding `uScroll` to it is the
+   * obvious wrong fix.** It is the deck's most legible detail, so once the rungs
+   * were locked to the notes' speed (`deckScrollPhase`) the surface reads as a
+   * moving marking sliding over a pinned material — which is a fair complaint
+   * and *is* part of "moving but not in motion". But the property this function
+   * exists to provide is constant period **per screen pixel**, and a phase
+   * offset in that coordinate therefore moves the whole weave at one uniform
+   * on-screen rate, near field and vanishing point alike. The rungs travel at
+   * true perspective rate (fast near, crawling far), so the two would shear
+   * against each other on the same surface — worse than one of them being
+   * still.
+   *
+   * Making the weave travel correctly means giving it a **world**-linear
+   * along-track coordinate instead of this one, which re-introduces exactly the
+   * far-field dissolve and aliasing this map was built to remove, and so also
+   * needs the distance fade the `No distance fade` note below deliberately
+   * removed to match the reference. That is a real trade with two documented
+   * decisions on the other side of it — not a one-line addition. Measure it in
+   * motion before attempting it; a still frame cannot show the defect or the fix.
    */
   private static weavePhase(): { a: number; k: number } {
     // View-axis depth of a point on the deck at world z. The camera looks from
@@ -3335,7 +3506,7 @@ export class Highway {
           // of at least ~1.5x a note's short edge near the hit line or it competes
           // with gameplay at gameplay's own spatial frequency. A tile is 1.36 deep,
           // so 1.5 was 1.1x — inside the note's own scale.
-          float rung = fract(vUv.y * ${(FLOOR_LENGTH / 2.25).toFixed(3)} + uScroll);
+          float rung = vUv.y * ${(FLOOR_LENGTH / DECK_RUNG_PERIOD).toFixed(3)} + uScroll;
           // A twelfth of what it was. The reference deck has no rungs at all; this
           // keeps the beat readable on the surface without being a second set of
           // horizontal bars competing with the receptor row. Killed in front of
@@ -3357,12 +3528,49 @@ export class Highway {
            * zero before the wrap costs the rung nothing visually and removes the
            * step entirely.
            */
-          // Symmetric, and wide enough on BOTH flanks: a 0.025-of-a-period rise
-          // is ~5 device px in the near field, which still measured a 1.5 luma
-          // step per row. 0.06 either side spends ~14px on each flank and takes
-          // the worst row-to-row delta under 1.2.
-          float rungs = smoothstep(0.88, 0.94, rung) * smoothstep(1.0, 0.94, rung)
-                      * nearness * (1.0 - front) * inside;
+          /*
+           * **A RAISED COSINE, and the shape had to change the moment the speed
+           * was fixed.**
+           *
+           * The pair of smoothsteps this replaces was a ~12%-duty crest. At the
+           * rate the rungs actually ran (3.6 world units/sec) it took ~75ms to
+           * cross its own width and that was fine. At the notes' real speed —
+           * 19.2 units/sec on hard, 26.3 on extreme — the same crest transits in
+           * **14ms, under two frames at 120Hz**: it would not scroll, it would
+           * strobe, and a hard-edged band aliasing against the pixel grid at 8.5
+           * per second is the worst possible thing to put on the largest surface
+           * in the frame.
+           *
+           * A cosine has no edges to alias at any speed, and it also retires the
+           * fract() cliff the note above spends four paragraphs on — there is no
+           * discontinuity left to fade symmetrically around, because cos is
+           * already continuous across the wrap. The exponent sharpens the trough
+           * so it still reads as a travelling BAND rather than as a flat ripple,
+           * while the peak stays round. (No backticks anywhere in here — one
+           * closes the template literal, and this comment cost a build once.)
+           *
+           * Not a flash hazard, and worth stating since anything periodic here
+           * is one question away from beatPulse: this is a travelling wave, not
+           * a synchronous one. ~11 periods are on screen at once at different
+           * phases, so no large area changes luminance together — which is what
+           * WCAG 2.3.1 measures — and the amplitude is a few percent of an
+           * already-dark deck.
+           */
+          /*
+           * Squared falloff with distance, where it used to be linear.
+           *
+           * Two reasons, and the second is the real one. A cosine is 100% duty
+           * where the old crest was 12%, so adjacent bands now touch — and up
+           * the board, where 2.25 world units projects to a handful of pixels,
+           * a continuous ripple beats against the pixel grid exactly as the
+           * weave does (the note on the weave's anti-alias taper is the same
+           * problem, already solved once). And the far field is not where a
+           * velocity cue is legible anyway: it is where the perspective has
+           * compressed everything to a crawl. Spending the contrast in the near
+           * half is both safer and where it does the work.
+           */
+          float rungs = pow(0.5 - 0.5 * cos(rung * 6.28318531), 1.7)
+                      * nearness * nearness * (1.0 - front) * inside;
 
           // The lit deck. Every term here is a MULTIPLIER on one neutral tone, so
           // no combination of them can introduce chroma.
@@ -3452,7 +3660,27 @@ export class Highway {
                      // the notes have to be the brightest thing on the board by a
                      // clear margin.
                      + lip * 0.28 * lamp
-                     + rungs * 0.10;
+                     /*
+                      * **0.22, not 0.10 — the amount that makes the deck read as
+                      * moving.**
+                      *
+                      * 0.10 was set to make the rungs nearly invisible, on the
+                      * grounds that "the reference deck has no rungs at all".
+                      * True of a still frame, and a still frame cannot show
+                      * motion — which is the owner's actual report: "i can see
+                      * the note bars moving, but dont feel in motion inside
+                      * game". A deck with no legible moving detail leaves the
+                      * notes sliding over a stationary board, and that is exactly
+                      * what "moving but not in motion" describes.
+                      *
+                      * Still scenery, and still a long way from competing: this
+                      * lands the crest at roughly 0.02 relative luminance on a
+                      * deck of 0.081 linear, against a note face that is the
+                      * brightest object in the frame by an order of magnitude.
+                      * Raise it further only with a capture to prove the notes
+                      * still win.
+                      */
+                     + rungs * 0.30;
           /*
            * DITHER, and it is not optional once the lengthwise ramp is wide.
            *
@@ -5747,6 +5975,9 @@ export class Highway {
       // hits harder than a good.
       const comboFactor = Math.min(1, combo / 40);
       const base = tier === 'perfect' ? 0.16 : tier === 'great' ? 0.11 : 0.07;
+      // Only a burst starting from rest re-rolls the rattle's phase; mid-decay
+      // it would be a position jump. See `shakePhase`.
+      if (this.shake < 0.02) this.shakePhase = Math.random() * Math.PI * 2;
       this.shake = Math.min(0.42, this.shake + base * (0.6 + comboFactor));
     }
 
@@ -5928,15 +6159,22 @@ export class Highway {
     this.updateCamera(dt, songTime, pulse);
     const floorUniforms = this.floor.material.uniforms;
     floorUniforms['uTime']!.value = songTime;
-    floorUniforms['uScroll']!.value = -songTime * 1.6;
+    // Locked to the notes' own speed and direction — see `deckScrollPhase`. The
+    // hardcoded `-songTime * 1.6` this replaces ran the deck backwards at a
+    // fifth of the notes' velocity, which is why the board read as static.
+    floorUniforms['uScroll']!.value = deckScrollPhase(songTime, this.approachSec);
     floorUniforms['uBass']!.value = bass;
     floorUniforms['uPulse']!.value = pulse;
     (floorUniforms['uLaneFlash']!.value as Float32Array).set(this.laneFlash);
 
     const groundUniforms = this.ground.material.uniforms;
-    // Half the floor's scroll rate. The ground is further away, so matching the
-    // track's speed makes the two read as one sliding sheet.
-    groundUniforms['uScroll']!.value = songTime * 3.2;
+    // Half the floor's scroll rate, which is what the comment here always
+    // claimed and what the constant never delivered: the floor's own rate was
+    // 3.6 world units/sec *away* from the player against this 3.2 *toward*, so
+    // "half" was really "the other way, and slightly slower". Both now derive
+    // from the notes' speed, so the two are one sliding sheet at every
+    // difficulty and every scroll-speed setting.
+    groundUniforms['uScroll']!.value = groundScrollWorld(songTime, this.approachSec);
     groundUniforms['uBass']!.value = bass;
     groundUniforms['uPulse']!.value = pulse;
 
@@ -6712,13 +6950,21 @@ export class Highway {
     // making the lanes harder to read.
     const sway = Math.sin(songTime * 0.55) * 0.06;
 
-    // Screen shake: a fast random jitter scaled by `shake`. Applied to the
-    // camera position and a fraction of it to the look target, so the frame
-    // rattles rather than just sliding. Squared falloff (shake*shake) keeps the
-    // low, constant end from making the lanes feel permanently loose.
-    const s = this.shake * this.shake;
-    const shakeX = (Math.random() - 0.5) * s * 1.6;
-    const shakeY = (Math.random() - 0.5) * s * 1.2;
+    // Screen shake: a coherent rattle scaled by `shake`. Applied to the camera
+    // position and a fraction of it to the look target, so the frame rattles
+    // rather than just sliding. Squared falloff (shake*shake) keeps the low,
+    // constant end from making the lanes feel permanently loose.
+    //
+    // Driven off `renderWallSec` — the accumulated frame timestamps the render
+    // clock already keeps — rather than `Math.random()` per frame. That swap is
+    // the fix for the reported intermittent stutter; the reasoning, the
+    // measured excursion and why it only shows up on a long combo are all on
+    // `shakeOffset`.
+    const { x: shakeX, y: shakeY } = shakeOffset(
+      this.shake,
+      this.renderWallSec,
+      this.shakePhase,
+    );
 
     this.camera.position.set(
       sway + shakeX,

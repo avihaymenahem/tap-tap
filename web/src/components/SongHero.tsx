@@ -95,8 +95,16 @@ export function SongHero({
       {song.thumbnailUrl && <img className="song-hero__wash" src={song.thumbnailUrl} alt="" aria-hidden />}
       <div className="song-hero__tint" aria-hidden />
 
-      <button type="button" className="song-hero__close" aria-label="Back to songs" onClick={requestClose}>
-        <ChevronDown size={26} aria-hidden />
+      {/* `nav-circle` is the shared circular affordance (styles.css) — the same
+          plate as the list's hamburger and the in-run pause disc, so "get out of
+          here" is one object wherever it appears. */}
+      <button
+        type="button"
+        className="song-hero__close nav-circle"
+        aria-label="Back to songs"
+        onClick={requestClose}
+      >
+        <ChevronDown size={24} aria-hidden />
       </button>
 
       {/* Keyed by song so switching tracks replays the entrance on the title,
@@ -107,10 +115,16 @@ export function SongHero({
       </div>
 
       <div className="song-hero__stage">
-        <SongAura className="song-hero__aura" accent={accent} disc={0.66} intensity={0.8} />
-        {/* `--art` feeds the blurred colour field behind the cover, so the
-            circle carries the song's colour while the frame itself stays whole
-            — cropping it to the circle sliced the lettering baked into the art. */}
+        {/* 0.5, down from 0.8: the aura is light *emitted by* the disc, not the
+            room's lighting. At 0.8 it washed the whole hero in the accent, which
+            is what made this screen read as a different product from the
+            near-black library before it and playfield after it. */}
+        <SongAura className="song-hero__aura" accent={accent} disc={0.66} intensity={0.5} />
+        {/* The cover is fitted to the disc's WIDTH (the shared cover-disc rule in
+            styles.css — the same fit the HUD's disc uses mid-run), so it touches
+            both side edges and the circle only takes the corners. `--art` fills
+            the two caps left above and below it with a blurred, darkened
+            over-scan of the same frame. */}
         <div
           className="song-hero__disc"
           key={song.songId}
@@ -166,8 +180,13 @@ export function SongHero({
         />
 
         <div className="song-hero__play-row">
-          <button type="button" className="song-hero__nav" aria-label="Previous song" onClick={onPrev}>
-            <SkipBack size={22} aria-hidden />
+          <button
+            type="button"
+            className="song-hero__nav nav-circle"
+            aria-label="Previous song"
+            onClick={onPrev}
+          >
+            <SkipBack size={20} aria-hidden />
           </button>
           <button
             type="button"
@@ -190,8 +209,13 @@ export function SongHero({
               'No chart'
             )}
           </button>
-          <button type="button" className="song-hero__nav" aria-label="Next song" onClick={onNext}>
-            <SkipForward size={22} aria-hidden />
+          <button
+            type="button"
+            className="song-hero__nav nav-circle"
+            aria-label="Next song"
+            onClick={onNext}
+          >
+            <SkipForward size={20} aria-hidden />
           </button>
         </div>
 

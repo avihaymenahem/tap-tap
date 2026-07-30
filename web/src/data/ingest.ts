@@ -196,6 +196,11 @@ export async function ingestFromUrl(url: string, onProgress: IngestProgress = ()
     bpm: bundle.analysis.bpm,
     bpmConfidence: bundle.analysis.bpmConfidence,
     beatGrid: bundle.analysis.beatGrid,
+    // Measured on the decode the analysis ran over, and stored — the worker has
+    // returned this since it was written, and dropping it here is why every
+    // song ingested on the phone played unlevelled while the desktop library
+    // was normalised. Absence means unity, so the omission was silent.
+    gainDb: bundle.gainDb,
     charts: bundle.charts,
   };
 

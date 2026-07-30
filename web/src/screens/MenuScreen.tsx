@@ -2,6 +2,7 @@ import type { DifficultyName, SongSummary, Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-tap/shared';
 import { ChevronDown, Download, Search, Star, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
+import { accentVars } from '../accent.js';
 import { isNativePlatform, listCustomThemes, listSongs } from '../data/index.js';
 import { NativeIngest } from '../components/NativeIngest.js';
 import { SongHero } from '../components/SongHero.js';
@@ -279,9 +280,15 @@ export function MenuScreen({
   // The selected song's theme accent, painting the detail panel so the palette
   // already matches before the ready screen ever shows.
   const catalog = useMemo(() => themeCatalog(customThemes), [customThemes]);
-  // Contained to the detail panel on purpose — the shared backdrop stays gold.
-  // Tinting the whole menu to the current selection made the glow lurch between
-  // colours as you browse and mixed badly with the warm stage.
+  //
+  // STILL contained to the selection, and that constraint has not moved: tinting
+  // the whole menu to whatever row is current made the shared backdrop lurch
+  // between colours as you scrolled, and it was tried and reverted. What is new
+  // is that the SELECTED ROW itself now carries the accent (via `accentVars` on
+  // its <li>), not just the panel — so the colour the player is about to see on
+  // the hero, in the run and on the scorecard starts at the moment they pick the
+  // track. One row is a highlight; the field behind every row is the thing that
+  // lurched.
   const selectedAccent = selectedSong
     ? (themeFor(catalog, selectedSong.themeId).accent ?? DEFAULT_ACCENT)
     : DEFAULT_ACCENT;
@@ -627,7 +634,15 @@ export function MenuScreen({
                     ]
                       .filter(Boolean)
                       .join(' ')}
-                    style={{ '--i': Math.min(index, 10) } as CSSProperties}
+                    style={
+                      {
+                        '--i': Math.min(index, 10),
+                        // The selected row is repainted in the SONG's accent, so
+                        // the rim, the art wash and the play lens are already the
+                        // colour the hero, the run and the scorecard will use.
+                        ...(selectedSong?.songId === song.songId ? accentVars(selectedAccent) : {}),
+                      } as CSSProperties
+                    }
                   >
                     <button
                       type="button"
