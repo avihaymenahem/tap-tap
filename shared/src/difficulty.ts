@@ -41,7 +41,17 @@ export interface DifficultyParams {
   chords: boolean;
   /** 0..1 — how often an eligible strong onset becomes a chord. */
   chordChance: number;
-  /** Upper bound on average notes per second across the song. */
+  /**
+   * Target for the average notes per second across the song.
+   *
+   * **An average, and that is its limitation.** It says nothing about any
+   * particular moment, so a chart can spend this budget in full and still leave
+   * a dead multi-second hole — which is exactly what the shipped library did
+   * (easy on a 128 BPM track: eleven gaps over 1.5s, worst 7.50s). The local
+   * guarantee lives in `MAX_REST_SEC` (`charts/generate.ts`), and it outranks
+   * this: closing a rest the music had onsets for may push a song a few notes
+   * past the target, the same way the per-section density floor already can.
+   */
   targetNps: number;
   /** Seconds a note is visible before it reaches the hit line. */
   approachSec: number;

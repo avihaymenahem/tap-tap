@@ -1,6 +1,6 @@
 import type { DifficultyName, SongSummary } from '@tap-tap/shared';
 import { ChevronDown, Play, SkipBack, SkipForward, Users } from 'lucide-react';
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useState, type CSSProperties, type JSX } from 'react';
 import { accentVars } from '../accent.js';
 import { primeAudio } from '../game/clock.js';
 import { getStoredModifiers, setStoredModifiers } from '../storage.js';
@@ -108,7 +108,18 @@ export function SongHero({
 
       <div className="song-hero__stage">
         <SongAura className="song-hero__aura" accent={accent} disc={0.66} intensity={0.8} />
-        <div className="song-hero__disc" key={song.songId}>
+        {/* `--art` feeds the blurred colour field behind the cover, so the
+            circle carries the song's colour while the frame itself stays whole
+            — cropping it to the circle sliced the lettering baked into the art. */}
+        <div
+          className="song-hero__disc"
+          key={song.songId}
+          style={
+            song.thumbnailUrl
+              ? ({ '--art': `url("${song.thumbnailUrl.replace(/"/g, '%22')}")` } as CSSProperties)
+              : undefined
+          }
+        >
           {song.thumbnailUrl ? (
             <img className="song-hero__disc-art" src={song.thumbnailUrl} alt="" />
           ) : (

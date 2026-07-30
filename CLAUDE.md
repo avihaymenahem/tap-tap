@@ -975,6 +975,32 @@ cheer ─┴→ sfxVol ───────────────────
   an afterthought — a claim about *generation* gets asserted across all four
   fixtures (see Testing conventions). Both surviving claims did: rhythm does
   escalate from easy to extreme, and density is monotonic, on every fixture.
+- **Density is budgeted on averages; `MAX_REST_SEC` is the only *local*
+  guarantee.** `targetNps` budgets the whole song and `MIN_DENSITY_FRACTION`
+  floors an 8s section at a note *count* — neither says anything about where
+  inside a section those notes land, and `selectNotes` takes them
+  strongest-first. So a section's whole quota can bunch into its first two
+  seconds and the remaining six be dead while the music plays on. Measured on the
+  shipped "Animals" chart: easy had **eleven** gaps over 1.5s and a worst of
+  **7.50s**; across seven library songs there were 55 dead stretches over 2s that
+  the song had onsets for. That is the "empty gaps, like brakes" report.
+  `fillLongRests` (generate.ts) closes any rest over `MAX_REST_SEC` (2s, one bar
+  at 120 BPM), and the same seven songs now measure **zero**.
+  - **It only ever promotes onsets the detector actually found**, which is what
+    keeps it a fix and not a quota — the same reasoning as `holdShare` being a
+    ceiling. Animals' 5.2s hole at 179.7s survives on *every* difficulty, and
+    correctly: the audio there is one hit decaying to digital silence with no
+    transient in it. **Before calling a surviving gap a bug, check the waveform.**
+  - **It relaxes the layering gate locally.** `admitPercussive` relaxes when the
+    gate would starve the *song*; this reaches into the same reserve when it
+    would starve a *stretch*, preferring gate-passing onsets whatever their
+    strength. A drum track with one melodic bridge charted the bridge **empty**
+    on easy before this.
+  - **A hold covers its own span, so a gap measured start-to-start over-reports.**
+    Measure dead time as the union of `[t, t + duration]` or a 1.5s hold reads as
+    1.5s of nothing. Four "violations" on Numb/easy were exactly this.
+  - The guarantee **outranks `targetNps`** and can push a song a few notes past
+    it, the same way the per-section floor already could.
 - Regenerating charts invalidates stored scores. Mention it when you do.
 - **Regenerate re-analyzes when `analysis.json` is stale.** The file carries an
   `analysisVersion` stamp; when it does not match `ANALYSIS_VERSION`, regenerate

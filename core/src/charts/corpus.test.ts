@@ -1,7 +1,7 @@
 import type { AnalysisResult, DifficultyName } from '@tap-tap/shared';
 import { DIFFICULTIES, DIFFICULTY_NAMES, effectiveMinGapSec } from '@tap-tap/shared';
 import { describe, expect, it } from 'vitest';
-import { generateChart } from './generate.js';
+import { generateChart, MAX_REST_SEC } from './generate.js';
 import { chartMetrics } from './metrics.js';
 import {
   BREAK_END,
@@ -51,13 +51,30 @@ interface Row {
   pattern: number;
 }
 
-/** Measured at caea3a3 + the layering gate, seed `CORPUS_SEED`. Generation is deterministic. */
+/**
+ * Measured at caea3a3 + the layering gate + the long-rest guarantee, seed
+ * `CORPUS_SEED`. Generation is deterministic.
+ *
+ * **Last moved by `fillLongRests`** (`MAX_REST_SEC`), which closes any rest over
+ * two seconds that the song had a placeable onset for. Five of the twenty-eight
+ * rows moved and all five are the same change: `nps` up by a handful of notes on
+ * `structured` (easy/hard/extreme), `layered` easy and `melodic` easy — the only
+ * fixture/difficulty pairs that were leaving a hole the music could have filled.
+ * The other twenty-three are byte-identical, which is the control: the guarantee
+ * does not touch a chart that never had a long rest.
+ *
+ * **`rests` moving *up* on `structured`/`layered` easy is arithmetic, not a
+ * regression.** `restCount` counts gaps of two beats or more, so splitting one
+ * 2.5s hole into two 1.2s rests trades a hole the player reads as a fault for
+ * two rests they read as phrasing — and the counter goes from 1 to 2. Read it
+ * next to `nps`, never alone.
+ */
 const BASELINE: Record<FixtureName, Record<DifficultyName, Row>> = {
   structured: {
-    easy: { nps: 0.933, corr: 0.681, entropy: 0.915, maxLane: 0.429, chord: 0, onGrid: 0.982, stream: 1, leap: 0.073, gapBeats: 2, rests: 30, pattern: 0.215 },
+    easy: { nps: 1, corr: 0.633, entropy: 0.907, maxLane: 0.417, chord: 0, onGrid: 0.983, stream: 1, leap: 0.051, gapBeats: 2, rests: 33, pattern: 0.202 },
     medium: { nps: 1.183, corr: 0.425, entropy: 0.968, maxLane: 0.366, chord: 0, onGrid: 0.986, stream: 1, leap: 0.071, gapBeats: 1.5, rests: 9, pattern: 0.134 },
-    hard: { nps: 2.817, corr: 0.84, entropy: 0.843, maxLane: 0.331, chord: 0, onGrid: 0.994, stream: 112, leap: 0.012, gapBeats: 0.5, rests: 3, pattern: 0.073 },
-    extreme: { nps: 3.317, corr: 0.687, entropy: 0.961, maxLane: 0.332, chord: 0, onGrid: 0.995, stream: 112, leap: 0.167, gapBeats: 0.5, rests: 1, pattern: 0.069 },
+    hard: { nps: 2.917, corr: 0.827, entropy: 0.853, maxLane: 0.331, chord: 0, onGrid: 0.994, stream: 112, leap: 0.023, gapBeats: 0.5, rests: 3, pattern: 0.072 },
+    extreme: { nps: 3.333, corr: 0.678, entropy: 0.962, maxLane: 0.33, chord: 0, onGrid: 0.995, stream: 112, leap: 0.171, gapBeats: 0.5, rests: 1, pattern: 0.068 },
   },
   hatHeavy: {
     easy: { nps: 1.15, corr: 0, entropy: 0.955, maxLane: 0.362, chord: 0, onGrid: 1, stream: 1, leap: 0.044, gapBeats: 2, rests: 50, pattern: 0.355 },
@@ -84,13 +101,13 @@ const BASELINE: Record<FixtureName, Record<DifficultyName, Row>> = {
     extreme: { nps: 2.667, corr: 0.672, entropy: 0.961, maxLane: 0.331, chord: 0, onGrid: 0.994, stream: 1, leap: 0.17, gapBeats: 0.5, rests: 0, pattern: 0.067 },
   },
   layered: {
-    easy: { nps: 1.15, corr: 0, entropy: 0.978, maxLane: 0.319, chord: 0, onGrid: 1, stream: 1, leap: 0, gapBeats: 1, rests: 22, pattern: 0.289 },
+    easy: { nps: 1.267, corr: 0, entropy: 0.979, maxLane: 0.316, chord: 0, onGrid: 1, stream: 1, leap: 0, gapBeats: 1, rests: 29, pattern: 0.296 },
     medium: { nps: 2.117, corr: 0, entropy: 0.981, maxLane: 0.307, chord: 0.058, onGrid: 1, stream: 1, leap: 0.008, gapBeats: 1, rests: 0, pattern: 0.203 },
     hard: { nps: 4.033, corr: 0, entropy: 0.941, maxLane: 0.368, chord: 0.142, onGrid: 0.996, stream: 16, leap: 0.038, gapBeats: 0.5, rests: 0, pattern: 0.085 },
     extreme: { nps: 5.25, corr: 0, entropy: 0.998, maxLane: 0.276, chord: 0.313, onGrid: 0.997, stream: 240, leap: 0.109, gapBeats: 0.5, rests: 0, pattern: 0.075 },
   },
   melodic: {
-    easy: { nps: 0.967, corr: 0.049, entropy: 0.964, maxLane: 0.379, chord: 0, onGrid: 1, stream: 1, leap: 0.088, gapBeats: 1.5, rests: 8, pattern: 0.073 },
+    easy: { nps: 1.067, corr: 0.064, entropy: 0.965, maxLane: 0.391, chord: 0, onGrid: 1, stream: 1, leap: 0.175, gapBeats: 1.5, rests: 5, pattern: 0.08 },
     medium: { nps: 1.167, corr: 0.427, entropy: 0.965, maxLane: 0.386, chord: 0, onGrid: 0.986, stream: 1, leap: 0.232, gapBeats: 1.5, rests: 4, pattern: 0.07 },
     hard: { nps: 3.35, corr: 0.863, entropy: 0.976, maxLane: 0.289, chord: 0, onGrid: 0.99, stream: 201, leap: 0.14, gapBeats: 0.5, rests: 0, pattern: 0.067 },
     extreme: { nps: 3.35, corr: 0.863, entropy: 0.993, maxLane: 0.289, chord: 0, onGrid: 0.99, stream: 201, leap: 0.14, gapBeats: 0.5, rests: 0, pattern: 0.067 },
@@ -198,6 +215,69 @@ describe('chart corpus — properties that must hold on every fixture', () => {
         expect(row(fixture, next).nps, `${fixture} ${next} vs ${prev} nps`).toBeGreaterThanOrEqual(
           row(fixture, prev).nps,
         );
+      }
+    }
+  });
+
+  /**
+   * The long-rest guarantee, and the reason it is asserted here rather than on
+   * one hand-rolled fixture: "the chart goes dead for seconds at a time" was
+   * first measured on a single real song, and this repo has three separate
+   * chart findings that failed to reproduce on a second fixture.
+   *
+   * The claim is *conditional*, which is the whole design: a rest may exceed
+   * `MAX_REST_SEC` only where the song offered nothing to put in it. So the
+   * assertion is not "no long rests" — `structured`'s eight-second break is
+   * silent and is entitled to one — but "no long rest that an onset could
+   * legally have filled". `minGapSec` is what makes it legal: an onset closer
+   * than the spacing floor to either end could never have been placed.
+   *
+   * Safe to state on the final chart because the corpus generates with no
+   * waveform, so `applyHolds` never runs and no note is removed after selection.
+   */
+  it('never leaves a long rest the song had a placeable onset for', () => {
+    for (const fixture of FIXTURE_NAMES) {
+      for (const difficulty of DIFFICULTY_NAMES) {
+        const chart = generateChart(corpus[fixture], DIFFICULTIES[difficulty], CORPUS_SEED);
+        const gap = chart.minGapSec ?? DIFFICULTIES[difficulty].minGapSec;
+        const times = [...new Set(chart.notes.map((n) => n.t))].sort((a, b) => a - b);
+
+        for (let i = 1; i < times.length; i++) {
+          const from = times[i - 1]!;
+          const to = times[i]!;
+          if (to - from <= MAX_REST_SEC + 1e-6) continue;
+          const placeable = corpus[fixture].onsets.filter(
+            (o) => o.t >= from + gap - 1e-6 && o.t <= to - gap + 1e-6,
+          );
+          expect(
+            placeable.map((o) => o.t),
+            `${fixture}/${difficulty} rest of ${(to - from).toFixed(2)}s at ${from}s`,
+          ).toHaveLength(0);
+        }
+      }
+    }
+  });
+
+  /**
+   * The other half of the same guarantee: it must not have been bought by
+   * manufacturing notes. Every note time still has to be an onset the detector
+   * found (up to the 30ms snap `MAX_SNAP_SEC` allows).
+   */
+  it('places every note on an onset the song actually has', () => {
+    for (const fixture of FIXTURE_NAMES) {
+      for (const difficulty of DIFFICULTY_NAMES) {
+        const chart = generateChart(corpus[fixture], DIFFICULTIES[difficulty], CORPUS_SEED);
+        const onsets = corpus[fixture].onsets.map((o) => o.t);
+        for (const note of chart.notes) {
+          const nearest = onsets.reduce(
+            (best, t) => (Math.abs(t - note.t) < Math.abs(best - note.t) ? t : best),
+            Number.POSITIVE_INFINITY,
+          );
+          expect(
+            Math.abs(nearest - note.t),
+            `${fixture}/${difficulty} note at ${note.t}`,
+          ).toBeLessThanOrEqual(0.031);
+        }
       }
     }
   });

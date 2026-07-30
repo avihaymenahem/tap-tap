@@ -75,6 +75,9 @@ export function TutorialScreen({
     const spectrum = new Uint8Array(new ArrayBuffer(512));
     let lastFrame = performance.now();
     let judgementAlpha = 0;
+    // Held at full before fading, same as PlayScreen: a verdict that starts
+    // fading on the next frame spends most of its life half transparent.
+    let judgementHold = 0;
 
     const restartAnim = (el: HTMLElement | null, cls: string): void => {
       if (!el) return;
@@ -87,7 +90,10 @@ export function TutorialScreen({
       const el = judgementRef.current;
       if (el) {
         el.textContent = TIER_LABELS[tier];
-        el.style.color = TIER_COLORS[tier];
+        // Custom property, not `color` — `.play__judgement` spends the tier
+        // colour on the glyph's foot and halo over a white core, so the verdict
+        // is bright enough to read as an event. Same writer as PlayScreen.
+        el.style.setProperty('--verdict', TIER_COLORS[tier]);
       }
       const tag = timingRef.current;
       if (tag) {
@@ -96,6 +102,7 @@ export function TutorialScreen({
       }
       restartAnim(el, 'play__judgement--pop');
       judgementAlpha = 1;
+      judgementHold = 0.26;
     };
 
     const finish = (): void => {
@@ -132,7 +139,8 @@ export function TutorialScreen({
       const hint = tutorialHintAt(lesson.phases, songTime);
       if (hintRef.current && hintRef.current.textContent !== hint) hintRef.current.textContent = hint;
 
-      judgementAlpha = Math.max(0, judgementAlpha - dt * 2.2);
+      if (judgementHold > 0) judgementHold = Math.max(0, judgementHold - dt);
+      else judgementAlpha = Math.max(0, judgementAlpha - dt * 3.4);
       if (judgementRef.current) judgementRef.current.style.opacity = String(judgementAlpha);
       if (timingRef.current) timingRef.current.style.opacity = String(judgementAlpha * 0.9);
 
@@ -279,8 +287,15 @@ export function TutorialScreen({
 
       {/* Guided hint, written imperatively from the loop. */}
       <div ref={hintRef} className="tutorial__hint" aria-live="polite" />
-      <div ref={judgementRef} className="play__judgement" style={{ opacity: 0 }} />
-      <div ref={timingRef} className="play__timing" style={{ opacity: 0 }} />
+      {/* Same verdict stack the play screen uses: the wrapper is what carries
+          the near-field placement below the receptors, so both screens report a
+          hit in the same place. `.play__timing` had no CSS at all before that
+          wrapper existed, which left it in normal flow and pushed off-screen —
+          the tutorial's EARLY/LATE tag was invisible. */}
+      <div className="play__verdict">
+        <div ref={judgementRef} className="play__judgement" style={{ opacity: 0 }} />
+        <div ref={timingRef} className="play__timing" style={{ opacity: 0 }} />
+      </div>
 
       {phase === 'intro' && (
         <div className="play__overlay play__overlay--ready">

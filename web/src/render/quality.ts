@@ -121,6 +121,24 @@ export interface QualityProfile {
    * offscreen buffer, no blur, one composite instead of three.
    */
   auraBloom: boolean;
+  /**
+   * Bars per side on the HUD waveform deck (`hudWave.ts`), the mirrored spectrum
+   * running left and right from the album disc.
+   *
+   * A canvas-2D system like the aura, so like the aura it needs its own number
+   * rather than inheriting a WebGL knob — and like the aura it is on a surface
+   * that changes every frame, which is precisely when cost matters. Cheaper than
+   * the aura by a wide margin (one stroked line per bar over a ~390x62 CSS
+   * region, no offscreen buffer at any tier), but the loop is still linear in
+   * this and it runs at frame rate.
+   */
+  hudWaveBars: number;
+  /**
+   * The per-bar `shadowBlur` on that deck. The single most expensive thing the
+   * canvas can do — a blur per stroke — and the first thing the low tier drops,
+   * following the rule that a lower tier may only ever remove cost.
+   */
+  hudWaveGlow: boolean;
 }
 
 const HIGH: QualityProfile = {
@@ -138,6 +156,8 @@ const HIGH: QualityProfile = {
   auraParticles: 760,
   auraDensity: 1,
   auraBloom: true,
+  hudWaveBars: 46,
+  hudWaveGlow: true,
 };
 
 /**
@@ -165,6 +185,8 @@ const MEDIUM: QualityProfile = {
   auraParticles: 420,
   auraDensity: 0.65,
   auraBloom: true,
+  hudWaveBars: 34,
+  hudWaveGlow: true,
 };
 
 const LOW: QualityProfile = {
@@ -179,6 +201,8 @@ const LOW: QualityProfile = {
   auraParticles: 180,
   auraDensity: 0.4,
   auraBloom: false,
+  hudWaveBars: 22,
+  hudWaveGlow: false,
 };
 
 const PROFILES: Record<QualityTier, QualityProfile> = {

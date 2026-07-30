@@ -1,6 +1,6 @@
 import type { DifficultyName, SongSummary, Theme } from '@tap-tap/shared';
 import { DEFAULT_ACCENT, DIFFICULTY_NAMES, themeCatalog, themeFor } from '@tap-tap/shared';
-import { ChevronDown, Download, Star, WifiOff } from 'lucide-react';
+import { ChevronDown, Download, Search, Star, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { isNativePlatform, listCustomThemes, listSongs } from '../data/index.js';
 import { NativeIngest } from '../components/NativeIngest.js';
@@ -383,7 +383,10 @@ export function MenuScreen({
             its keep less than giving that row to searching does. Only shown
             once there is a library to search. */}
         {songs && songs.length > 0 && (
-          <div className="search">
+          <div className="search search--with-icon">
+            {/* The one control every user of a music app expects to recognise
+                by its glyph before reading a word of it. */}
+            <Search className="search__icon" size={16} aria-hidden />
             <input
               type="search"
               className="search__input"
@@ -591,6 +594,14 @@ export function MenuScreen({
                   Favorites ({favorites.size})
                 </button>
               )}
+
+              {/* The library's size, parked at the end of the tools row. It is
+                  the one fact about the list as a whole, and it gives that row
+                  a right-hand anchor instead of trailing off into empty space.
+                  Reports the filtered count, so it doubles as search feedback. */}
+              <span className="song-tools__count">
+                {filtered.length} {filtered.length === 1 ? 'song' : 'songs'}
+              </span>
             </div>
 
             {filtered.length === 0 ? (
@@ -602,14 +613,20 @@ export function MenuScreen({
             ) : (
               <ul className="song-list">
                 {filtered.map((song, index) => (
-                  // `position: relative` so the star can sit over the card.
-                  // It cannot go *inside* the card: that is a <button>, and a
-                  // button inside a button is invalid and breaks activation.
-                  // The stagger index is capped: past the fold the entrance
-                  // should be done, not still trickling in.
+                  // `position: relative` so the star and the play lens can sit
+                  // over the card. Neither can go *inside* it: that is a
+                  // <button>, and a button inside a button is invalid and breaks
+                  // activation. The stagger index is capped: past the fold the
+                  // entrance should be done, not still trickling in.
                   <li
                     key={song.songId}
-                    className="song-row rise"
+                    className={[
+                      'song-row',
+                      'rise',
+                      selectedSong?.songId === song.songId ? 'song-row--active' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
                     style={{ '--i': Math.min(index, 10) } as CSSProperties}
                   >
                     <button
@@ -649,6 +666,18 @@ export function MenuScreen({
                       ]
                         .filter(Boolean)
                         .join(' ')}
+                      // The row's own artwork, handed to CSS so the *selected*
+                      // card can light itself from it. Only `--active` paints
+                      // it (one blurred layer on screen, never ~28), which is
+                      // what makes the selection unmistakable while scrolling
+                      // and gives every row a different selected colour.
+                      style={
+                        song.thumbnailUrl
+                          ? ({
+                              '--art': `url("${song.thumbnailUrl.replace(/"/g, '%22')}")`,
+                            } as CSSProperties)
+                          : undefined
+                      }
                       onClick={() => {
                         playUiSound('tick');
                         setSelected(song.songId);
@@ -669,13 +698,30 @@ export function MenuScreen({
                       // this alongside the tap, so it costs nothing there.
                       onPointerEnter={() => prefetchAudio(song.audioUrl)}
                     >
-                      {song.thumbnailUrl ? (
-                        <img className="song-card__art" src={song.thumbnailUrl} alt="" />
-                      ) : (
-                        <div className="song-card__art song-card__art--blank" />
-                      )}
-                      <div className="song-card__text">
-                        <div className="song-card__title">
+                      {/* The artwork is the only per-song imagery the game has,
+                          so it leads the row: a large square, seated on a real
+                          shadow and rimmed with a hairline, not a bordered
+                          stamp. The wrapper carries the blurred backplate that
+                          fills the letterbox behind the 16:9 frame — see the
+                          `object-fit: contain` note in styles.css; cropping to
+                          square sliced the lettering baked into the art. */}
+                      <span className="song-card__cover">
+                        {song.thumbnailUrl ? (
+                          // Deliberately NOT `loading="lazy"`: `.song-row` carries
+                          // `content-visibility: auto`, and a lazy image inside a
+                          // skipped subtree never gets its load triggered — every
+                          // row past the second rendered as an empty sleeve.
+                          <img className="song-card__art" src={song.thumbnailUrl} alt="" />
+                        ) : (
+                          // A designed tile rather than a blank slab: the song's
+                          // initial over the accent gradient.
+                          <span className="song-card__art song-card__art--blank" aria-hidden="true">
+                            {initialOf(song.title)}
+                          </span>
+                        )}
+                      </span>
+                      <span className="song-card__text">
+                        <span className="song-card__title">
                           {song.title}
                           {/* Shown only offline. Online it is noise — every song
                               is playable — but offline it is the difference
@@ -685,21 +731,13 @@ export function MenuScreen({
                               <Download size={12} aria-hidden />
                             </span>
                           )}
-                        </div>
-                        <div className="song-card__meta">
-                          <span>
-                            {song.artist || 'Unknown'} · {formatDuration(song.duration)} ·{' '}
-                            {Math.round(song.bpm)} BPM
-                          </span>
-                          {/* Best grade at the current difficulty — cleared
-                              songs read as conquered territory at a glance. */}
-                          {gradeBySong.has(song.songId) && (
-                            <span
-                              className={`song-card__grade grade--${gradeBySong.get(song.songId)}`}
-                            >
-                              {gradeBySong.get(song.songId)}
-                            </span>
-                          )}
+                        </span>
+                        {/* Artist gets its own line, in the BODY face — three
+                            tiers is what turns a wall of identical rows into
+                            something scannable, and two of them in the display
+                            face made the top two compete. */}
+                        <span className="song-card__artist">{song.artist || 'Unknown'}</span>
+                        <span className="song-card__meta">
                           {/* One pip per difficulty: what is still unclaimed on
                               this song, without changing difficulty to find out.
                               Titled per pip so the state is never colour-only. */}
@@ -731,9 +769,53 @@ export function MenuScreen({
                               ))}
                             </span>
                           )}
-                        </div>
-                      </div>
+                        </span>
+                      </span>
+                      {/* The right column. Duration and BPM are always there, so
+                          this side of the row is never the empty 40% it used to
+                          be, and the grade lands on the same right edge as the
+                          star rather than floating mid-row anchored to nothing. */}
+                      <span className="song-card__rail">
+                        {/* Best grade at the current difficulty — cleared songs
+                            read as conquered territory at a glance. The slot is
+                            rendered either way (hidden when empty) so a played
+                            row and an unplayed one have identical geometry and
+                            the duration under it keeps one baseline down the
+                            whole list. */}
+                        <span
+                          className={
+                            gradeBySong.has(song.songId)
+                              ? `song-card__grade grade--${gradeBySong.get(song.songId)}`
+                              : 'song-card__grade song-card__grade--empty'
+                          }
+                          aria-hidden={gradeBySong.has(song.songId) ? undefined : 'true'}
+                        >
+                          {gradeBySong.get(song.songId) ?? '·'}
+                        </span>
+                        <span className="song-card__time">{formatDuration(song.duration)}</span>
+                        <span className="song-card__bpm">{Math.round(song.bpm)} BPM</span>
+                      </span>
                     </button>
+                    {/* The selected row's primary action, so the library screen
+                        always offers a way to start the song it has highlighted
+                        — a selection with no reachable CTA is not something a
+                        commercial music app ships. Overlaid for the same reason
+                        the star is (the card is a <button>), and centred on the
+                        sleeve rather than tucked into its corner, where the old
+                        chip was tangent to the corner radius and read as a
+                        clipping bug. */}
+                    {selectedSong?.songId === song.songId && effectiveDifficulty && (
+                      <button
+                        type="button"
+                        className="song-row__play"
+                        aria-label={`Play ${song.title}`}
+                        onClick={() => {
+                          playUiSound('confirm');
+                          preview.stop(); // never let a preview bleed into the run
+                          onPlay(song.songId, effectiveDifficulty);
+                        }}
+                      />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -778,6 +860,11 @@ export function MenuScreen({
       )}
     </div>
   );
+}
+
+/** First letter of a title, for the designed fallback sleeve. */
+function initialOf(title: string): string {
+  return (title.trim()[0] ?? '♪').toUpperCase();
 }
 
 function formatDuration(seconds: number): string {

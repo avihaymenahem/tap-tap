@@ -176,6 +176,22 @@ describe('validateTheme', () => {
     expect(problems.some((p) => p.field === 'lanes.1' && p.severity === 'error')).toBe(true);
   });
 
+  it('warns on lanes too close in hue, and skips the rule for greys', () => {
+    // The hue rule catches what `colorDistance` cannot: a linear-RGB distance is
+    // dominated by lightness, so orange-and-gold clears it while being one lane
+    // twice on a converging board.
+    const close = validateTheme(custom({ lanes: [0xff8000, 0xffc400, 0x0000ff, 0x00ff00, 0x00ffff] }));
+    const warned = close.find((p) => p.field === 'lanes.1');
+    expect(warned?.severity).toBe('warning');
+    expect(warned?.message).toMatch(/hue/);
+    expect(themeErrors(close)).toEqual([]);
+
+    // A greyscale palette is a legitimate luminance-only design (see `mono`), and
+    // hue is meaningless there — it must not produce ten warnings about nothing.
+    const greys = validateTheme(custom({ lanes: [0xffffff, 0x8a8a8a, 0xe0e0e0, 0x6a6a6a, 0xc0c0c0] }));
+    expect(greys.filter((p) => /hue/.test(p.message))).toEqual([]);
+  });
+
   it('warns — but does not block — on lanes that merely look similar', () => {
     // A judgement call that depends on the chart and the player, so it is
     // surfaced and left to a human rather than made un-saveable.
@@ -216,10 +232,16 @@ describe('DEFAULT_THEME', () => {
   it('is the neon-arcade palette every un-themed song renders with', () => {
     // The neon-arcade redesign made `neon` the default, deliberately recolouring
     // every song that never chose a theme from the old synthwave palette to this
-    // one. Changing these values again is a migration, not a tweak — add a new
-    // theme instead.
+    // one. Changing these values is a migration, not a tweak — add a new theme
+    // instead, unless the change is one the readability rules force.
+    //
+    // Re-pinned once since: the lanes were re-spaced onto the shared hue geometry
+    // (see LANE_HUE_OFFSETS_B). The old set had cyan and mint 39 degrees apart, a
+    // violet under the saturation floor, and lanes 0 and 3 — the outermost pair of
+    // every shipped four-lane chart — only 70 degrees apart. Same five jewel
+    // families, same accent, same identity; the separation is what moved.
     expect(DEFAULT_THEME.id).toBe('neon');
     expect(DEFAULT_THEME.accent).toBe(0xff3fa4);
-    expect(DEFAULT_THEME.lanes).toEqual([0xff2e9c, 0x2ee0ff, 0xffd23c, 0x8f5cff, 0x3cff9d]);
+    expect(DEFAULT_THEME.lanes).toEqual([0xff33a0, 0xffcf33, 0x33ff5f, 0x33ffff, 0x7a33ff]);
   });
 });

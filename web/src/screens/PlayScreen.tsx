@@ -5,7 +5,15 @@ import { getBeatmap, listCustomThemes } from '../data/index.js';
 import { AudioClock, bandLevel } from '../game/clock.js';
 import { comboMilestone, comboTier } from '../game/combo.js';
 import { GameEngine, type GameSnapshot } from '../game/engine.js';
-import { accuracyOf, capGrade, foldUnreached, gradeFor, type Tier } from '../game/judge.js';
+import {
+  accuracyOf,
+  capGrade,
+  foldUnreached,
+  gradeFor,
+  hitWindowsFor,
+  timingOf,
+  type Tier,
+} from '../game/judge.js';
 import { playUiSound } from '../uisfx.js';
 import { approachSecFor, getScrollSpeed } from '../scrollSpeed.js';
 import { noteTicksEnabled } from '../noteTicks.js';
@@ -16,8 +24,9 @@ import type { RunResult } from '../game/run.js';
 import { cancelHaptics, vibrateHold, vibrateMiss, vibrateTap } from '../haptics.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { Highway } from '../render/highway.js';
-import { TIER_COLORS, TIER_LABELS } from '../render/palette.js';
+import { TIER_COLORS, TIER_LABELS, TIMING_COLORS, TIMING_LABELS } from '../render/palette.js';
 import { adaptiveAllowed, qualityProfile, resolveQuality } from '../render/quality.js';
+import { comboMeter, drawWaveDeck, easeBars, spectrumBars } from '../render/hudWave.js';
 import { FlashToggle } from '../components/FlashToggle.js';
 import { HapticToggle } from '../components/HapticToggle.js';
 import { MixerToggle } from '../components/MixerToggle.js';
@@ -94,6 +103,22 @@ const SUSTAINED_MIN_NOTES = 4;
 const START_GRACE_SEC = 1;
 
 /**
+ * Cells in the HUD's health meter.
+ *
+ * Kept in TS as well as CSS because the fill width is *quantised* to it in the
+ * render loop: a continuous fill under a segmented overlay terminates mid-cell
+ * at most values, which reads as a bar with decorative notches rather than as a
+ * discrete gauge. Five, not the eight it had, so each cell is ~14 CSS px and
+ * countable at arm's length — and so it does not share a segment count with the
+ * progress rail above it, which is a *continuous* meter for exactly that reason.
+ * The `20%` step in `.hud__health::after` is the other half of this number.
+ */
+const HEALTH_CELLS = 5;
+
+/** How long the verdict word stays at full opacity before it fades. */
+const JUDGEMENT_HOLD_SEC = 0.26;
+
+/**
  * Where playback should begin.
  *
  * Skipping to the *first* note is not enough: an atmospheric intro can contain
@@ -133,6 +158,27 @@ function enterFullscreen(): void {
   } catch {
     // No gesture, unsupported, or the user declined — nothing to do.
   }
+}
+
+/**
+ * 1048320 -> "1,048,320", for the HUD's hero readout.
+ *
+ * Grouped by hand rather than with `toLocaleString`: this runs on every frame of
+ * the render loop, so it must not build an `Intl.NumberFormat`, and the score
+ * needs one fixed grouping whatever the device locale is — a locale that groups
+ * by four digits, or swaps in a decimal comma, would turn the hero number into
+ * nonsense. Grouping only ever changes width when the digit *count* changes, so
+ * it costs nothing in stability on top of the tabular figures.
+ */
+function groupDigits(value: number): string {
+  const s = String(value);
+  if (s.length <= 3) return s;
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 === 0) out += ',';
+    out += s[i];
+  }
+  return out;
 }
 
 function startOffsetFor(notes: readonly Note[]): number {
@@ -209,16 +255,58 @@ export function PlayScreen({
   modsRef.current = mods;
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const scoreRef = useRef<HTMLDivElement>(null);
-  const comboRef = useRef<HTMLDivElement>(null);
-  const accuracyRef = useRef<HTMLDivElement>(null);
-  /** Perfect-tier hit count (mid-right chip); written from the render loop. */
-  const perfectsRef = useRef<HTMLDivElement>(null);
+  const scoreRef = useRef<HTMLSpanElement>(null);
+  const comboRef = useRef<HTMLSpanElement>(null);
+  /**
+   * The combo plaque itself, not its digits: `data-tier` drives the plaque's
+   * scale and glow, so it has to sit on the element that owns the underline and
+   * the halo rather than on the number inside it.
+   */
+  const comboPodRef = useRef<HTMLDivElement>(null);
   /** Health bar fill; width + colour written from the render loop. */
   const healthRef = useRef<HTMLDivElement>(null);
+  /**
+   * The verdict word is TWO exactly-registered layers, and that is the fix for
+   * its worst defect rather than a flourish.
+   *
+   * It used to be one element whose "rim" was eight offset copies in a
+   * `text-shadow` stack. Offset copies cannot make an even outline: they
+   * measured 6-9px on outer contours and **0px** on inner ones (the right side
+   * of an S counter went white straight to background), they are not
+   * antialiased, and where four of them meet you get a 90-degree notch cut out
+   * of the rim. Adjacent glyphs' rims also fused into one mass.
+   *
+   * So: `judgeStrokeRef` carries the same word painted with `-webkit-text-stroke`
+   * — one true, even, antialiased stroke — plus the tier bloom; `judgeFillRef`
+   * carries the visible gradient core on top of it. Both are `grid-area: 1/1`
+   * of the same box with identical type metrics, so registration is exact by
+   * construction and there is no positional maths to drift.
+   *
+   * Two refs, one write each per judgement, still nowhere near React state.
+   */
+  /**
+   * The verdict *stack* — the wrapper that owns the position. `--vs` is written
+   * on it per judgement so the word steps away from the lane it reports on; the
+   * inner element keeps the pop animation, which is why the two cannot be one
+   * element (a transform on the animating node would be replaced by the pop).
+   */
+  const verdictRef = useRef<HTMLDivElement>(null);
   const judgementRef = useRef<HTMLDivElement>(null);
+  const judgeStrokeRef = useRef<HTMLSpanElement>(null);
+  const judgeFillRef = useRef<HTMLSpanElement>(null);
+  /** EARLY/LATE tag under the tier word. `TIMING_COLORS`, never themed. */
+  const timingRef = useRef<HTMLDivElement>(null);
   const countdownRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  /*
+   * The HUD waveform deck — the album disc and the mirrored spectrum running
+   * left and right from it. All three are written from the render loop, never
+   * from React state: this repaints every frame, and a 60fps re-render costs
+   * more than the whole loop.
+   */
+  const waveRef = useRef<HTMLCanvasElement>(null);
+  const multRef = useRef<HTMLSpanElement>(null);
+  const arcRef = useRef<HTMLDivElement>(null);
   /** Combo-milestone banner ("50 COMBO"), flashed and animated imperatively. */
   const milestoneRef = useRef<HTMLDivElement>(null);
   /** Red edge flash on a broken combo. A class toggle replays the animation. */
@@ -451,14 +539,39 @@ export function PlayScreen({
 
     const keys = keymapFor(params.laneCount);
     let judgementAlpha = 0;
+    /**
+     * Seconds the verdict is held at full opacity before it starts to fade.
+     *
+     * Without it the word begins fading on the very next frame, so at any
+     * randomly-sampled instant it is typically at ~55% opacity — a white core
+     * measured at relative luminance 0.46 instead of ~1.0, i.e. the most
+     * time-critical readout on screen spends most of its life half faded. The
+     * hold is short enough that consecutive notes still each get their own
+     * punch (the pop animation replays regardless).
+     */
+    let judgementHold = 0;
     let lastFrame = performance.now();
     let outroStarted = false;
     // Combo from the previous frame, so the loop can spot a milestone crossing
     // or a break without the engine having to emit an event for it.
     let prevCombo = 0;
     let prevTier = 0;
-    // Low-health warning state, toggled on the health bar only when it changes.
-    let prevLow = false;
+    // Health meter state. Both are only written to the DOM on a change, since
+    // this runs 120 times a second and health moves a handful of times a run.
+    let prevHealthPct = '100%';
+    let prevLevel = 'ok';
+    /**
+     * Last strings actually written to the HUD.
+     *
+     * Assigning `textContent` invalidates layout for that node whether or not
+     * the text changed, and score/combo hold the same value for most frames
+     * of a run. Comparing a string first is far cheaper than the layout the
+     * write would otherwise schedule 120 times a second.
+     */
+    let prevScoreText = '';
+    let prevComboText = '';
+    /** '1' once a streak exists — see the reveal note at the write site. */
+    let prevComboOn = '0';
     /**
      * Note-tick scheduling state (`game/tickSchedule.ts`).
      *
@@ -477,18 +590,137 @@ export function PlayScreen({
       el.classList.add(cls);
     };
     const spectrum = new Uint8Array(new ArrayBuffer(512));
+
+    /*
+     * The HUD waveform deck's per-frame state, hoisted out of the loop.
+     *
+     * `waveTarget` is this frame's folded spectrum and `waveBars` the eased
+     * version actually drawn — a raw analyser frame is noisy enough that drawn
+     * straight the deck strobes rather than flows. Both are allocated once: they
+     * are touched every frame and a per-frame `Float32Array` is exactly the cost
+     * that hides on a render path.
+     *
+     * The bar count comes from the resolved quality tier and is fixed for the
+     * screen's life, the same way the `Highway` resolves its profile once at
+     * construction — it sizes these buffers.
+     */
+    const waveProfile = qualityProfile(resolveQuality());
+    const waveTarget = new Float32Array(waveProfile.hudWaveBars);
+    const waveBars = new Float32Array(waveProfile.hudWaveBars);
+    let waveCtx: CanvasRenderingContext2D | null = null;
+    let waveW = 0;
+    let waveH = 0;
+    let prevMultText = '';
+    let prevArcPct = '';
     const lastNoteAt = chartRef.current?.notes.at(-1)?.t ?? 0;
     const introOffset = introOffsetRef.current;
 
-    const showJudgement = (tier: Tier): void => {
+    /**
+     * Judgement-time as of the last frame, and a monotonic cursor into the
+     * chart. Both exist for `verdictSide` below, which needs to know what is
+     * currently ON the runway and must not scan the whole chart to find out.
+     */
+    let verdictNow = 0;
+    let verdictCursor = 0;
+
+    /**
+     * Which side of the board the verdict word is thrown to: +1 right, -1 left.
+     *
+     * The previous rule was "the opposite side from the lane being judged", and
+     * it is not enough — measured on a capture, a lane-0 miss correctly went
+     * right and landed directly under a lane-3 tile, where it read as a caption
+     * belonging to that tile rather than as a verdict. The lane that was judged
+     * is the one lane guaranteed to be EMPTY at the word's depth; the notes that
+     * can collide are the ones still approaching.
+     *
+     * So the side is chosen against the runway itself: every note currently in
+     * flight (the next `approachSec` of chart) is counted into a left or right
+     * half, and the word goes to the emptier half — falling back to the old
+     * away-from-the-judged-lane rule only when the two are tied. The scan is a
+     * few dozen notes at most and runs once per judgement, not per frame.
+     */
+    const verdictSide = (lane: number): number => {
+      const mid = params.laneCount / 2;
+      const notes = chartRef.current?.notes;
+      let left = 0;
+      let right = 0;
+      if (notes) {
+        // The cursor only ever advances, so the whole run costs one pass.
+        while (verdictCursor < notes.length && notes[verdictCursor]!.t < verdictNow) {
+          verdictCursor++;
+        }
+        const until = verdictNow + approachSec;
+        for (let i = verdictCursor; i < notes.length; i++) {
+          const n = notes[i]!;
+          if (n.t > until) break;
+          if (n.lane < mid) left++;
+          else right++;
+        }
+      }
+      if (left !== right) return left < right ? -1 : 1;
+      return lane < mid ? 1 : -1;
+    };
+
+    /**
+     * The verdict for one note: the tier word, plus an EARLY/LATE tag when the
+     * hit was off-centre.
+     *
+     * `delta` is absent for a miss — nothing was tapped, so there is no
+     * direction to report. Both colour languages come from `palette.ts` and are
+     * deliberately *not* themed: perfect/great/good/miss and early/late are the
+     * one vocabulary the player learns once and relies on in every song.
+     */
+    const showJudgement = (tier: Tier, lane: number, delta?: number): void => {
       const el = judgementRef.current;
+      const verdict = verdictRef.current;
+      /*
+       * Step the word sideways, clear of the highway, on the side away from the
+       * lane it is reporting on.
+       *
+       * Centred it printed MISS straight across a note tile — measured on a
+       * capture, and the one thing a judgement must never obscure is the board
+       * it is judging. Half-measures do not fix it: mid-highway the word is
+       * ~76 CSS px against a ~140px track, so *any* on-track position covers two
+       * lanes and the only question is which two. The offset therefore clears
+       * the rails entirely (CSS caps it so a wide window does not fling it to
+       * the screen edge), which is the only placement that holds for every note
+       * pattern rather than for the frame it was tuned on.
+       *
+       * `verdictSide` picks the emptier half of the runway rather than merely
+       * the half away from the judged lane — see its own note. One `--vs` write
+       * per judgement, on a ref'd element: nowhere near React state.
+       */
+      if (verdict) {
+        verdict.style.setProperty('--vs', String(verdictSide(lane)));
+      }
       if (el) {
-        el.textContent = TIER_LABELS[tier];
-        el.style.color = TIER_COLORS[tier];
+        // The word goes to both layers of the stack (see the refs' note): the
+        // stroke layer under it, the gradient core over it. Same string, same
+        // metrics, same grid cell — so the outline registers exactly.
+        const word = TIER_LABELS[tier];
+        if (judgeStrokeRef.current) judgeStrokeRef.current.textContent = word;
+        if (judgeFillRef.current) judgeFillRef.current.textContent = word;
+        // The tier colour goes to a custom property, not to `color`. As a fill
+        // it made the verdict the DIMMEST text in the frame — MISS (#ff2e88) is
+        // luminance 0.165, under 2:1 against a note's bloom — so the word read
+        // as a caption rather than as the one time-critical event on screen. CSS
+        // spends `--verdict` on a true even stroke and on the bloom outside it,
+        // over a gradient core, which keeps the tier identifiable while putting
+        // the peak luminance near 1.0. `TIER_COLORS` is untouched and unthemed.
+        el.style.setProperty('--verdict', TIER_COLORS[tier]);
+      }
+      const tag = timingRef.current;
+      if (tag) {
+        // `TIMING_LABELS.exact` is empty on purpose, so a dead-centre hit shows
+        // the tier alone rather than a third word to read at speed.
+        const timing = delta === undefined ? null : timingOf(delta);
+        tag.textContent = timing ? TIMING_LABELS[timing] : '';
+        if (timing) tag.style.color = TIMING_COLORS[timing];
       }
       // A quick pop on each new judgement, on top of the alpha decay below.
       restartAnim(el, 'play__judgement--pop');
       judgementAlpha = 1;
+      judgementHold = JUDGEMENT_HOLD_SEC;
     };
 
     // Score a run over the *whole* chart, not just the notes reached. Any note
@@ -550,6 +782,82 @@ export function PlayScreen({
         onFinishRef.current(result, accentRef.current);
       }, result.failed ? 700 : CHEER_HOLD_MS);
     };
+
+    /*
+     * DEV ONLY — the screenshot harness's way onto the results card.
+     *
+     * `scripts/shoot.mjs --state=results` otherwise cannot reach a finished run:
+     * quitting posts a result but scores every unreached note as a miss, and
+     * sitting through a whole song is minutes per capture. This plays the chart
+     * out against the *real* engine instead — `engine.update`, `engine.hitLane`
+     * and `engine.releaseLane`, then the ordinary `finish()` — so the card is
+     * laid out by a genuine `RunResult`. Fabricating one would hide exactly the
+     * states a critique loop is looking at: a flawless run shows no misses, no
+     * advice line and no failure banner.
+     *
+     * `import.meta.env.DEV` is a static literal to Vite, so the whole block is
+     * dead-code-eliminated from a production bundle and `window.__tapTapDebug`
+     * cannot exist in the shipped APK.
+     */
+    if (import.meta.env.DEV) {
+      const debugWindow = window as Window & { __tapTapDebug?: { jumpToEnd: () => void } };
+      const jumpToEnd = (): void => {
+        const engine = engineRef.current;
+        const chart = chartRef.current;
+        if (!engine || !chart || phaseRef.current === 'loading') return;
+
+        const w = hitWindowsFor(chart.minGapSec ?? params.minGapSec);
+        /*
+         * A deterministic 20-note cycle: mostly perfect, a scattering of great
+         * and good, and two notes dropped entirely. Errors are written as
+         * fractions of the chart's own windows rather than as literal
+         * milliseconds — `hitWindowsFor` scales them per difficulty, and a
+         * literal would silently land in a different tier on Extreme (the same
+         * trap the tier tests already document). `null` means "no tap", which
+         * `update` retires as a real miss.
+         */
+        const PATTERN: readonly (number | null)[] = [
+          w.perfect * 0.3, w.perfect * -0.5, w.great * 0.7, w.perfect * 0.15,
+          w.perfect * -0.2, w.great * -0.8, w.perfect * 0.4, null,
+          w.perfect * 0.25, w.good * 0.85, w.perfect * -0.35, w.great * 0.6,
+          w.perfect * 0.1, w.perfect * 0.5, null, w.great * 0.75,
+          w.perfect * -0.15, w.good * -0.9, w.perfect * 0.2, w.perfect * 0.45,
+        ];
+
+        const notes = chart.notes;
+        for (let i = 0; i < notes.length; i++) {
+          const n = notes[i]!;
+          // `hitLane`/`update` take RAW clock time and subtract the calibration
+          // themselves, so every time fed in here has to add it back.
+          const cal = engine.calibration;
+          engine.update(n.t + cal);
+          const err = PATTERN[i % PATTERN.length];
+          if (err === null || err === undefined) continue;
+          /*
+           * Ask the engine which note is live at this instant instead of
+           * trusting the chart's lane: `makeEngine` rebuilds the played notes
+           * under the run's modifiers (mirror flips lanes, holds-off demotes
+           * sustains), so the chart's own copy can disagree with it.
+           */
+          const state = engine
+            .visibleNotes(n.t, 0.001)
+            .find((s) => Math.abs(s.note.t - n.t) < 1e-6 && s.tier === null);
+          if (!state) continue;
+          const lane = state.note.lane;
+          const hit = engine.hitLane(lane, n.t + err + cal);
+          // Carry a hold to its tail rather than dropping it the frame after the
+          // head, which would score every sustain as a broken hold.
+          if (hit?.startedHold) {
+            engine.releaseLane(lane, n.t + (state.note.duration ?? 0) + cal);
+          }
+        }
+        // Sweep past the last note's miss window so nothing is left unjudged and
+        // the snapshot reads `finished`.
+        engine.update((notes.at(-1)?.t ?? 0) + 5 + engine.calibration);
+        finish();
+      };
+      debugWindow.__tapTapDebug = { jumpToEnd };
+    }
 
     // Belt and braces. The frame loop finishes on `songTime >= duration`, but it
     // only samples once per frame, so a run that ends exactly between two frames
@@ -639,6 +947,10 @@ export function PlayScreen({
       // receptor on the beat rather than one output latency early; `update` and
       // `hitLane` take raw clock time and shift it themselves.
       const shownTime = engine.judgementTime(songTime);
+      // What `verdictSide` reads to know what is on the runway. A single number
+      // per frame — the alternative is passing the time through every judgement
+      // call site, which is more plumbing for the same value.
+      verdictNow = shownTime;
 
       // Hand the next few notes to the audio clock, sample-accurately.
       //
@@ -660,7 +972,7 @@ export function PlayScreen({
 
       for (const missed of engine.update(songTime)) {
         highway.burst(missed.note.lane, 'miss');
-        showJudgement('miss');
+        showJudgement('miss', missed.note.lane);
         vibrateMiss();
       }
 
@@ -694,39 +1006,146 @@ export function PlayScreen({
       );
       paintCountdown(now / 1000);
 
+      /*
+       * The HUD waveform deck. Driven by the SAME `spectrum` array the highway
+       * reads — the analyser sits after loudness normalisation and before
+       * `musicVol` on purpose (see the audio-graph section of CLAUDE.md), so this
+       * reflects what the track actually sounds like and does not go flat when a
+       * player turns the music down. Never a timer, never a frame counter.
+       *
+       * Nothing here pulses on the beat, so nothing here needs `beatPulse` or the
+       * `MAX_FLASH_HZ` stride: it is a continuous spectrum reading, which cannot
+       * produce the periodic full-area flash that rule exists to bound. The
+       * `easeBars` smoothing pushes it further from that shape rather than nearer.
+       */
+      const waveCanvas = waveRef.current;
+      if (waveCanvas) {
+        const cssW = waveCanvas.clientWidth;
+        const cssH = waveCanvas.clientHeight;
+        if (cssW > 0 && cssH > 0) {
+          if (!waveCtx || cssW !== waveW || cssH !== waveH) {
+            // Capped by the tier's pixel-ratio ceiling, like the highway's own
+            // drawing buffer — a 3x panel would otherwise push nine times the
+            // pixels through a per-bar shadow blur.
+            const ratio = Math.min(window.devicePixelRatio || 1, waveProfile.pixelRatioCap);
+            waveCanvas.width = Math.max(1, Math.round(cssW * ratio));
+            waveCanvas.height = Math.max(1, Math.round(cssH * ratio));
+            waveCtx = waveCanvas.getContext('2d');
+            waveCtx?.setTransform(ratio, 0, 0, ratio, 0, 0);
+            waveW = cssW;
+            waveH = cssH;
+          }
+          if (waveCtx) {
+            spectrumBars(spectrum, waveTarget);
+            easeBars(waveBars, waveTarget);
+            const a = accentRef.current;
+            /*
+             * 0.85, up from 0.62, for the reason on the `fade` factor inside
+             * `drawWaveDeck`: at the old combined strength the deck read as a
+             * desaturated olive rather than as the song's accent, which put a
+             * fourth hue in a frame whose whole idea is one. It is still held
+             * under 1 so the deck stays quieter than the notes. Applied here
+             * rather than inside `drawWaveDeck` because that module is the
+             * renderer's and is shared with other call sites.
+             */
+            waveCtx.save();
+            waveCtx.globalAlpha = 0.85;
+            drawWaveDeck(waveCtx, waveBars, cssW, cssH, {
+              rgb: `${(a >> 16) & 0xff}, ${(a >> 8) & 0xff}, ${a & 0xff}`,
+              // Disc radius (62) + its 6px ring + a small gap, matching
+              // `.hud__disc`. Re-spaced off the LARGER disc: at the old 40 the
+              // bars started well inside the new ring and the deck read as a
+              // slash crossing the disc rather than as a spectrum radiating
+              // from it. Still capped as a fraction of the frame so a narrow
+              // viewport cannot leave zero span for the bars.
+              // Disc radius (46) + its ring + a small gap; see `.hud__disc`,
+              // which shrank in the trim pass.
+              holeRadius: Math.min(cssW * 0.3, 60),
+              glow: waveProfile.hudWaveGlow,
+            });
+            waveCtx.restore();
+          }
+        }
+      }
+
       // HUD is written straight to the DOM — re-rendering React at 60fps would
       // cost more than the entire render loop.
       const snap = engine.snapshot;
-      // Seven-segment digits: no thousands separators (DSEG7 has no comma) and
-      // the '%' lives in a separate span (DSEG7 has no percent glyph).
-      if (scoreRef.current)
-        scoreRef.current.textContent = String(normalizeScore(snap.score, snap.scoreMax));
-      if (comboRef.current) {
-        const combo = snap.combo;
-        comboRef.current.textContent = String(combo);
-        // Tier drives the chip's glow; only touch the DOM when it actually
-        // changes, since this runs every frame.
-        const tier = comboTier(combo);
-        if (tier !== prevTier) {
-          comboRef.current.dataset.tier = String(tier);
-          prevTier = tier;
+      if (scoreRef.current) {
+        const text = groupDigits(normalizeScore(snap.score, snap.scoreMax));
+        if (text !== prevScoreText) {
+          scoreRef.current.textContent = text;
+          prevScoreText = text;
         }
       }
-      if (accuracyRef.current) {
-        // Whole number in the HUD — no decimals, just the rounded percent.
-        accuracyRef.current.textContent = String(Math.round(snap.accuracy * 100));
-      }
-      if (perfectsRef.current) {
-        perfectsRef.current.textContent = String(snap.counts.perfect);
+      if (comboRef.current) {
+        const combo = snap.combo;
+        const text = String(combo);
+        if (text !== prevComboText) {
+          comboRef.current.textContent = text;
+          prevComboText = text;
+        }
+        // Tier drives the plaque's scale, glow and underline; only touch the DOM
+        // when it actually changes, since this runs every frame.
+        const tier = comboTier(combo);
+        if (tier !== prevTier) {
+          if (comboPodRef.current) comboPodRef.current.dataset.tier = String(tier);
+          prevTier = tier;
+        }
+        // Revealed only once a streak exists. A "0"/"1" under the score pill is
+        // chrome with no information in it, and the corner reads cleaner without
+        // it; the reference carries no combo field on screen at all. One write
+        // per transition, never per frame.
+        const on = combo >= 2 ? '1' : '0';
+        if (on !== prevComboOn) {
+          if (comboPodRef.current) comboPodRef.current.dataset.on = on;
+          prevComboOn = on;
+        }
+        /*
+         * The disc's `x N` band and the amber arc under it. Same ladder the
+         * plaque's tier uses (see `comboMeter`) so the two cannot disagree about
+         * one streak, and both written only when the string changes — this is a
+         * per-frame path.
+         *
+         * The arc is quantised to whole percent, which is what makes that guard
+         * bite: at 60fps an unquantised fraction differs every frame and the
+         * write is unconditional in practice.
+         */
+        const meter = comboMeter(combo);
+        const multText = `x${meter.multiplier}`;
+        if (multText !== prevMultText) {
+          if (multRef.current) multRef.current.textContent = multText;
+          prevMultText = multText;
+        }
+        const arcPct = `${Math.round(meter.progress * 100)}%`;
+        if (arcPct !== prevArcPct) {
+          if (arcRef.current) arcRef.current.style.setProperty('--arc', arcPct);
+          prevArcPct = arcPct;
+        }
       }
       if (healthRef.current) {
-        healthRef.current.style.height = `${Math.max(0, snap.health * 100)}%`;
-        // Warn when the margin gets thin — a class toggle drives the pulse, only
-        // touched on the transition since this runs every frame.
-        const low = snap.health <= 0.25;
-        if (low !== prevLow) {
-          healthRef.current.classList.toggle('play__health-fill--low', low);
-          prevLow = low;
+        // A horizontal meter now, in the top plate — the old vertical bar hung
+        // off the left screen edge, clipped and unlabelled, reading as a second
+        // progress bar rather than as health.
+        //
+        // Quantised to the meter's cell count so the fill always terminates on a
+        // cell wall: a continuous fill under a segmented overlay ends mid-cell at
+        // most values, which defeats the whole point of segmenting it. `ceil`, so
+        // any health at all lights a cell and only a dead run shows none.
+        const cells = Math.ceil(Math.max(0, Math.min(1, snap.health)) * HEALTH_CELLS);
+        const pct = `${(cells / HEALTH_CELLS) * 100}%`;
+        if (pct !== prevHealthPct) {
+          healthRef.current.style.width = pct;
+          prevHealthPct = pct;
+        }
+        // Colour is a second channel, not a constant alarm: green / amber / red.
+        // `low` additionally rings and pulses the whole row (see the `:has()`
+        // rule), because at 1 cell left there is almost no fill to colour and 4
+        // CSS px of red cannot carry the state that ends a run.
+        const level = snap.health > 0.5 ? 'ok' : snap.health > 0.25 ? 'warn' : 'low';
+        if (level !== prevLevel) {
+          healthRef.current.dataset.level = level;
+          prevLevel = level;
         }
       }
 
@@ -759,8 +1178,13 @@ export function PlayScreen({
         progressRef.current.style.width = `${Math.min(100, (played / clock.duration) * 100)}%`;
       }
 
-      judgementAlpha = Math.max(0, judgementAlpha - dt * 2.2);
+      // Hold at full, then fade. See `judgementHold`.
+      if (judgementHold > 0) judgementHold = Math.max(0, judgementHold - dt);
+      else judgementAlpha = Math.max(0, judgementAlpha - dt * 3.4);
       if (judgementRef.current) judgementRef.current.style.opacity = String(judgementAlpha);
+      // The tag trails the tier word slightly, so the word is what the eye
+      // catches and the direction is the detail underneath it.
+      if (timingRef.current) timingRef.current.style.opacity = String(judgementAlpha * 0.85);
 
       const finishAt = lastNoteAt + OUTRO_SEC;
 
@@ -825,6 +1249,11 @@ export function PlayScreen({
       outroStarted = false;
       prevCombo = 0;
       prevTier = 0;
+      // Both the cache AND the attribute: a restart from a live streak would
+      // otherwise leave the corner showing a combo the new run has not earned.
+      prevComboOn = '0';
+      if (comboPodRef.current) comboPodRef.current.dataset.on = '0';
+      verdictCursor = 0;
       // Re-read the setting and anchor the cursor at where playback actually
       // begins — the intro skip means that is rarely zero.
       ticksOn = noteTicksEnabled();
@@ -892,6 +1321,11 @@ export function PlayScreen({
       outroStarted = false;
       prevCombo = 0;
       prevTier = 0;
+      // Both the cache AND the attribute: a restart from a live streak would
+      // otherwise leave the corner showing a combo the new run has not earned.
+      prevComboOn = '0';
+      if (comboPodRef.current) comboPodRef.current.dataset.on = '0';
+      verdictCursor = 0;
       ticksOn = noteTicksEnabled();
       tickCursor = cursorAt(chartRef.current!.notes, introOffset);
       clock.setTicksAudible(ticksOn);
@@ -944,7 +1378,7 @@ export function PlayScreen({
       if (result) {
         // Combo drives how hard the impact shakes — a long streak hits heavier.
         highway.burst(lane, result.tier, result.combo);
-        showJudgement(result.tier);
+        showJudgement(result.tier, lane, result.delta);
         autoCalibrate(engine, result.tier, result.delta);
       }
     };
@@ -1152,6 +1586,9 @@ export function PlayScreen({
         window.clearTimeout(calibTimerRef.current);
         calibTimerRef.current = null;
       }
+      if (import.meta.env.DEV) {
+        delete (window as Window & { __tapTapDebug?: unknown }).__tapTapDebug;
+      }
       // Never leave the device buzzing after the screen is gone.
       cancelHaptics();
     };
@@ -1182,80 +1619,199 @@ export function PlayScreen({
     >
       <canvas ref={canvasRef} className="play__canvas" />
 
-      <div className="play__progress">
-        <div ref={progressRef} className="play__progress-bar" />
+      {/* --- HUD ------------------------------------------------------------
+          ONE top plate, not four corner chips. The chips used to bracket the
+          playfield at its four corners — two of them at 19% height, right over
+          the far end of the highway — which crowded the board and gave four
+          readouts of very different importance the same weight.
+
+          Hierarchy: SCORE is hero one and COMBO hero two, stacked in the same
+          column of a 3-column grid whose side columns are equal `1fr`, so both
+          numerals sit on the frame's centre axis at every digit count — the
+          previous hand-balanced flex row left their optical centres 22 CSS px
+          apart and slid the combo sideways as it gained digits.
+
+          The two heroes are **one metal in two lights**: identical hue and
+          saturation, the score's body ~22% brighter than the combo's, which is
+          the only difference the eye can measure across a whole glyph. The
+          previous pass tried to give the combo the luminance channel and the
+          score the size channel; measured on the glyph *body* that came out as a
+          4% difference (invisible) with the combo 30% *less* saturated, so they
+          read as two different materials with the emphasis on the wrong one. The
+          combo now wins on its own channels instead: the accent halo the score
+          never gets, plus tier scale and a lengthening underline.
+
+          Accuracy is a hairline peripheral in the right column with the chart
+          tag as its secondary line — one tight top-anchored group, not two items
+          pinned to the ends of a stretched column. The plate itself is a soft
+          top-down scrim rather than a panel — legibility over an uncontrollable
+          background, the way Guitar Hero Live scrimmed its highway — and it has
+          no bottom edge of any kind.
+
+          Every value is written from the render loop through a ref. React must
+          never re-render during a run: that costs more than the whole loop. */}
+      <div className="hud">
+        {/* Song progress — a thin quiet line, and nothing more.
+            It used to be a 9px grooved capsule with a rim, a lit lower lip,
+            three quarter notches and a hard gold playhead terminator: five
+            decorative registers spent on the one number in the frame nobody acts
+            on. The reference ships no progress element at all; the trim pass
+            keeps the information and drops the furniture, so this is now a 3px
+            bed with a flat accent fill. It is inset from the top rather than
+            flush at y=0 — that row is exactly what a status bar or a centred
+            punch-hole occludes. */}
+        <div className="hud__rail">
+          <div ref={progressRef} className="hud__rail-fill" />
+        </div>
+
+        <div className="hud__deck">
+          {/* 46px, over the platform touch minimum, and a plated disc rather
+              than the 34px hairline ring it was. The glyph is drawn from two
+              rounded pseudo-elements so it matches the tiles' corner language —
+              the typed ❚❚ was the only square-cornered shape on screen.
+              Every dimension on it is now an integer number of *device* pixels at
+              DPR 3 and the two bars are placed symmetrically from opposite edges:
+              at 4.5px wide off `calc(50% ± n)` they rounded to 15 and 12 device
+              px, a visible 25% mismatch on the frame's only control. It is also
+              deliberately dim — as the brightest ink in the frame it was failing
+              the readability gate that reserves that for the receptor row.
+              It lives in the right-hand corner group below. */}
+          {/* The corner group. Score is ONE numeral in a dark pill with no
+              caption, tucked into the top-left — the reference's exact
+              composition, and the fix for a four-line SCORE/0/COMBO/0 stack
+              that sat on the frame's centre axis directly above the vanishing
+              point and read as a debug readout. Nothing belongs on that axis:
+              it is the one column every note travels.
+
+              Combo keeps its place in the hierarchy (it is the core feedback
+              loop) but loses the axis and the caption: a bare accent numeral
+              under the pill, revealed only once a streak exists. `data-on` is
+              written from the loop alongside `data-tier`, so at 0 and 1 the
+              corner carries the score alone. */}
+          <div className="hud__corner">
+            {/* `hud-chip` is kept on the pill: it is still a plate readout, and
+                `scripts/shoot.mjs` uses that class as its "the run is playing"
+                probe. */}
+            <div className="hud-chip hud__pill">
+              <span ref={scoreRef} className="hud__score-value">0</span>
+            </div>
+            <div ref={comboPodRef} className="hud-chip--combo" data-tier="0" data-on="0">
+              <span ref={comboRef} className="hud__combo-value">0</span>
+            </div>
+          </div>
+
+          {/* The opposite corner: pause, and health only when a run can fail.
+              ACC and the difficulty tag were removed from the play screen in the
+              trim pass: accuracy is a lagging aggregate nobody acts on mid-run
+              (it is on the pause card and on the results card, where it is read),
+              and the difficulty was chosen on the screen immediately before this
+              one. */}
+          <div className="hud__aside">
+            <button
+              type="button"
+              className="hud__pause"
+              aria-label="Pause"
+              onClick={() => controlsRef.current?.pause()}
+            />
+            {/* Health, ONLY when the run can actually fail.
+                With `fail` off — the default — health has no consequence
+                whatsoever: it drains on the first few misses of any imperfect run
+                and then sits at empty for the rest of the song while nothing
+                happens. A meter that is guaranteed to read "one hit from death"
+                and then "dead" in a run that carries on regardless is worse than
+                no meter: it is the shipped screenshot saying the opposite of
+                SCORE/COMBO/ACC, and it costs HUD ink for no information. With
+                `fail` on it is the most consequential number on the plate, so it
+                gets the size, the graded colour and the alarm ring.
+                Segmented on purpose: the cells are a second, shape-based channel
+                so it cannot be mistaken for the progress rail above it, and the
+                fill width is *quantised* to them in the loop so a cell is lit or
+                unlit and never half. `data-level` (ok/warn/low) is the colour
+                channel and drives the alarm state on the whole row. */}
+            {mods.fail ? (
+              <div className="hud__health-row">
+                <span className="hud-chip__label hud__health-label">HP</span>
+                <div className="hud__health" aria-hidden>
+                  <div
+                    ref={healthRef}
+                    className="hud__health-fill"
+                    data-level="ok"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {/* --- The waveform deck ------------------------------------------
+            The owner's third rejection clause was "there is no waveforms
+            around", and the reference answers it in TWO places. The vertical
+            bars flanking the board are the highway's (`buildSpectrumWings`);
+            this is the other one — an album disc centred above the playfield
+            with a mirrored horizontal spectrum running left and right from it.
+
+            It is a separate row under the deck, in the band of the frame that
+            was empty black on both flanks and only the vanishing point in the
+            middle. The trim pass moved the plate's readouts into the two top
+            corners, which is what let this row shrink and lift clear of the
+            runway rather than standing on it.
+
+            It is NOT the retired 3D album ring — see the note at the top of
+            `hudWave.ts`. That was 96 instanced spectrum spikes standing in world
+            space at the horizon; this is one 2D canvas at the top of the screen.
+
+            `pointer-events: none` on the whole row (in the CSS): it sits over
+            the canvas, and a dead zone at the top of the playfield would eat
+            taps aimed at the far end of a lane. */}
+        <div className="hud__wavedeck" aria-hidden>
+          <canvas ref={waveRef} className="hud__wave" />
+          <div className="hud__disc">
+            {beatmap?.thumbnailUrl ? (
+              <img className="hud__disc-art" src={beatmap.thumbnailUrl} alt="" />
+            ) : null}
+            {/* The amber progress arc toward the next multiplier step, and the
+                band carrying the multiplier itself.
+
+                AMBER, not the accent, and deliberately so: it is a reward
+                indicator, and reward indicators in this app are outside the
+                accent system exactly as `TIER_COLORS` and `--gold` already are.
+                It cannot be `--amber` either — `accentVars` overrides that to a
+                shade of the song's accent, which is the whole thing this must
+                not be. Hence the literal. */}
+            <div className="hud__disc-band" />
+            <div ref={arcRef} className="hud__disc-arc" style={{ '--arc': '0%' } as CSSProperties} />
+            <span ref={multRef} className="hud__disc-mult">x1</span>
+          </div>
+        </div>
       </div>
 
-      {/* Four corner HUD plaques: SCORE / ACCURACY top, COMBO / PERFECTS mid.
-          Values are seven-segment (DSEG7) over a faint "8888" ghost so they read
-          as a lit LCD; labels and the % suffix stay on the display face. All
-          written from the render loop, never React state. */}
-      <div className="hud-chip hud-chip--score">
-        <div className="hud-chip__label">SCORE</div>
-        <div className="hud-chip__seg">
-          <span className="hud-chip__num">
-            <span className="hud-chip__ghost" aria-hidden>8888888</span>
-            <span ref={scoreRef} className="hud-chip__value">0</span>
-          </span>
-        </div>
-      </div>
-      <div className="hud-chip hud-chip--accuracy">
-        <div className="hud-chip__label">ACCURACY</div>
-        <div className="hud-chip__seg">
-          <span className="hud-chip__num">
-            <span className="hud-chip__ghost" aria-hidden>888</span>
-            <span ref={accuracyRef} className="hud-chip__value">100</span>
-          </span>
-          <span className="hud-chip__suffix">%</span>
-        </div>
-      </div>
-      <div className="hud-chip hud-chip--combo">
-        <div className="hud-chip__label">COMBO</div>
-        <div className="hud-chip__seg">
-          <span className="hud-chip__num">
-            <span className="hud-chip__ghost" aria-hidden>8888</span>
-            <span ref={comboRef} className="hud-chip__value" data-tier="0">0</span>
-          </span>
-        </div>
-      </div>
-      <div className="hud-chip hud-chip--perfects">
-        <div className="hud-chip__label">PERFECTS</div>
-        <div className="hud-chip__seg">
-          <span className="hud-chip__num">
-            <span className="hud-chip__ghost" aria-hidden>8888</span>
-            <span ref={perfectsRef} className="hud-chip__value">0</span>
-          </span>
-        </div>
-      </div>
-
-      {/* Health. A vertical meter down the left edge, out of the way of the
-          cover art. Hidden outside a run (CSS, keyed on data-phase). Height +
-          low-health pulse are written from the render loop. */}
-      <div className="play__health" aria-hidden>
-        <div ref={healthRef} className="play__health-fill" style={{ height: '100%' }} />
-      </div>
-
-      {/* Red edge flash on a broken combo. Sits above the canvas, below the
-          HUD; the animation class is toggled from the render loop. */}
+      {/* Red edge flash on a broken combo. Sits above the canvas, below both
+          the HUD plate and the verdict stack (see the z-index note in the CSS —
+          this used to paint *over* the judgement it was reacting to). The
+          animation class is toggled from the render loop. */}
       <div ref={vignetteRef} className="play__vignette" aria-hidden />
 
       <div ref={milestoneRef} className="play__milestone" aria-hidden />
-      <div ref={judgementRef} className="play__judgement" style={{ opacity: 0 }} />
+
+      {/* The verdict for the last note: mid-highway (~33% down) and thrown into
+          the gutter on whichever half of the runway currently carries fewer
+          notes — see `verdictSide`. Neither half of that is optional. Centred it
+          printed MISS across a tile; thrown merely away from the judged lane it
+          landed under a *different* lane's tile and read as that tile's caption,
+          which is what the second review caught. */}
+      <div ref={verdictRef} className="play__verdict">
+        <div ref={judgementRef} className="play__judgement" style={{ opacity: 0 }}>
+          <span ref={judgeStrokeRef} className="play__judgement-stroke" aria-hidden />
+          <span ref={judgeFillRef} className="play__judgement-fill" />
+        </div>
+        <div ref={timingRef} className="play__timing" style={{ opacity: 0 }} />
+      </div>
+
       <div ref={countdownRef} className="play__countdown" style={{ opacity: 0 }} />
       <div ref={calibToastRef} className="play__calib" style={{ opacity: 0 }}>
         ⏱ timing synced
       </div>
-
-      {phase === 'playing' && (
-        <button
-          type="button"
-          className="play__pause-btn"
-          aria-label="Pause"
-          onClick={() => controlsRef.current?.pause()}
-        >
-          ❚❚
-        </button>
-      )}
 
       {phase === 'paused' && pauseView === 'menu' && (
         <div className="play__overlay play__overlay--pause">
@@ -1265,6 +1821,15 @@ export function PlayScreen({
               {beatmap && <h2>{beatmap.title}</h2>}
               <span className="pause-card__meta">
                 {difficulty} · {Math.round(beatmap?.bpm ?? 0)} BPM
+              </span>
+              {/* Accuracy lives HERE and on the results card, not on the play
+                  screen: it is a lagging aggregate, so it is read when the player
+                  has stopped to look rather than glanced at mid-stream. Safe to
+                  compute in render because this markup only exists while paused —
+                  the run is frozen, so there is no 60fps re-render to provoke. */}
+              <span className="pause-card__stats">
+                {Math.round((engineRef.current?.snapshot.accuracy ?? 0) * 100)}% accuracy ·{' '}
+                {engineRef.current?.snapshot.maxCombo ?? 0} best combo
               </span>
             </div>
 

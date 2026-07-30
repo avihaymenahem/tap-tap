@@ -12,3 +12,7 @@ server/media/
 .DS_Store
 .env
 *.apk
+# Throwaway diagnostics and the screenshot harness's output. Both are
+# machine-local working files, never review artifacts.
+scratchpad/
+shots/

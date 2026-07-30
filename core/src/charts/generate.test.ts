@@ -6,6 +6,7 @@ import {
   buildGrid,
   generateAllCharts,
   generateChart,
+  MAX_REST_SEC,
   snapNear,
   snapToGrid,
 } from './generate.js';
@@ -309,6 +310,137 @@ describe('dynamics: quiet sections still get notes', () => {
     );
 
     expect(chart.notes.filter((n) => n.t >= 31 && n.t < 59)).toHaveLength(0);
+  });
+});
+
+/**
+ * The long-rest guarantee (`MAX_REST_SEC`).
+ *
+ * The reported defect: "after a couple of notes I'm seeing some empty gaps, like
+ * brakes". Measured on the shipped "Animals" chart, easy had eleven gaps over
+ * 1.5s and a worst of **7.50s** — in stretches where the detector had found two
+ * onsets a second the whole way through.
+ *
+ * The cause was not the layering gate (the first suspect, and it was wrong: that
+ * song's stored analysis predates `percussive` entirely, and the holes are
+ * identical with the field present and absent). It is that **both density
+ * controls are averages**. `targetNps` budgets the song; `MIN_DENSITY_FRACTION`
+ * floors an 8s section at a *count*. Neither says anything about where inside a
+ * section those notes land, and `selectNotes` takes them strongest-first — so a
+ * section's whole quota can bunch into its first two seconds and the remaining
+ * six are dead while the music plays on.
+ */
+describe('long rests', () => {
+  /** Loud and busy, then quiet and busy — the shape that starves a section. */
+  function quietSecondHalf(): AnalysisResult {
+    const duration = 120;
+    const onsets: Onset[] = [];
+    for (let t = 0; t < duration; t += 0.25) {
+      const quiet = t >= 60;
+      onsets.push({
+        t: Number(t.toFixed(4)),
+        // Quiet but *present*: a tenth the energy, every bit as rhythmic. This is
+        // the passage a listener still nods along to and the old chart abandoned.
+        strength: quiet ? 0.09 : 0.9,
+        low: 0.6,
+        mid: 0.25,
+        high: 0.15,
+        percussive: 0.95,
+      });
+    }
+    const beatGrid: number[] = [];
+    for (let t = 0; t < duration; t += 0.5) beatGrid.push(Number(t.toFixed(4)));
+    return { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets };
+  }
+
+  it('never leaves a multi-second hole while the music is still playing', () => {
+    const analysis = quietSecondHalf();
+    for (const params of Object.values(DIFFICULTIES)) {
+      const chart = generateChart(analysis, params, 1);
+      const times = [...new Set(chart.notes.map((n) => n.t))].sort((a, b) => a - b);
+      const worst = times
+        .slice(1)
+        .reduce((max, t, i) => Math.max(max, t - times[i]!), 0);
+      expect(worst, `${params.name} worst gap`).toBeLessThanOrEqual(MAX_REST_SEC + 1e-6);
+    }
+  });
+
+  it('fills the hole with real onsets, never with invented times', () => {
+    const analysis = quietSecondHalf();
+    const onsetTimes = new Set(analysis.onsets.map((o) => o.t));
+    for (const params of Object.values(DIFFICULTIES)) {
+      for (const note of generateChart(analysis, params, 1).notes) {
+        // Every fixture onset sits on the grid, so snapping is a no-op and the
+        // note time must be an onset time exactly.
+        expect(onsetTimes.has(note.t), `${params.name} note at ${note.t}`).toBe(true);
+      }
+    }
+  });
+
+  it('relaxes the layering gate inside the offending stretch, not song-wide', () => {
+    // A drum track with one purely melodic bridge. The gate is *not* starved
+    // globally — there is far more percussion than easy's budget needs — so
+    // `admitPercussive` never relaxes, and before the local guarantee easy went
+    // silent for the whole bridge. It should chart the melody there and nowhere
+    // else: a bridge is not a reason to put the lead line on a beginner chart.
+    const duration = 180;
+    const bridge: [number, number] = [60, 90];
+    const onsets: Onset[] = [];
+    for (let t = 0; t < duration; t += 0.25) {
+      const inBridge = t >= bridge[0] && t < bridge[1];
+      onsets.push({
+        t: Number(t.toFixed(4)),
+        strength: 0.8,
+        low: inBridge ? 0.15 : 0.7,
+        mid: inBridge ? 0.7 : 0.2,
+        high: 0.15,
+        percussive: inBridge ? 0.05 : 0.95,
+      });
+    }
+    const beatGrid: number[] = [];
+    for (let t = 0; t < duration; t += 0.5) beatGrid.push(Number(t.toFixed(4)));
+    const analysis: AnalysisResult = {
+      duration,
+      bpm: 120,
+      bpmConfidence: 0.9,
+      beatGrid,
+      onsets,
+    };
+
+    const chart = generateChart(analysis, DIFFICULTIES.easy, 1);
+    const inBridge = chart.notes.filter((n) => n.t >= bridge[0] && n.t < bridge[1]);
+
+    // Charted, and never more than one rest-length apart.
+    expect(inBridge.length).toBeGreaterThan(0);
+    const times = [...new Set(chart.notes.map((n) => n.t))].sort((a, b) => a - b);
+    const worst = times.slice(1).reduce((max, t, i) => Math.max(max, t - times[i]!), 0);
+    expect(worst).toBeLessThanOrEqual(MAX_REST_SEC + 1e-6);
+
+    // But only as much of it as the guarantee needs — the gate still governs the
+    // rest of the chart, so the bridge stays far sparser than the drum sections.
+    const bridgeNps = inBridge.length / (bridge[1] - bridge[0]);
+    const drumNps = (chart.notes.length - inBridge.length) / (duration - (bridge[1] - bridge[0]));
+    expect(bridgeNps).toBeLessThan(drumNps);
+  });
+
+  it('leaves a rest the song has nothing to fill with', () => {
+    // The counterpart to the three above, and the line that keeps this a fix
+    // rather than a quota: a hole with no onsets in it stays a hole.
+    const duration = 60;
+    const onsets: Onset[] = [];
+    for (let t = 0; t < duration; t += 0.25) {
+      if (t >= 20 && t < 40) continue;
+      onsets.push({ t: Number(t.toFixed(4)), strength: 0.8, low: 0.5, mid: 0.3, high: 0.2 });
+    }
+    const beatGrid: number[] = [];
+    for (let t = 0; t < duration; t += 0.5) beatGrid.push(Number(t.toFixed(4)));
+
+    const chart = generateChart(
+      { duration, bpm: 120, bpmConfidence: 0.9, beatGrid, onsets },
+      DIFFICULTIES.easy,
+      1,
+    );
+    expect(chart.notes.filter((n) => n.t >= 20.5 && n.t < 39.5)).toHaveLength(0);
   });
 });
 

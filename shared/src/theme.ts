@@ -101,6 +101,182 @@ export const DEFAULT_ACCENT = 0xff3fa4;
 export const MIN_THEME_LANES = 5;
 
 /**
+ * Lane hues are laid out on ONE geometry, rotated per theme.
+ *
+ * "Five distinct colours" turned out not to be a strong enough rule. Distinctness
+ * was measured by `colorDistance`, which is a distance in linear RGB — so a pair
+ * that differs mostly in *lightness* clears it while being, on a converging
+ * four-lane board at speed, the same lane twice. Scored properly (pairwise hue
+ * separation, with saturation and value held equal), only one shipped palette
+ * passed: every other one had at least one pair inside 45 degrees, and several
+ * had three warm lanes inside 45 of each other.
+ *
+ * So the hues are no longer chosen per theme. Each palette is one of two fixed
+ * offset sets rotated to a base hue that carries the theme's identity, at a
+ * single saturation and value:
+ *
+ *   SET_A  [0, 55, 155, 210, 290]   minimum pair 55 deg
+ *   SET_B  [0, 78, 165, 212, 293]   minimum pair 47 deg, and puts a gold at
+ *                                   lane 1 when the base is a pink
+ *
+ * Both put the outermost pair of a FOUR-lane chart (lanes 0 and 3 — every shipped
+ * difficulty is four) 148-150 degrees apart, which is what makes the two lanes a
+ * player mixes up most often the two furthest apart on the wheel.
+ *
+ * Equal saturation and value matter as much as the hues: a lane that is merely
+ * paler than its neighbour reads as the same lane dimmed, not as a different
+ * lane. It is also what lets the renderer normalise every tile's lit rim to one
+ * peak channel, which is what keeps all five tone-mapping identically.
+ *
+ * A theme's identity therefore lives in its sky, its accent, and where on the
+ * wheel its lanes start — not in five independently-chosen colours. `mono` is the
+ * deliberate exception: it is a luminance-only scheme, where hue is meaningless.
+ */
+export const LANE_HUE_OFFSETS_A: readonly number[] = [0, 55, 155, 210, 290];
+export const LANE_HUE_OFFSETS_B: readonly number[] = [0, 78, 165, 212, 293];
+
+/*
+ * ---------------------------------------------------------------------------
+ * What a theme IS, since the playfield rebuild: ONE accent hue per song, and
+ * lanes separated by VALUE.
+ * ---------------------------------------------------------------------------
+ *
+ * Everything above this block describes the *previous* answer — five contrasting
+ * hues laid out on a shared wheel geometry — and it is still the contract
+ * `lanes` carries and `validateTheme` polices. It is no longer what the highway
+ * paints. Measured off the owner's reference frames, all four lanes carry the
+ * **same** hue: three notes in three different lanes in the
+ * cyan frame measure hue 193 to within a degree of each other, at HSL saturation
+ * 42% and lightness 68-72%. Lane identity comes from position, and the accent is
+ * the only colour in the frame — it is on the notes, the trails, the rails, the
+ * receptor glow and the background vignette at once, which is what makes a frame
+ * read as one composition rather than as four coloured ribbons.
+ *
+ * So a lane colour is now derived, not chosen: `laneTones` walks a fixed
+ * lightness ramp with the accent's hue and saturation held. That satisfies the
+ * "five distinguishable lanes" requirement `laneColor` depends on — five stops
+ * nine points of lightness apart are told apart by value, which is the axis a
+ * greyscale palette has always had to rely on (see `mono`) — while reading as one
+ * colour family at speed.
+ *
+ * **`theme.lanes` is deliberately left alone.** It is the wire contract, it is
+ * what the theme editor edits and `validateTheme` checks, and `theme.test.ts`
+ * pins the default palette's five values as a migration guard. Rewriting it would
+ * be a data migration on top of a rendering change; deriving the ramp from
+ * `accent` gets the reference look for every theme — built-in *and* custom, and
+ * without a second array to keep in sync. `lanes[0]` is the fallback hue source
+ * for a theme that never set an accent.
+ */
+
+/*
+ * ---------------------------------------------------------------------------
+ * THE RAMP IS AUTHORED SO THE *RENDERED* LANES HOLD ONE SATURATION.
+ * ---------------------------------------------------------------------------
+ *
+ * Both stop tables below are solved, not chosen, and they have to be read as one
+ * table of (saturation, lightness) pairs — index i of each is lane i.
+ *
+ * The previous shape was one saturation for the whole ramp plus a lightness
+ * ramp, and it did not survive contact with the renderer. What the player sees is
+ * not the authored colour: it is `sRGB -> linear -> x the tile's face exposure ->
+ * Khronos PBR Neutral tone map -> sRGB`, and the tone mapper subtracts a fixed
+ * 0.04 black offset in LINEAR space. A fixed subtraction is a much larger
+ * fraction of a dark lane than of a bright one, so a flat authored saturation
+ * comes out as a chroma *ramp*: measured on the shipped frame at S 0.48, the five
+ * lanes rendered chroma 124 / 105 / 84 / 67 / 51 — a 2.4x spread, and a mean HSL
+ * saturation of 30.6% against the reference's 41.9%. That mean is the number the
+ * owner called washed out, and no single saturation could fix it, because the
+ * bright end of the ramp is where the chroma was being lost.
+ *
+ * The reference does the opposite and is very consistent about it: its four
+ * visible notes measure HSL S 40.7 / 42.0 / 42.0 / 42.8 while their lightness
+ * ranges 47 to 76. **Saturation constant, value varying** — so the stops here are
+ * solved for exactly that, one pair per lane, targeting rendered S 43% with the
+ * rendered peak channel stepping 146 -> 186 in even tens.
+ *
+ * Two properties worth knowing before touching these:
+ *
+ *  - **They are hue-independent.** The tone mapper treats channels symmetrically
+ *    and rendered value/chroma depend only on the authored max and min channels,
+ *    so one solved table serves every theme — gold and cyan produce identical
+ *    stops. That is what lets a single ramp be the answer for built-in and custom
+ *    themes alike.
+ *  - **They are solved against the tile's mid-face exposure (0.60 in
+ *    `buildNotes`).** Change that exposure and this table is stale; the two are
+ *    one calibration in two files. `scratchpad`-style guesswork is not needed to
+ *    re-solve it — the chain above is closed-form.
+ *
+ * `peakLinear` still ascends across the stops, which is what `laneTones.test.ts`
+ * checks and what keeps five lanes told apart by value.
+ */
+
+/** Lightness stop per lane, darkest first. Pairs with `LANE_TONE_SATURATION`. */
+export const LANE_TONE_LIGHTNESS: readonly number[] = [0.586, 0.614, 0.644, 0.674, 0.718];
+
+/**
+ * Saturation stop per lane, pairing index-for-index with `LANE_TONE_LIGHTNESS`.
+ *
+ * It RISES with lightness, which looks wrong and is the whole point: the extra
+ * authored saturation is what pays back the chroma the fixed linear black offset
+ * takes out of a brighter lane. Rendered, all five land within half a point of
+ * S 43%.
+ */
+export const LANE_TONE_SATURATION: readonly number[] = [0.432, 0.502, 0.59, 0.694, 0.81];
+
+/** sRGB hex from HSL, all inputs 0..1 except `hue` in degrees. */
+export function hslHex(hue: number, sat: number, light: number): number {
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const h = (((hue % 360) + 360) % 360) / 60;
+  const x = c * (1 - Math.abs((h % 2) - 1));
+  const m = light - c / 2;
+  const rgb: [number, number, number] =
+    h < 1 ? [c, x, 0]
+    : h < 2 ? [x, c, 0]
+    : h < 3 ? [0, c, x]
+    : h < 4 ? [0, x, c]
+    : h < 5 ? [x, 0, c]
+    : [c, 0, x];
+  return rgb
+    .map((v) => Math.max(0, Math.min(255, Math.round((v + m) * 255))))
+    .reduce((acc, v) => (acc << 8) | v, 0);
+}
+
+/**
+ * The hue a theme's whole frame is painted in.
+ *
+ * `accent` is the field that already threads through the shell (`accentVars`:
+ * menu detail panel -> ready -> play -> results), so keying the lanes off it is
+ * what makes the 3D frame and the 2D chrome agree without a new field to set.
+ * Falling back to `lanes[0]` keeps a hand-written custom theme that never set an
+ * accent from collapsing to the default pink.
+ */
+export function accentOf(theme: Theme): number {
+  return theme.accent ?? theme.lanes[0] ?? DEFAULT_ACCENT;
+}
+
+/**
+ * The lane ramp: `count` colours in the theme's accent hue, ascending in value.
+ *
+ * Pure and total. `count` above the number of stops wraps the ramp rather than
+ * running off the end — the same defence `laneColor`'s modulo is, since a lane
+ * with no colour at all is a black note on a black track.
+ */
+export function laneTones(theme: Theme, count: number = MIN_THEME_LANES): number[] {
+  const { hue, sat } = hueOf(accentOf(theme));
+  // A near-grey accent (`mono`) has no meaningful hue, and forcing one on it
+  // would turn a deliberate luminance-only palette into a tinted one. Its ramp
+  // is the same ramp with the chroma taken out — so the solved saturation table
+  // is replaced by the accent's own (near-zero) saturation, flat.
+  const chromatic = sat >= HUE_MEANINGFUL_SAT;
+  const stops = LANE_TONE_LIGHTNESS;
+  return Array.from({ length: Math.max(1, count) }, (_, i) => {
+    const stop = i % stops.length;
+    const saturation = chromatic ? (LANE_TONE_SATURATION[stop] as number) : sat;
+    return hslHex(hue, saturation, stops[stop] as number);
+  });
+}
+
+/**
  * Peak linear channel a sky colour may reach.
  *
  * Matches the UnrealBloomPass threshold in `highway.ts`. Past it the backdrop
@@ -141,10 +317,14 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     // shell is fixed metallic trim (see accent.ts) — the accent here is the
     // pink that the whole flow follows.
     accent: 0xff3fa4,
-    // Five jewel tones a full step apart on the wheel: pink, cyan, gold, violet,
-    // mint. Cyan and mint are the danger pair (both cool-bright), so they sit at
-    // opposite ends of the ramp rather than adjacent.
-    lanes: [0xff2e9c, 0x2ee0ff, 0xffd23c, 0x8f5cff, 0x3cff9d],
+    // SET_B from hue 328 — the same five jewel families as before (pink, gold,
+    // green, cyan, violet) re-spaced onto the shared geometry.
+    //
+    // The old set was [pink 328, cyan 189, gold 46, violet 259, mint 150]: cyan
+    // and mint sat 39 degrees apart, the violet was the only lane under the 0.65
+    // saturation floor, and lanes 0 and 3 — the outermost pair of every shipped
+    // four-lane chart — were 70 degrees apart where they want to be past 120.
+    lanes: [0xff33a0, 0xffcf33, 0x33ff5f, 0x33ffff, 0x7a33ff],
     hitLine: 0xe8f4ff,
     // Navy night behind a neon skyline. `sun`/`sunCrown` are the city glow and
     // the lit windows; `horizon`/`horizonAlt` are the building silhouettes;
@@ -166,7 +346,10 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'synthwave',
     name: 'Synthwave',
     accent: 0xff4fa0,
-    lanes: [0xff2e88, 0x00e5ff, 0xffd60a, 0x9d4edd, 0x00ff9d],
+    // SET_B from hue 334. The sky below is the part that reproduces the pre-theme
+    // renderer colour for colour; the lanes never did, and the old set had a
+    // 29-degree cyan/mint pair and a violet at saturation 0.65 and value 0.87.
+    lanes: [0xff338b, 0xffe433, 0x33ff74, 0x33ebff, 0x8f33ff],
     hitLine: 0xffffff,
     // These six are the exact sRGB equivalents of the literals the backdrop
     // shader used before it took a theme, so every song ingested before themes
@@ -186,7 +369,10 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'inferno',
     name: 'Inferno',
     accent: 0xff7a2e,
-    lanes: [0xff4d2e, 0xffb020, 0xffe94a, 0x2ee5ff, 0xff2e9f],
+    // SET_A from hue 8. The old set was three fire tones inside 44 degrees of each
+    // other (9 / 39 / 53) — the exact failure the `stage` palette's comment was
+    // written about, in the theme where it is most tempting.
+    lanes: [0xff4e33, 0xf5ff33, 0x33ffc5, 0x337eff, 0xf833ff],
     hitLine: 0xfff0d8,
     sky: {
       top: 0x2a0608,
@@ -203,12 +389,14 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'arctic',
     name: 'Arctic',
     accent: 0x3fd0f0,
+    // SET_A from hue 195 — icy cyan at lane 0, then right round the wheel.
+    //
     // A cold palette is the hardest to keep readable, because every hue that
-    // suits the name sits between cyan and violet. The first pass used
-    // 0x7c9dff for lane 1 and 0xa8f0d0 for lane 2, and on the receptors they
-    // were near-indistinguishable from the cyan beside them. These are pushed
-    // apart deliberately: distinct beats tasteful.
-    lanes: [0x4fe3ff, 0x4f6bff, 0x8cffc4, 0xc48cff, 0xffd166],
+    // suits the name sits between cyan and violet, and this one kept losing that
+    // argument: the previous set still had three pairs inside 45 degrees and two
+    // lanes under the 0.65 saturation floor. Only lane 0 can carry the name; the
+    // other four carry the chart.
+    lanes: [0x33ccff, 0x5533ff, 0xff3355, 0xffcc33, 0x33ff44],
     hitLine: 0xeaf6ff,
     sky: {
       top: 0x050f2e,
@@ -228,7 +416,8 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'toxic',
     name: 'Toxic',
     accent: 0x7dff3a,
-    lanes: [0x9dff2e, 0x00ffcc, 0xffe600, 0xff2ecc, 0xff7a1f],
+    // SET_A from hue 88 — acid green at lane 0.
+    lanes: [0xa0ff33, 0x33ff81, 0x3d33ff, 0xf833ff, 0xff7033],
     hitLine: 0xf2ffe0,
     sky: {
       top: 0x04210f,
@@ -284,13 +473,20 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'stage',
     name: 'Stage',
     accent: 0xf5d152,
-    // The dark, spotlit look. The track itself is drawn near-black in this
-    // style, so these lane colours are seen almost only as the *hit flash* that
-    // fires up a lane when it is struck — the burst of colour the reference gets
-    // from its green perfect-flash. They still have to satisfy the five-distinct
-    // rule: a chart can strike any lane, and two lanes that flash the same
-    // colour are as confusing here as two that are painted the same.
-    lanes: [0xff8a3c, 0xffd23c, 0x3cff7a, 0x3cc4ff, 0xff4fb0],
+    /*
+     * Five hues at 350 / 45 / 145 / 200 / 280 degrees, all at S 0.80 V 1.0.
+     *
+     * "Five distinct" is not a strong enough rule and this palette is why it had
+     * to be tightened. Lane 0 was orange (hue 24) and lane 1 was gold (hue 47):
+     * 23 degrees apart, *adjacent on the board*, and comfortably past the
+     * validator's distance floor — a pair no player can separate at speed. These
+     * are laid out so every pair is at least 45 degrees apart, no pair is inside
+     * 30, and the outermost pair of a four-lane chart (0 and 3) is 150 apart.
+     *
+     * Equal saturation and value matter as much as the hues: a lane that is
+     * merely paler than its neighbour reads as the same lane dimmed.
+     */
+    lanes: [0xff3355, 0xffcc33, 0x33ff88, 0x33bbff, 0xbb33ff],
     hitLine: 0xffffff,
     // Warm gold. In `stage` style the sky is not a sun but a single lamp behind
     // the horizon, so `sun`/`sunCrown` are the pooled glow and its hot core and
@@ -312,10 +508,8 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'aurora',
     name: 'Aurora',
     accent: 0x4fffb0,
-    // Northern lights: a green→cyan→violet sweep with a warm pin to keep the
-    // outer lanes readable. Green and cyan are the danger pair (adjacent hues),
-    // so they are pushed a full step apart rather than left as neighbours.
-    lanes: [0x2effa0, 0x24d6ff, 0x7a5cff, 0xff4fb0, 0xffe14a],
+    // SET_A from hue 153 — the northern-lights green at lane 0.
+    lanes: [0x33ffa3, 0x33a0ff, 0xff33e4, 0xff3d33, 0xb1ff33],
     hitLine: 0xe6fff4,
     sky: {
       top: 0x04121a,
@@ -333,9 +527,8 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'vapor',
     name: 'Vapor',
     accent: 0xff7ad9,
-    // Vaporwave dusk — magenta and peach over a violet horizon. The cyan is the
-    // one cool lane that stops the warm half from blurring together.
-    lanes: [0xff4fd8, 0xff7a5c, 0xffd06b, 0x4fe0ff, 0x8f6bff],
+    // SET_A from hue 313 — vaporwave magenta at lane 0.
+    lanes: [0xff33d3, 0xff4e33, 0x5cff33, 0x33ffc5, 0x3d33ff],
     hitLine: 0xffe6f6,
     sky: {
       top: 0x180a2e,
@@ -353,10 +546,10 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'abyss',
     name: 'Deep Sea',
     accent: 0x2ee0ff,
-    // Abyssal: blue and cyan up top, then lime and coral for the bioluminescence
-    // — the two warm lanes are what keep this from being an unreadable wall of
-    // blue, the mistake the Arctic palette warns about.
-    lanes: [0x3a6bff, 0x2ee0ff, 0xa6ff3c, 0xff6a4a, 0xff4fb0],
+    // SET_A from hue 222 — abyssal blue at lane 0, then round the wheel. The two
+    // warm lanes are what keep this from being an unreadable wall of blue, the
+    // mistake the Arctic palette warns about.
+    lanes: [0x3370ff, 0xb133ff, 0xff6d33, 0xd6ff33, 0x33ffa0],
     hitLine: 0xe6f6ff,
     sky: {
       top: 0x02101e,
@@ -374,10 +567,8 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'royal',
     name: 'Royal',
     accent: 0xc89bff,
-    // Violet and magenta with gold — the regal pairing. Rose is pulled toward
-    // coral so it does not read as a second magenta, and cyan grounds the cool
-    // end so five jewel tones stay five.
-    lanes: [0x9a5cff, 0xe04fd0, 0xff6a6a, 0xffcf4a, 0x4fd0e0],
+    // SET_A from hue 263 — regal violet at lane 0, gold in the middle.
+    lanes: [0x8133ff, 0xff33c2, 0xfff833, 0x4bff33, 0x33d3ff],
     hitLine: 0xf2e6ff,
     sky: {
       top: 0x10062e,
@@ -395,10 +586,10 @@ export const BUILTIN_THEMES: readonly Theme[] = [
     id: 'molten',
     name: 'Molten',
     accent: 0xff8a3c,
-    // Forge colours: crimson, orange, gold. A cyan lane is deliberately dropped
-    // into the middle — five shades of fire would be five lanes nobody can tell
-    // apart, so the contrast lane is the readability, not a mood break.
-    lanes: [0xff3a3a, 0xff8a2e, 0xffd23c, 0x2ee0ff, 0xff4fb0],
+    // SET_A from hue 2 — forge crimson at lane 0. Five shades of fire would be
+    // five lanes nobody can tell apart, so the cool lanes are the readability,
+    // not a mood break; the theme's heat lives in its sky and its accent.
+    lanes: [0xff3a33, 0xfff533, 0x33ffb1, 0x3392ff, 0xe433ff],
     hitLine: 0xffece0,
     sky: {
       top: 0x230604,
@@ -501,6 +692,48 @@ export function colorDistance(a: number, b: number): number {
 /** Below this, two lane colours are too similar to tell apart at speed. */
 export const MIN_LANE_DISTANCE = 0.22;
 
+/**
+ * Hue of an sRGB hex, in degrees, plus its saturation.
+ *
+ * `colorDistance` above cannot see this: it is a distance in linear RGB, so a
+ * pair that differs mostly in lightness passes it comfortably while reading as
+ * one lane dimmed. Hue is the channel a player actually parses at speed, and the
+ * pairs that lose charts are the ones close in hue.
+ */
+export function hueOf(hex: number): { hue: number; sat: number } {
+  const r = ((hex >> 16) & 0xff) / 255;
+  const g = ((hex >> 8) & 0xff) / 255;
+  const b = (hex & 0xff) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  let hue = 0;
+  if (d > 0) {
+    if (max === r) hue = 60 * ((((g - b) / d) % 6) + 6);
+    else if (max === g) hue = 60 * ((b - r) / d + 2);
+    else hue = 60 * ((r - g) / d + 4);
+  }
+  return { hue: hue % 360, sat: max === 0 ? 0 : d / max };
+}
+
+/** Shortest distance between two hues, in degrees (0..180). */
+export function hueDistance(a: number, b: number): number {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/**
+ * Minimum hue separation between two lanes that can be on the board together.
+ *
+ * A warning, not an error, for the same reason the similarity check is: it is a
+ * judgement call about a specific chart and a specific player, and a palette can
+ * be deliberately monochrome (see `mono`). But it is the rule the built-in
+ * palettes are now laid out against, and it is the one `colorDistance` misses.
+ */
+export const MIN_LANE_HUE_DEGREES = 45;
+/** Below this saturation a colour has no meaningful hue, so the rule above is skipped. */
+const HUE_MEANINGFUL_SAT = 0.15;
+
 export const THEME_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,30}$/;
 
 export interface ThemeProblem {
@@ -591,12 +824,30 @@ export function validateTheme(theme: Theme, catalog: readonly Theme[] = []): The
       if (!isHex(a) || !isHex(b)) continue;
       if (a === b) {
         error(`lanes.${j}`, `Identical to lane ${i + 1}.`);
-      } else if (colorDistance(a, b) < MIN_LANE_DISTANCE) {
+        continue;
+      }
+      if (colorDistance(a, b) < MIN_LANE_DISTANCE) {
         problems.push({
           field: `lanes.${j}`,
           message: `Very similar to lane ${i + 1} — hard to tell apart mid-song${
             j === i + 1 ? ', and they are next to each other' : ''
           }.`,
+          severity: 'warning',
+        });
+        continue;
+      }
+      // Skipped for near-greys, where hue carries no information at all and a
+      // luminance-only palette is a legitimate design (see `mono`).
+      const ha = hueOf(a);
+      const hb = hueOf(b);
+      if (ha.sat < HUE_MEANINGFUL_SAT || hb.sat < HUE_MEANINGFUL_SAT) continue;
+      const apart = hueDistance(ha.hue, hb.hue);
+      if (apart < MIN_LANE_HUE_DEGREES) {
+        problems.push({
+          field: `lanes.${j}`,
+          message: `Only ${Math.round(apart)}° of hue from lane ${
+            i + 1
+          } — they read as the same colour on a converging board. Aim for ${MIN_LANE_HUE_DEGREES}° or more.`,
           severity: 'warning',
         });
       }

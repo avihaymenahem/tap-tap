@@ -173,6 +173,11 @@ describe('the tier ladder', () => {
       // `highway.ts`.
       expect(next.auraParticles).toBeLessThanOrEqual(prev.auraParticles);
       expect(next.auraDensity).toBeLessThanOrEqual(prev.auraDensity);
+      // The HUD waveform deck is the second canvas-2D surface outside the
+      // highway, and it redraws every frame during a run. Same guarantee, same
+      // reason.
+      expect(next.hudWaveBars).toBeLessThanOrEqual(prev.hudWaveBars);
+      expect(Number(next.hudWaveGlow)).toBeLessThanOrEqual(Number(prev.hudWaveGlow));
     }
   });
 });

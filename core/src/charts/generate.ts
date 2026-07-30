@@ -92,9 +92,14 @@ export function generateChart(
   //    than scoring inside `selectNotes` is what produces genuine *layering* — a
   //    bonus would still let a loud melodic onset outrank a quiet drum hit and
   //    put the melody on an easy chart.
-  const pool = admitPercussive([...byTime.values()], analysis.duration, params);
+  const all = [...byTime.values()];
+  const pool = admitPercussive(all, analysis.duration, params);
   if (gridTrusted) assignPatternBonus(pool, analysis.beatGrid, params.subdivision);
-  const accepted = selectNotes(pool, analysis.duration, params);
+  // The onsets the layering gate held back, kept for `fillLongRests` alone: when
+  // a stretch of the song would otherwise be dead, the gate is relaxed *inside
+  // that stretch* rather than song-wide. Empty when nothing was gated.
+  const reserve = pool.length === all.length ? [] : reserveOf(all, pool);
+  const accepted = selectNotes(pool, analysis.duration, params, reserve);
 
   // 3. Assign lanes by frequency band, following the music's contour within
   //    each band. The centroid is ranked within the band's own accepted onsets
@@ -476,6 +481,11 @@ const SELECTION_WINDOW_SEC = 8;
 /**
  * Floor on a section's note count, as a fraction of the difficulty's target
  * density. Guarantees a quiet passage still gets *something*.
+ *
+ * A floor on the *count*, not on the spacing — and that distinction is the
+ * defect `MAX_REST_SEC` exists to fix. Notes are taken strongest-first, so a
+ * section's whole quota can bunch into its first two seconds and the remaining
+ * six be dead while the music plays on.
  */
 const MIN_DENSITY_FRACTION = 0.25;
 
@@ -549,7 +559,12 @@ export function admitPercussive(
   return admitted.concat(held.slice(0, budget - admitted.length));
 }
 
-function selectNotes(pool: PoolOnset[], duration: number, params: DifficultyParams): PoolOnset[] {
+function selectNotes(
+  pool: PoolOnset[],
+  duration: number,
+  params: DifficultyParams,
+  reserve: readonly PoolOnset[] = [],
+): PoolOnset[] {
   const budget = Math.max(1, Math.floor(params.targetNps * duration));
   const windowCount = Math.max(1, Math.ceil(duration / SELECTION_WINDOW_SEC));
 
@@ -597,9 +612,7 @@ function selectNotes(pool: PoolOnset[], duration: number, params: DifficultyPara
     // onsets on the song's recurring rhythmic positions (so the groove repeats
     // rather than reshuffling every bar). Both are only ever non-trivial when
     // the grid cleared MIN_GRID_CONFIDENCE, so no gate is needed here.
-    const score = (o: PoolOnset): number =>
-      o.strength * (o.onGrid ? params.onGridBonus : 1) * (o.patternBonus ?? 1);
-    bucket.sort((a, b) => score(b) - score(a));
+    bucket.sort((a, b) => selectionScore(b, params) - selectionScore(a, params));
 
     let taken = 0;
     for (const onset of bucket) {
@@ -613,8 +626,162 @@ function selectNotes(pool: PoolOnset[], duration: number, params: DifficultyPara
     }
   }
 
+  // The budget above is an *average*; this is the local guarantee it cannot
+  // give. Runs last so it sees the whole song's selection.
+  fillLongRests(accepted, acceptedTimes, pool, reserve, params);
+
   accepted.sort((a, b) => a.t - b.t);
   return accepted;
+}
+
+/**
+ * Selection ranking for one onset. Shared by the section pass and by
+ * `fillLongRests`, so a note taken to close a rest is chosen on exactly the same
+ * grounds as every other note rather than by a second, divergent rule.
+ */
+function selectionScore(o: PoolOnset, params: DifficultyParams): number {
+  return o.strength * (o.onGrid ? params.onGridBonus : 1) * (o.patternBonus ?? 1);
+}
+
+/**
+ * The longest stretch a chart may leave the player with nothing to do.
+ *
+ * Both existing density controls are *averages* — `targetNps` over the whole
+ * song, `MIN_DENSITY_FRACTION` over an 8s section — and an average cannot
+ * promise anything about a specific moment. A chart can spend its entire budget
+ * and still contain a dead hole: measured on the shipped "Animals" chart, easy
+ * had **eleven** gaps over 1.5s and a worst of **7.50s**, in stretches where the
+ * detector had found two onsets a second the whole way through. That is the
+ * "after a couple of notes I'm seeing empty gaps, like brakes" report, and it is
+ * a *local* defect that no amount of budget tuning reaches.
+ *
+ * Wall-clock rather than beat-relative, deliberately against the rule that made
+ * `minGapBeats` beat-relative: spacing is a statement about the music, this is a
+ * statement about the player's attention, and attention does not speed up with
+ * the tempo. Two seconds is one bar at 120 BPM.
+ *
+ * Exported so `corpus.test.ts` can assert the guarantee across every fixture
+ * without restating the number — which is exactly how the two would drift apart.
+ */
+export const MAX_REST_SEC = 2;
+
+/**
+ * Close any rest longer than {@link MAX_REST_SEC} *that the song has real onsets
+ * for*, in place.
+ *
+ * The one rule that makes this a fix rather than a quota: **it only ever
+ * promotes onsets the detector actually found.** A genuinely silent stretch has
+ * no candidates and keeps its rest, which is the correct chart for it — the same
+ * reasoning as `holdShare` being a ceiling and not a target. On "Animals" the
+ * 5.2s hole at 179.7s survives this pass untouched, because the audio there is a
+ * single hit decaying to digital silence with no transient in it at all.
+ *
+ * Two further properties:
+ *
+ *  - **The layering gate is relaxed locally, not globally.** `admitPercussive`
+ *    already relaxes when the gate would starve the *song*; this reaches into
+ *    the same reserve when it would starve a *stretch*. Gate-passing onsets are
+ *    still strictly preferred, so an easy chart takes the quiet drum hit over
+ *    the loud melodic one and only charts the melody where there is no beat to
+ *    chart.
+ *  - **It splits near the middle.** Taking the strongest onset anywhere in the
+ *    hole tends to land next to one edge, so the pass has to run again and the
+ *    result is a burst plus a shorter hole. Restricting the pick to the central
+ *    half at least halves the remaining span each round, so it converges, and
+ *    the notes come out spread across the rest rather than bunched at its start.
+ */
+function fillLongRests(
+  accepted: PoolOnset[],
+  acceptedTimes: number[],
+  pool: readonly PoolOnset[],
+  reserve: readonly PoolOnset[],
+  params: DifficultyParams,
+): void {
+  const EPS = 1e-6;
+  const taken = new Set(accepted.map((o) => o.t));
+  // Tier 0 = passed the layering gate, tier 1 = held back by it. Sorted by time
+  // so a gap's candidates are a contiguous slice.
+  const candidates: { o: PoolOnset; tier: number }[] = [];
+  for (const o of pool) if (!taken.has(o.t)) candidates.push({ o, tier: 0 });
+  for (const o of reserve) if (!taken.has(o.t)) candidates.push({ o, tier: 1 });
+  if (candidates.length === 0) return;
+  candidates.sort((a, b) => a.o.t - b.o.t);
+
+  const used = new Set<number>();
+  const times = candidates.map((c) => c.o.t);
+
+  for (let i = 1; i < acceptedTimes.length; i++) {
+    // Re-read both ends every pass: an insertion at `i` makes the left half the
+    // gap to examine next, so `i` is deliberately not advanced after a fill.
+    const left = acceptedTimes[i - 1]!;
+    const right = acceptedTimes[i]!;
+    const span = right - left;
+    if (span <= MAX_REST_SEC + EPS) continue;
+
+    // Everything the spacing floor allows, and inside it the central half. A gap
+    // barely over the limit on a chart with a very wide `minGapSec` can leave
+    // nothing legal at all; then the rest simply stands.
+    const lo = left + params.minGapSec;
+    const hi = right - params.minGapSec;
+    if (hi < lo) continue;
+
+    let best = pickForRest(
+      candidates,
+      times,
+      used,
+      Math.max(lo, left + span / 4),
+      Math.min(hi, right - span / 4),
+      params,
+    );
+    // The music may only offer something near one edge of the hole. Take it —
+    // the pass runs again on whichever half is still too long.
+    if (best < 0) best = pickForRest(candidates, times, used, lo, hi, params);
+    // Nothing playable in there — genuine silence, and a rest is the right chart.
+    if (best < 0) continue;
+
+    used.add(best);
+    accepted.push(candidates[best]!.o);
+    acceptedTimes.splice(i, 0, candidates[best]!.o.t);
+    i--; // re-examine the left half of the rest we just split
+  }
+}
+
+/**
+ * The best unused candidate in `[lo, hi]`, or -1. Gate-passing onsets (tier 0)
+ * outrank held-back ones whatever their strength, so relaxing the layering floor
+ * stays a last resort within the stretch rather than a licence to ignore it.
+ */
+function pickForRest(
+  candidates: readonly { o: PoolOnset; tier: number }[],
+  times: readonly number[],
+  used: ReadonlySet<number>,
+  lo: number,
+  hi: number,
+  params: DifficultyParams,
+): number {
+  const EPS = 1e-6;
+  if (hi < lo) return -1;
+  let best = -1;
+  let bestTier = Number.POSITIVE_INFINITY;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (let k = insertionPoint(times, lo); k < candidates.length; k++) {
+    const candidate = candidates[k]!;
+    if (candidate.o.t > hi + EPS) break;
+    if (used.has(k)) continue;
+    const score = selectionScore(candidate.o, params);
+    if (candidate.tier < bestTier || (candidate.tier === bestTier && score > bestScore)) {
+      best = k;
+      bestTier = candidate.tier;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/** The onsets `admitPercussive` held back — `all` minus `pool`, in time order. */
+function reserveOf(all: readonly PoolOnset[], pool: readonly PoolOnset[]): PoolOnset[] {
+  const admitted = new Set(pool.map((o) => o.t));
+  return all.filter((o) => !admitted.has(o.t));
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -804,7 +971,7 @@ export function snapToGrid(grid: number[], t: number): number {
   return t - before <= after - t ? before : after;
 }
 
-function insertionPoint(sorted: number[], t: number): number {
+function insertionPoint(sorted: readonly number[], t: number): number {
   let lo = 0;
   let hi = sorted.length;
   while (lo < hi) {
